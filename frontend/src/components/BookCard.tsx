@@ -18,12 +18,12 @@ export default function BookCard({ book }: { book: Book }) {
     }
   };
   return (
-    <article className="group" data-testid={`book-card-item-${book.slug}`}>
+    <article className="group flex h-full flex-col" data-testid={`book-card-item-${book.slug}`}>
       <Link to={`/books/${book.slug}`} className="block" data-testid={`book-card-details-link-${book.slug}`}>
         <BookCover book={book} />
       </Link>
-      <div className="pt-4 sm:pt-5">
-        <div className="flex items-start justify-between gap-2 sm:gap-4">
+      <div className="flex flex-1 flex-col pt-4 sm:pt-5 lg:h-[21rem] lg:flex-none">
+        <div className="flex items-start justify-between gap-2 sm:gap-4 lg:min-h-[7.5rem]">
           <div className="min-w-0">
             <p className="overline" data-testid={`book-card-label-${book.slug}`}>Digital handbook</p>
             <Link to={`/books/${book.slug}`} data-testid={`book-card-title-link-${book.slug}`}>
@@ -32,11 +32,11 @@ export default function BookCard({ book }: { book: Book }) {
           </div>
           <span className="font-mono text-xs tracking-wide text-[#6e655e]" data-testid={`book-card-pages-${book.slug}`}>{book.pages} pp.</span>
         </div>
-        <p className="mt-3 hidden line-clamp-2 text-sm leading-relaxed text-[#6e655e] sm:block" data-testid={`book-card-description-${book.slug}`}>{book.description}</p>
-        <div className="mt-4 flex flex-col gap-3 border-t border-[#2e241f]/10 pt-3 sm:mt-5 sm:flex-row sm:items-center sm:justify-between sm:pt-4">
+        <p className="mt-3 hidden line-clamp-5 text-sm leading-relaxed text-[#6e655e] sm:block" data-testid={`book-card-description-${book.slug}`}>{book.description}</p>
+        <div className="mt-auto flex flex-col gap-3 border-t border-[#2e241f]/10 pt-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="whitespace-nowrap" data-testid={`book-card-price-${book.slug}`}><span className="mr-2 text-xs text-[#a39281] line-through sm:text-sm">{formatInr(book.original_price_inr)}</span><span className="font-mono text-xs text-[#29231f] sm:text-sm">{formatInr(book.selling_price_inr)}</span></div>
-          <Button size="sm" className="w-full px-2 sm:w-auto sm:px-3" variant={selected ? "secondary" : "default"} onClick={handleAdd} data-testid={`book-card-add-btn-${book.slug}`}>
-            {selected ? <Check className="mr-1 size-3.5 sm:mr-2 sm:size-4" /> : <Plus className="mr-1 size-3.5 sm:mr-2 sm:size-4" />}{selected ? "Selected" : "Add"}<span className="hidden sm:inline"> to bag</span>
+          <Button size="sm" className={`w-full px-2 sm:w-32 sm:px-3 ${selected ? "border-[#b49a6a]/60 bg-[#eadfcd] text-[#29231f] hover:bg-[#e1d2ba]" : ""}`} variant={selected ? "outline" : "default"} onClick={handleAdd} data-testid={`book-card-add-btn-${book.slug}`}>
+            {selected ? <Check className="mr-1 size-3.5 sm:mr-2 sm:size-4" /> : <Plus className="mr-1 size-3.5 sm:mr-2 sm:size-4" />}{selected ? "In bag" : "Add to bag"}
           </Button>
         </div>
       </div>

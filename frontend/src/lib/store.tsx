@@ -19,6 +19,7 @@ interface StoreContextValue {
   bagOpen: boolean;
   setBagOpen: (open: boolean) => void;
   addBook: (id: string) => void;
+  addBooks: (ids: string[]) => void;
   removeBook: (id: string) => void;
   clearBag: () => void;
   summary: BagSummary;
@@ -56,6 +57,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     bagOpen,
     setBagOpen,
     addBook: (id) => setSelectedIds((current) => current.includes(id) ? current : [...current, id]),
+    addBooks: (ids) => setSelectedIds((current) => Array.from(new Set([...current, ...ids])).slice(0, 5)),
     removeBook: (id) => setSelectedIds((current) => current.filter((bookId) => bookId !== id)),
     clearBag: () => setSelectedIds([]),
     summary: summaryFor(selectedIds),

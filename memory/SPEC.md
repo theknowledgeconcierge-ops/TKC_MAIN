@@ -27,6 +27,7 @@ Premium editorial digital bookstore for Rakesh Chauhan's five restaurant busines
 - `/api/payments/razorpay/order` creates the internal pending order and matching Razorpay order.
 - `/api/payments/razorpay/verify` verifies captured browser-callback payments.
 - `/api/payments/razorpay/webhook` processes signed asynchronous payment events idempotently.
+- Razorpay UI labels read the backend-confirmed `PAYMENT_MODE`, so switching to live requires environment credentials/configuration rather than frontend code changes.
 - No auth roles or admin credentials exist yet; legal/contact/social configuration is intentionally shown as a configuration state.
 
 ## Frontend routes
@@ -39,6 +40,10 @@ The original PDFs and five named cover JPGs are referenced from the supplied pub
 - The homepage library appears before the audience decision cards.
 - Cover previews are intentionally compact, including the product hero and mobile two-column library.
 - The bag progress meter remains sticky while the recommendations and selected products scroll.
+- Homepage and collection “Get all 5 books” actions add every missing title atomically, preserve uniqueness, and open the completed collection bag.
+- The bag includes a confirmed Remove All flow. Recommended-book controls replace the redundant Add More Books footer action.
 - A left-bottom back-to-top control appears after the reader scrolls 480px; the assistant remains on the right.
 - Every route change resets the document to the top unless an explicit URL hash targets an in-page section.
 - Public pages use short fade/slide route transitions. Product pages add an animated hero, highlighted champagne price panel, scroll reveals, tactile hover feedback, and an animated contents accordion.
+- Desktop book cards use equal-height flex layouts so titles and descriptions can vary while every price and bag button stays on one aligned bottom row.
+- Clicking the Home navigation item or brand while already on the homepage smoothly returns the reader to the top.

@@ -1,0 +1,47 @@
+{
+  "iteration": 2,
+  "mode": "generate",
+  "summary": "5 UI-facing acceptance criteria (homepage library card layout/geometry/nav-scroll fixes) exercised via named browser checks; all passed. No dedicated backend test files needed since all criteria are pure layout/CSS/client-side-scroll behavior with no new API surface (catalogue data already covered by existing backend wiring).",
+  "passed": 5,
+  "failed": 0,
+  "bugs": [],
+  "action_items": [],
+  "retest_needed": false,
+  "checks": [
+    {
+      "criterion": "The five homepage library cards have a uniform desktop layout at 1600px",
+      "name": "homepage-library-cards-uniform-1600",
+      "lane": "browser",
+      "status": "passed",
+      "evidence": "At 1600x1000, all 5 book-card-item-* boxes had equal width/height (diff <=2px), and book-card-price-* / book-card-add-btn-* rows aligned to the same Y across all 5 cards (diff <=3px) despite differing title/description lengths."
+    },
+    {
+      "criterion": "All Add to Bag controls have consistent geometry and selected styling",
+      "name": "add-to-bag-buttons-consistent-geometry",
+      "lane": "browser",
+      "status": "passed",
+      "evidence": "All 5 unselected book-card-add-btn-* buttons had equal width/height (diff <=2px). Clicking the first book's button changed label 'Add to bag' -> 'In bag' while position/size stayed within 2px of pre-click geometry and matched sibling unselected button dimensions."
+    },
+    {
+      "criterion": "Clicking Home while already lower on the homepage returns to the top",
+      "name": "home-nav-click-scrolls-to-top",
+      "lane": "browser",
+      "status": "passed",
+      "evidence": "Scrolled to books-section (scrollY>200), clicked nav-home-link; window.scrollY settled <=10 while route stayed at '/' (no reload/navigation). Re-verified against public preview URL https://business-wisdom-5.preview.emergentagent.com with same result."
+    },
+    {
+      "criterion": "The homepage brand link also behaves consistently at the same route",
+      "name": "homepage-brand-link-scrolls-to-top",
+      "lane": "browser",
+      "status": "passed",
+      "evidence": "Scrolled to audience-section (scrollY>200), clicked nav-brand-link; window.scrollY settled <=10 while route stayed at '/'."
+    },
+    {
+      "criterion": "The corrected card layout remains usable at standard desktop width (1280px)",
+      "name": "homepage-library-cards-usable-1280",
+      "lane": "browser",
+      "status": "passed",
+      "evidence": "At 1280x900, document.documentElement had no horizontal overflow (scrollWidth-clientWidth <=2px); all 5 cards' price and add-to-bag button elements were visible and non-overlapping."
+    }
+  ]
+}
