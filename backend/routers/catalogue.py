@@ -18,6 +18,7 @@ BOOKS = [
         topics=["Concept development", "Location evaluation", "Opening budgets", "Menu planning", "Approvals & vendors", "Soft launch"],
         toc=["The Idea", "The Proof", "The Promise", "The Build", "The Opening", "Restaurant field workbook"],
         pdf_url="https://customer-assets-rejwkqb3.emergentagent.net/job_business-wisdom-5/artifacts/f0d2fa25d6f5d5b2_The%20First%20Table.pdf",
+        cover_image_url="https://customer-assets-rejwkqb3.emergentagent.net/job_business-wisdom-5/artifacts/ea798926e09def8b_First%20table.jpg",
     ),
     Book(
         id="the-full-table",
@@ -32,6 +33,7 @@ BOOKS = [
         topics=["Local discovery", "Instagram marketing", "Creator collaborations", "Offers", "Delivery marketing", "Customer retention"],
         toc=["The Guest and the Journey", "The Acquisition Toolkit", "The Repeat Visit", "The Evidence and the Plan", "Restaurant marketing workbook"],
         pdf_url="https://customer-assets-rejwkqb3.emergentagent.net/job_business-wisdom-5/artifacts/08d9ea094c4a05d0_The%20Full%20Table.pdf",
+        cover_image_url="https://customer-assets-rejwkqb3.emergentagent.net/job_business-wisdom-5/artifacts/79b81e1b8f957ea1_The%20full%20table.jpg",
     ),
     Book(
         id="behind-the-kitchen-door",
@@ -46,6 +48,7 @@ BOOKS = [
         topics=["Hiring & training", "SOPs", "Opening & closing", "Inventory control", "Food safety", "Management reporting"],
         toc=["The People and the Operating System", "The Daily Service", "Stock, Safety and Control", "The Team, the Manager and the Owner", "The operating workbook"],
         pdf_url="https://customer-assets-rejwkqb3.emergentagent.net/job_business-wisdom-5/artifacts/be23f9292e92e800_Behind%20The%20Kitchen%20Door.pdf",
+        cover_image_url="https://customer-assets-rejwkqb3.emergentagent.net/job_business-wisdom-5/artifacts/7ad4518e1b672854_Behind%20the%20Kitchen%20door.jpg",
     ),
     Book(
         id="the-math-behind-the-menu",
@@ -60,6 +63,7 @@ BOOKS = [
         topics=["Recipe costing", "Menu pricing", "Break-even", "Profit & loss", "Labour costs", "Cash flow"],
         toc=["The Model and the Menu", "Sales, Break Even and the Monthly Result", "People, Commitments and Channels", "Cash, Capital and the Owner", "The restaurant money workbook"],
         pdf_url="https://customer-assets-rejwkqb3.emergentagent.net/job_business-wisdom-5/artifacts/e9b1463636946099_The%20Math%20Behind%20The%20Menu.pdf",
+        cover_image_url="https://customer-assets-rejwkqb3.emergentagent.net/job_business-wisdom-5/artifacts/0b76d3e181858df4_Math%20behind%20the%20kitchen.jpg",
     ),
     Book(
         id="empty-tables-to-full-house",
@@ -74,6 +78,7 @@ BOOKS = [
         topics=["Diagnosing empty tables", "Indian brand lessons", "Local search", "Paid campaigns", "Offers", "30-day action plan"],
         toc=["Understand Your Restaurant", "Learn From Indian Brands", "Build a Business That Works", "Bring Customers In and Back", "Put the Plan to Work"],
         pdf_url="https://customer-assets-rejwkqb3.emergentagent.net/job_business-wisdom-5/artifacts/9b9264009bed08b4_Empty%20Tables%20To%20Full%20House%20.pdf",
+        cover_image_url="https://customer-assets-rejwkqb3.emergentagent.net/job_business-wisdom-5/artifacts/e6fd94346ba2c58a_Empty%20tables%20to%20full%20house.jpg",
     ),
 ]
 

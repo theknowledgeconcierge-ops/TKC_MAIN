@@ -14,6 +14,7 @@ class Book(BaseModel):
     topics: list[str]
     toc: list[str]
     pdf_url: str
+    cover_image_url: str
 
 
 class CatalogueResponse(BaseModel):

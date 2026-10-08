@@ -29,4 +29,10 @@ Premium editorial digital bookstore for Rakesh Chauhan's five restaurant busines
 `/`, `/books`, `/books/:slug`, `/restaurant-business-collection`, `/about`, `/faq`, `/thank-you`.
 
 ## Assets
-The original PDFs are referenced from the five supplied public artifact URLs. The UI displays page 1 of each supplied PDF in a cover preview iframe. Separate cover image files and interior preview raster assets were not supplied in the artifact list.
+The original PDFs and five named cover JPGs are referenced from the supplied public artifact URLs. The cover JPGs are mapped by title and displayed throughout the homepage, catalogue, product, collection, bag, and confirmation views.
+
+## Responsive interaction details
+- The homepage library appears before the audience decision cards.
+- Cover previews are intentionally compact, including the product hero and mobile two-column library.
+- The bag progress meter remains sticky while the recommendations and selected products scroll.
+- A left-bottom back-to-top control appears after the reader scrolls 480px; the assistant remains on the right.

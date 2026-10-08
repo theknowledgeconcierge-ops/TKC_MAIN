@@ -195,6 +195,17 @@
   transition: transform 300ms ease, box-shadow 300ms ease;
 }
 
+@media (max-width: 639px) {
+  .book-cover-frame {
+    box-shadow: 0 8px 18px rgba(24, 20, 18, 0.11);
+  }
+
+  .editorial-card {
+    min-height: 225px;
+    padding: 1.35rem;
+  }
+}
+
 .book-cover-frame:hover {
   box-shadow: 0 20px 38px rgba(24, 20, 18, 0.2);
   transform: translateY(-5px);
