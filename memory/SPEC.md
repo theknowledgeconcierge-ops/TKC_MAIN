@@ -14,15 +14,19 @@ Premium editorial digital bookstore for Rakesh Chauhan's five restaurant busines
 ## Key flows
 - Homepage → library/product pages → persistent localStorage bag → smart savings tiers: 1 ₹249, 2 ₹399, 3 ₹549, 4 ₹699, 5 ₹999 base collection
 - Five books use First50 for eligible first-time customers: ₹999 minus ₹500 = ₹499. Eligibility is checked server-side against prior orders by email.
-- Checkout submits name, email, mobile, and selected book IDs to `/api/orders`. Order creation and payment/delivery are MOCKED; no money is charged and no private download delivery is active.
-- Thank-you page reads the last mocked order from session storage and presents a MOCKED delivery state.
+- Checkout submits name, email, mobile, and selected book IDs to `/api/payments/razorpay/order`. The backend recalculates pricing and first-time eligibility, creates an exact INR Razorpay test order in paise, and returns only checkout-safe public data.
+- The Razorpay test modal opens only after the customer reviews the server-confirmed amount. `/api/payments/razorpay/verify` verifies the callback signature, fetches payment status, checks amount/order identity, and only marks captured payments paid.
+- `/api/payments/razorpay/webhook` verifies the raw request signature and idempotently handles `order.paid`, `payment.captured`, and `payment.failed`.
+- Thank-you reads only the verified paid order returned by the backend. Secure file storage, download links, and delivery email remain MOCKED/not active, so the download control is disabled.
 - The assistant is a MOCKED local recommendation widget with no external AI provider.
 
 ## Backend
 - FastAPI routes are mounted under `/api` from `backend/server.py`.
 - `/api/catalogue` returns the five catalogue models.
 - `/api/pricing/quote` is the centralized pricing engine.
-- `/api/orders` validates pricing and creates a `mocked_paid` order in MongoDB.
+- `/api/payments/razorpay/order` creates the internal pending order and matching Razorpay order.
+- `/api/payments/razorpay/verify` verifies captured browser-callback payments.
+- `/api/payments/razorpay/webhook` processes signed asynchronous payment events idempotently.
 - No auth roles or admin credentials exist yet; legal/contact/social configuration is intentionally shown as a configuration state.
 
 ## Frontend routes

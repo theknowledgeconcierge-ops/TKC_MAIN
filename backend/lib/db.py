@@ -20,8 +20,14 @@ logger = logging.getLogger(__name__)
 INDEXES: dict[str, list[IndexModel]] = {
     "status_checks": [IndexModel([("timestamp", DESCENDING)], name="timestamp_desc")],
     "orders": [
+        IndexModel([("id", ASCENDING)], name="orders_id", unique=True),
         IndexModel([("customer_email", ASCENDING)], name="orders_customer_email"),
         IndexModel([("created_at", DESCENDING)], name="orders_created_desc"),
+        IndexModel([("razorpay_order_id", ASCENDING)], name="orders_razorpay_order_id", unique=True, sparse=True),
+    ],
+    "razorpay_webhook_events": [
+        IndexModel([("event_key", ASCENDING)], name="razorpay_event_key", unique=True),
+        IndexModel([("received_at", DESCENDING)], name="razorpay_received_desc"),
     ],
 }
 
