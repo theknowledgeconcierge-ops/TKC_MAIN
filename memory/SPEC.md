@@ -40,6 +40,7 @@ The original PDFs and five named cover JPGs are referenced from the supplied pub
 - The homepage library appears before the audience decision cards.
 - Cover previews are intentionally compact, including the product hero and mobile two-column library.
 - The bag progress meter remains sticky while the recommendations and selected products scroll.
+- The sticky meter contains five labeled stops (₹249, ₹399, ₹549, ₹699, and conditional ₹499) with reached/current/next visual states and a dynamic sentence explaining the exact benefit of adding the next book.
 - Homepage and collection “Get all 5 books” actions add every missing title atomically, preserve uniqueness, and open the completed collection bag.
 - The bag includes a confirmed Remove All flow. Recommended-book controls replace the redundant Add More Books footer action.
 - A left-bottom back-to-top control appears after the reader scrolls 480px; the assistant remains on the right.

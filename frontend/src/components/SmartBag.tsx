@@ -6,6 +6,14 @@ import { useStore } from "@/lib/store";
 import CheckoutModal from "@/components/CheckoutModal";
 import BookCover from "@/components/BookCover";
 
+const milestones = [
+  { count: 1, label: "1 Book", price: "₹249" },
+  { count: 2, label: "2 Books", price: "₹399" },
+  { count: 3, label: "3 Books", price: "₹549" },
+  { count: 4, label: "4 Books", price: "₹699" },
+  { count: 5, label: "All 5", price: "₹499*" },
+];
+
 export default function SmartBag() {
   const { books } = useCatalogue();
   const { selectedIds, bagOpen, setBagOpen, addBook, removeBook, clearBag, summary } = useStore();
@@ -14,7 +22,17 @@ export default function SmartBag() {
   const selected = books.filter((book) => selectedIds.includes(book.id));
   const remaining = books.filter((book) => !selectedIds.includes(book.id));
   const progress = `${summary.count * 20}%`;
-  const message = summary.count === 0 ? "Your collection starts here." : summary.count === 1 ? "Add one more handbook and unlock your first collection discount." : summary.count === 4 ? "One more book. The complete collection." : summary.count === 5 ? "Your complete collection is unlocked." : "You're building a smarter business library.";
+  const message = summary.count === 0
+    ? "Choose your first handbook to begin building your collection."
+    : summary.count === 1
+      ? "Add 1 more book to unlock 2 for ₹399 and save ₹99."
+      : summary.count === 2
+        ? "Add 1 more book to unlock 3 for ₹549 and save ₹198."
+        : summary.count === 3
+          ? "Add 1 more book to unlock 4 for ₹699 and save ₹297."
+          : summary.count === 4
+            ? "Add the final book and eligible first-time buyers pay ₹200 less: ₹499 instead of ₹699."
+            : "Complete collection unlocked: ₹499 for eligible first-time buyers, verified at checkout.";
   const closeBag = () => {
     setConfirmClear(false);
     setBagOpen(false);
@@ -30,8 +48,22 @@ export default function SmartBag() {
       <div className="flex-1 overflow-y-auto px-4 pb-6 sm:px-6">
         <div className="sticky top-0 z-20 -mx-4 mb-6 border-b border-[#2e241f]/10 bg-[#fbf9f5]/95 px-4 py-5 shadow-[0_8px_18px_rgba(24,20,18,0.04)] backdrop-blur-xl sm:-mx-6 sm:px-6" data-testid="smart-bag-tier-progress">
           <div className="mb-2 flex items-center justify-between text-xs font-mono uppercase tracking-[0.16em] text-[#8c6d46]"><span>{summary.count} of 5 books selected</span><span>{progress}</span></div>
-          <div className="h-2 overflow-hidden rounded-full bg-[#e9dfcf]"><div className="h-full rounded-full bg-[#b49a6a] transition-all duration-500" style={{ width: progress }} /></div>
-          <p className="mt-3 text-sm leading-relaxed text-[#6e655e]" data-testid="smart-bag-milestone-message">{message}</p>
+          <div className="relative h-3" data-testid="smart-bag-milestone-track">
+            <div className="absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 overflow-hidden rounded-full bg-[#e9dfcf]"><div className="h-full rounded-full bg-[#b49a6a] transition-[width] duration-500" style={{ width: progress }} /></div>
+            {milestones.map((milestone) => {
+              const reached = summary.count >= milestone.count;
+              const current = summary.count === milestone.count;
+              const next = summary.count + 1 === milestone.count;
+              return <span key={milestone.count} className={`absolute top-1/2 size-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 transition-[background-color,border-color,transform] duration-300 ${reached ? "border-[#b49a6a] bg-[#b49a6a]" : "border-[#cdbfae] bg-[#fbf9f5]"} ${current ? "scale-125 ring-2 ring-[#b49a6a]/25" : next ? "scale-110 border-[#8c6d46]" : ""}`} style={{ left: `${milestone.count * 20}%` }} data-testid={`smart-bag-milestone-stop-${milestone.count}`} data-current={current || undefined} data-next={next || undefined} />;
+            })}
+          </div>
+          <div className="mt-2 grid grid-cols-5 gap-1" data-testid="smart-bag-milestone-labels">{milestones.map((milestone) => {
+            const current = summary.count === milestone.count;
+            const next = summary.count + 1 === milestone.count;
+            return <div key={milestone.count} className={`min-w-0 px-0.5 py-1.5 text-center transition-[background-color,color,border-color] duration-300 ${current ? "bg-[#302821] text-[#fbf9f5]" : next ? "border border-[#b49a6a]/60 bg-[#eadfcd] text-[#29231f]" : "text-[#7f736a]"}`} data-testid={`smart-bag-milestone-label-${milestone.count}`} data-current={current || undefined} data-next={next || undefined}><span className="block truncate text-[8px] font-medium leading-tight sm:text-[9px]">{milestone.label}</span><span className={`mt-0.5 block whitespace-nowrap font-mono text-[9px] leading-tight sm:text-[10px] ${current ? "text-[#e9dfcf]" : next ? "text-[#7a5c32]" : "text-[#8c6d46]"}`}>{milestone.price}</span></div>;
+          })}</div>
+          <p className="mt-3 text-sm font-medium leading-relaxed text-[#5f554e]" data-testid="smart-bag-milestone-message">{message}</p>
+          <p className="mt-1 text-[9px] leading-relaxed text-[#8c6d46]" data-testid="smart-bag-milestone-footnote">*₹499 is the eligible first-time price after First50 verification; standard complete-collection price is ₹999.</p>
         </div>
 
         {confirmClear && <div className="mb-6 border border-[#b49a6a]/50 bg-[#eadfcd] p-4" data-testid="smart-bag-clear-confirmation"><p className="font-serif text-lg text-[#29231f]">Remove every book?</p><p className="mt-1 text-sm leading-relaxed text-[#6e655e]">This clears your collection progress and current savings.</p><div className="mt-4 flex gap-2"><Button size="sm" variant="outline" onClick={() => setConfirmClear(false)} data-testid="smart-bag-clear-cancel-btn">Keep books</Button><Button size="sm" variant="destructive" onClick={() => { clearBag(); setConfirmClear(false); }} data-testid="smart-bag-clear-confirm-btn">Remove all</Button></div></div>}
