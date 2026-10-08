@@ -1,0 +1,17 @@
+import { MessageCircle, Send, X } from "lucide-react";
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+
+const answers: Record<string, string> = {
+  "Which book should I start with?": "If you are planning a restaurant, start with The First Table. For a broader journey across marketing, operations, finance and growth, choose the complete collection.",
+  "What's included in the bundle?": "All five restaurant business handbooks: The First Table, The Full Table, Behind the Kitchen Door, The Math Behind the Menu, and Empty Tables to Full House.",
+  "How do I use First50?": "The First50 offer is MOCKED in this demo. It is intended for eligible first-time buyers of the complete collection after email verification.",
+  "Are these physical books?": "No. These are digital PDF handbooks designed for reading and repeated reference on supported devices.",
+};
+
+export default function ConciergeChatbot() {
+  const [open, setOpen] = useState(false);
+  const [messages, setMessages] = useState<string[]>([]);
+  const ask = (question: string) => setMessages((current) => [...current, `Q: ${question}`, `A: ${answers[question] ?? "This concierge is MOCKED for the current preview. Please explore the collection or contact support once configured."}`]);
+  return <div className="fixed bottom-5 right-5 z-50 flex flex-col items-end gap-3"><div className={`w-[min(360px,calc(100vw-2rem))] overflow-hidden border border-[#b49a6a]/40 bg-[#fbf9f5] shadow-2xl transition-all duration-300 ${open ? "translate-y-0 opacity-100" : "pointer-events-none translate-y-4 opacity-0"}`} data-testid="concierge-panel"><div className="flex items-center justify-between bg-[#181412] px-4 py-3 text-[#fbf9f5]"><div><p className="font-serif text-lg">The Knowledge Assistant</p><p className="mock-pill mt-1 bg-[#2e241f] text-[#e9dfcf]" data-testid="concierge-mock-badge">MOCKED ASSISTANT</p></div><Button variant="ghost" size="icon-xs" className="text-[#fbf9f5] hover:bg-white/10 hover:text-white" onClick={() => setOpen(false)} data-testid="concierge-close-btn"><X /></Button></div><div className="max-h-56 space-y-3 overflow-y-auto p-4" data-testid="concierge-messages">{messages.length === 0 ? <p className="text-sm leading-relaxed text-[#6e655e]">Ask about the right handbook, the collection, or how digital access works.</p> : messages.map((message, index) => <p key={`${message}-${index}`} className={`text-sm leading-relaxed ${message.startsWith("A:") ? "bg-[#f5f0e6] p-3 text-[#29231f]" : "text-[#8c6d46]"}`}>{message}</p>)}</div><div className="space-y-2 border-t border-[#2e241f]/10 p-3">{Object.keys(answers).slice(0, 3).map((question) => <button key={question} onClick={() => ask(question)} className="block w-full text-left text-xs text-[#6e655e] hover:text-[#29231f]" data-testid={`concierge-question-${question.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}>{question}</button>)}<button className="mt-2 flex items-center gap-2 text-xs font-medium uppercase tracking-[0.12em] text-[#8c6d46]" onClick={() => ask("How do I download my purchase?")} data-testid="concierge-send-btn"><Send className="size-3" />Ask the concierge</button></div></div><Button onClick={() => setOpen((value) => !value)} className="size-12 rounded-full bg-[#b49a6a] p-0 text-[#181412] shadow-xl hover:bg-[#99733e]" data-testid="concierge-toggle-btn" aria-label="Open knowledge assistant"><MessageCircle className="size-5" /></Button></div>;
+}

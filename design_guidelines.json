@@ -1,0 +1,339 @@
+{
+  "design_identity": {
+    "system_name": "Atelier Éditions - Haute Librairie",
+    "archetype": "ARCHETYPE 5: LUXURY (Editorial Ivory, Deep Espresso, Champagne Gold)",
+    "context": "E-commerce & Luxury Editorial Catalog Showcase",
+    "theme": "Light mode primary with warm velvety dark espresso accents and champagne foil touches",
+    "mood": "Cinematic, tactile, tactile-digitalism, scholarly luxury, collector grade"
+  },
+  "typography": {
+    "font_families": {
+      "heading": "Playfair Display, Bodoni Moda, 'Cormorant Garamond', serif",
+      "body": "'DM Sans', 'Geist Variable', -apple-system, BlinkMacSystemFont, sans-serif",
+      "mono_label": "'JetBrains Mono', 'IBM Plex Mono', monospace"
+    },
+    "scale": {
+      "hero_title": "text-4xl sm:text-5xl lg:text-6xl font-serif tracking-tight leading-[1.08]",
+      "section_title": "text-2xl sm:text-3xl lg:text-4xl font-serif tracking-tight leading-tight",
+      "book_title": "text-xl sm:text-2xl font-serif tracking-normal leading-snug",
+      "card_title": "text-lg sm:text-xl font-medium tracking-normal",
+      "body": "text-base leading-relaxed text-[#2C2420]/85",
+      "caption": "text-sm leading-normal text-[#5A4D44]",
+      "overline": "text-xs uppercase tracking-[0.22em] font-mono font-medium text-[#8C6D46]"
+    },
+    "rules": [
+      "Never use Inter or generic sans for H1/H2 headings. Playfair Display or Cormorant Garamond is mandatory for book titles and primary banners.",
+      "Uppercase eyebrow tags must strictly use tracking-[0.2em] with JetBrains Mono or IBM Plex Mono.",
+      "Max hero header size is text-6xl (clamp ceiling 60px). Do not use text-7xl or text-8xl."
+    ]
+  },
+  "colors": {
+    "palette": {
+      "ivory_bg": "#FBF9F5",
+      "ivory_paper": "#F5F0E6",
+      "card_bg": "#FFFFFF",
+      "espresso_deep": "#181412",
+      "espresso_mid": "#2E241F",
+      "warm_stone": "#5A4D44",
+      "muted_sand": "#A39281",
+      "champagne_gold": "#C5A880",
+      "champagne_light": "#E9DFCF",
+      "gold_accent": "#B38F56",
+      "gold_hover": "#99733E",
+      "border_editorial": "rgba(46, 36, 31, 0.08)",
+      "border_editorial_strong": "rgba(46, 36, 31, 0.16)",
+      "gold_border": "rgba(197, 168, 128, 0.35)",
+      "mock_badge_bg": "#F3ECE1",
+      "mock_badge_text": "#7A5C32"
+    },
+    "semantic_usage": {
+      "page_background": "bg-[#FBF9F5]",
+      "surface_card": "bg-white border border-[#2E241F]/8 shadow-[0_4px_24px_rgba(24,20,18,0.04)]",
+      "hero_dark_surface": "bg-[#181412] text-[#FBF9F5]",
+      "primary_button": "bg-[#181412] text-[#FBF9F5] hover:bg-[#2E241F] transition-colors border border-[#181412]",
+      "gold_cta_button": "bg-[#C5A880] text-[#181412] hover:bg-[#B38F56] transition-colors font-medium",
+      "secondary_outline_button": "border border-[#2E241F]/20 text-[#181412] hover:bg-[#2E241F]/5 transition-colors",
+      "mocked_status_pill": "bg-[#F5EFE6] text-[#8C6D46] border border-[#C5A880]/30 text-xs tracking-wider uppercase font-mono px-2 py-0.5"
+    }
+  },
+  "spacing_and_layout": {
+    "spacing_scale": "p-2, p-4, p-6, p-8, p-12, p-16, p-24",
+    "bento_strategy": "Asymmetric editorial grids with breathing margins and wide gutters (gap-8 to gap-12)",
+    "container_max_width": "max-w-7xl mx-auto px-4 sm:px-6 lg:px-8",
+    "header_rules": "Sticky top-0 z-50 backdrop-blur-xl bg-[#FBF9F5]/90 border-b border-[#2E241F]/10 py-4. Never make transparent.",
+    "footer_rules": "Massive high-contrast footer in deep espresso (#181412) with champagne gold rules and archival typographic sign-off."
+  },
+  "catalogue_and_assets": {
+    "strategy_notes": "Five books supplied with live download links. First-page canvas preview generator acts as primary fallback with elegant foiled faux-jacket rendering if extracted covers are not provided.",
+    "five_books": [
+      {
+        "id": "book-1",
+        "slug": "architectonics-of-form",
+        "title": "Architectonics of Form",
+        "subtitle": "A Monograph on Spatial Tension & Monolithic Brutalism",
+        "author": "Lucien Vane & Atelier Monolith",
+        "edition": "First Folio Edition",
+        "price": 48.0,
+        "original_price": 64.0,
+        "format": "Hardcover Monograph / Clothbound Linen",
+        "pages": 312,
+        "isbn": "978-0-99841-01-4",
+        "publication_year": 2025,
+        "description": "An exhaustive archival study of structural geometry, tectonic stone, and unadorned concrete volumes. Printed with tri-tone lithography on archival 170gsm GardaPat Kiara matte art paper with blind-debossed spine lettering.",
+        "cover_image": "https://images.unsplash.com/photo-1549298222-1c31e8915347?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2Nzh8MHwxfHNlYXJjaHw0fHxsdXh1cnklMjBib29rJTIwY292ZXIlMjBlZGl0b3JpYWx8ZW58MHx8fHwxNzkxNDUyMzM0fDA&ixlib=rb-4.1.0&q=85",
+        "spine_tint": "#1F1D1B",
+        "accent_foil": "#D4AF37",
+        "pdf_url": "https://example.com/assets/books/architectonics-of-form.pdf"
+      },
+      {
+        "id": "book-2",
+        "slug": "ephemera-of-solitude",
+        "title": "Ephemera of Solitude",
+        "subtitle": "Letters, Marginalia, and Polaroids from Northern Fjords",
+        "author": "Helena Rostova",
+        "edition": "Collector's Boxed Slipcase",
+        "price": 54.0,
+        "original_price": 72.0,
+        "format": "Thread-Sewn Swiss Binding with Custom Sleeve",
+        "pages": 248,
+        "isbn": "978-0-99841-02-1",
+        "publication_year": 2024,
+        "description": "A sensory visual diary exploring silent arctic landscapes and hand-inked confessions. Features gold gilded page rims, Japanese Munken Lynx uncoated pages, and archival facsimile postcards tipped in by hand.",
+        "cover_image": "https://images.unsplash.com/photo-1615540732322-4ae8deb97091?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2Nzh8MHwxfHNlYXJjaHwyfHxsdXh1cnklMjBib29rJTIwY292ZXIlMjBlZGl0b3JpYWx8ZW58MHx8fHwxNzkxNDUyMzM0fDA&ixlib=rb-4.1.0&q=85",
+        "spine_tint": "#2B2621",
+        "accent_foil": "#C5A880",
+        "pdf_url": "https://example.com/assets/books/ephemera-of-solitude.pdf"
+      },
+      {
+        "id": "book-3",
+        "slug": "alchemy-of-pigment",
+        "title": "Alchemy of Pigment",
+        "subtitle": "Mineral Extractions, Madder Lakes & Raw Earth Inks",
+        "author": "Dr. Cassian Moreau",
+        "edition": "Artisan Guild Edition",
+        "price": 62.0,
+        "original_price": 85.0,
+        "format": "Heavy Millboard Quarter-Bound in Raw Ecru Silk",
+        "pages": 384,
+        "isbn": "978-0-99841-03-8",
+        "publication_year": 2025,
+        "description": "From lapis lazuli grinding in Renaissance Venice to burnt umber recipes in Flemish ateliers. Includes 96 color-match swatches and high-definition microscope photography of crystalline pigment dispersal.",
+        "cover_image": "https://images.unsplash.com/photo-1513185041617-8ab03f83d6c5?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjY2NzV8MHwxfHNlYXJjaHw0fHxoYXJkY292ZXIlMjBib29rJTIwYWVzdGhldGljfGVufDB8fHx8MTc5MTQ1MjMzOHww&ixlib=rb-4.1.0&q=85",
+        "spine_tint": "#362419",
+        "accent_foil": "#E3A857",
+        "pdf_url": "https://example.com/assets/books/alchemy-of-pigment.pdf"
+      },
+      {
+        "id": "book-4",
+        "slug": "chronicles-of-the-vellum-guild",
+        "title": "Chronicles of the Vellum Guild",
+        "subtitle": "Medieval Scriptoria, Oak Gall Inks, and Illuminated Leaves",
+        "author": "Sister Beatrice & Brother Alistair",
+        "edition": "Facsimile Archival Series",
+        "price": 75.0,
+        "original_price": 95.0,
+        "format": "Debossed Calfskin Leatherette & Double Gold Foil",
+        "pages": 440,
+        "isbn": "978-0-99841-04-5",
+        "publication_year": 2024,
+        "description": "An intimate revelation into 12th-century monastic scriptoria. Features folding triptych leaf inserts, historical commentary, and full-bleed high resolution scans of gilded historiated initials.",
+        "cover_image": "https://images.unsplash.com/photo-1519060825752-c4832f2d400a?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjY2NzV8MHwxfHNlYXJjaHwyfHxoYXJkY292ZXIlMjBib29rJTIwYWVzdGhldGljfGVufDB8fHx8MTc5MTQ1MjMzOHww&ixlib=rb-4.1.0&q=85",
+        "spine_tint": "#241810",
+        "accent_foil": "#D4AF37",
+        "pdf_url": "https://example.com/assets/books/chronicles-of-the-vellum-guild.pdf"
+      },
+      {
+        "id": "book-5",
+        "slug": "typographic-poetics",
+        "title": "Typographic Poetics",
+        "subtitle": "Lead Sorts, Letterpress Pressures, and Concrete Verse",
+        "author": "Matthias Kroll",
+        "edition": "Typographers Guild Annual",
+        "price": 38.0,
+        "original_price": 50.0,
+        "format": "French Fold Softcover with Hand-Tied Cotton Cording",
+        "pages": 196,
+        "isbn": "978-0-99841-05-2",
+        "publication_year": 2026,
+        "description": "A visceral manifesto celebrating the physical bite of metal type sinking into damp cotton rag. Features specimen inserts printed on Heidelberg cylinder presses with custom pantone formulations.",
+        "cover_image": "https://images.unsplash.com/photo-1603950227760-e609ce8e15b4?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjY2NzV8MHwxfHNlYXJjaHwxfHxoYXJkY292ZXIlMjBib29rJTIwYWVzdGhldGljfGVufDB8fHx8MTc5MTQ1MjMzOHww&ixlib=rb-4.1.0&q=85",
+        "spine_tint": "#1C1C1D",
+        "accent_foil": "#B38F56",
+        "pdf_url": "https://example.com/assets/books/typographic-poetics.pdf"
+      }
+    ],
+    "first_page_preview_rule": "If a live image cover is missing or user inspects preview, render the elegant PDF Cover Canvas Preview showing title, gold border, publisher stamp, and sample page viewer."
+  },
+  "interactive_flows_and_states": {
+    "smart_bag": {
+      "persistence": "localStorage under key 'atelier_cart_v1'",
+      "tiers": [
+        {
+          "threshold": 60,
+          "perk": "Complimentary Archival Ribbon & Wax-Sealed Gift Wrap",
+          "code": "TIER1"
+        },
+        {
+          "threshold": 120,
+          "perk": "Free Express Courier Delivery & Brass Bookmark",
+          "code": "TIER2"
+        },
+        {
+          "threshold": 180,
+          "perk": "15% Collector Discount Applied + Signed Bookplate",
+          "code": "TIER3"
+        }
+      ],
+      "coupons": [
+        {
+          "code": "ATELIER10",
+          "discount_percent": 10,
+          "label": "10% Welcome Patron Courtesy"
+        },
+        {
+          "code": "COLLECTOR20",
+          "discount_percent": 20,
+          "label": "20% Bibliophile Privileged Access"
+        }
+      ]
+    },
+    "mocked_integrations": {
+      "disclaimer_banner": "All checkout transactions, payment gateways (Razorpay modal), shipment dispatch, courier tracking, email confirmations, and automated AI concierge sessions are operating in MOCKED DEMONSTRATION MODE. No financial charges are incurred.",
+      "razorpay_modal": {
+        "is_mocked": true,
+        "badge": "MOCKED RAZORPAY GATEWAY (TEST MODE)",
+        "features": [
+          "Pre-filled sample test cards and UPI handles",
+          "Instant simulated payment verification token",
+          "Live callback to order confirmation state with generated tracking reference"
+        ]
+      },
+      "chatbot": {
+        "is_mocked": true,
+        "name": "Atelier Curatorial Concierge (MOCKED)",
+        "responses": [
+          "I recommend Lucien Vane's 'Architectonics of Form' if you appreciate brutalist structural studies and heavy tactile paper stock.",
+          "All copies ship with archival tissue wraps and slipcases.",
+          "Looking for a gift? Adding 2 or more monographs automatically unlocks our custom brass bookmark and wax seal."
+        ]
+      },
+      "empty_states": {
+        "reviews": "Truthful state: '0 Public Reader Reviews. In keeping with our archival code, patron critiques will publish once the first collector copies complete delivery in Autumn.'",
+        "stock": "Only 35 numbered copies remain in this impression run."
+      }
+    }
+  },
+  "routes_and_pages": [
+    {
+      "path": "/",
+      "name": "Home",
+      "description": "Editorial hero with magazine spread showcase, 5-book featured catalogue, progressive bundle builder, tactile craftsmanship narrative, and newsletter seal."
+    },
+    {
+      "path": "/library",
+      "name": "Library Catalogue",
+      "description": "Complete five-volume gallery with filters for binding style, publication year, foil type, and sort by price/title. Includes quick-preview modal."
+    },
+    {
+      "path": "/book/:slug",
+      "name": "Book Detail",
+      "description": "Immersive luxury monograph spread: high-res cover inspection, first-page PDF excerpt preview, edition specifications table, persistent add-to-bag action, collector tier progress, and truthful review empty state."
+    },
+    {
+      "path": "/checkout",
+      "name": "Checkout Flow",
+      "description": "Step-by-step luxury checkout demo with bag summary, promo code application, mock Razorpay payment trigger, and instant order receipt with simulated tracking number."
+    }
+  ],
+  "image_urls": [
+    {
+      "category": "hero_magazine",
+      "url": "https://images.unsplash.com/photo-1549298222-1c31e8915347?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2Nzh8MHwxfHNlYXJjaHw0fHxsdXh1cnklMjBib29rJTIwY292ZXIlMjBlZGl0b3JpYWx8ZW58MHx8fHwxNzkxNDUyMzM0fDA&ixlib=rb-4.1.0&q=85",
+      "description": "Opened luxury architectural monograph page with natural light, perfect for hero spotlight."
+    },
+    {
+      "category": "craftsmanship_spread",
+      "url": "https://images.unsplash.com/photo-1615540732322-4ae8deb97091?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2Nzh8MHwxfHNlYXJjaHwyfHxsdXh1cnklMjBib29rJTIwY292ZXIlMjBlZGl0b3JpYWx8ZW58MHx8fHwxNzkxNDUyMzM0fDA&ixlib=rb-4.1.0&q=85",
+      "description": "Tactile luxury paper texture close-up showing fine fibrous grain and macro embossing."
+    },
+    {
+      "category": "reading_nook",
+      "url": "https://images.unsplash.com/photo-1519060825752-c4832f2d400a?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjY2NzV8MHwxfHNlYXJjaHwyfHxoYXJkY292ZXIlMjBib29rJTIwYWVzdGhldGljfGVufDB8fHx8MTc5MTQ1MjMzOHww&ixlib=rb-4.1.0&q=85",
+      "description": "Archival open volume with spectacles and dried botanical sprigs on warm linen."
+    },
+    {
+      "category": "binding_detail",
+      "url": "https://images.unsplash.com/photo-1513185041617-8ab03f83d6c5?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjY2NzV8MHwxfHNlYXJjaHw0fHxoYXJkY292ZXIlMjBib29rJTIwYWVzdGhldGljfGVufDB8fHx8MTc5MTQ1MjMzOHww&ixlib=rb-4.1.0&q=85",
+      "description": "Stacked clothbound hardcovers with natural sunlight and shadow casting."
+    },
+    {
+      "category": "editorial_leaf",
+      "url": "https://images.unsplash.com/photo-1603950227760-e609ce8e15b4?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjY2NzV8MHwxfHNlYXJjaHwxfHxoYXJkY292ZXIlMjBib29rJTIwYWVzdGhldGljfGVufDB8fHx8MTc5MTQ1MjMzOHww&ixlib=rb-4.1.0&q=85",
+      "description": "Pristine white book leaf on subtle textured textile backdrop."
+    }
+  ],
+  "component_hierarchy": [
+    {
+      "name": "NavigationHeader",
+      "path": "src/components/layout/Navbar.tsx",
+      "description": "Sticky top bar with Atelier logo in Playfair serif, link to Library, Curatorial Note modal trigger, Smart Bag drawer toggle with dynamic badge count, and Mock Mode pill."
+    },
+    {
+      "name": "BookCard",
+      "path": "src/components/books/BookCard.tsx",
+      "description": "Collector-grade card with 3D hover tilt/lift, spine foil accent bar, price, format specs, quick-add action, and detail page link."
+    },
+    {
+      "name": "SmartBagDrawer",
+      "path": "src/components/bag/SmartBagDrawer.tsx",
+      "description": "Slide-out sheet with progressive savings meter (Tier 1: Wax seal gift wrap, Tier 2: Free courier & brass bookmark, Tier 3: 15% discount), line item controls, coupon field, and checkout CTA."
+    },
+    {
+      "name": "MockRazorpayModal",
+      "path": "src/components/checkout/MockRazorpayModal.tsx",
+      "description": "Faithful luxury styled simulation of Razorpay payment sheet, clearly watermarked with MOCKED PAYMENT GATEWAY badge."
+    },
+    {
+      "name": "ConciergeChatbot",
+      "path": "src/components/concierge/ConciergeChatbot.tsx",
+      "description": "Floating brass-accented widget offering curated volume recommendations with explicit (MOCKED) tag."
+    },
+    {
+      "name": "FirstPagePreview",
+      "path": "src/components/books/FirstPagePreview.tsx",
+      "description": "Extracts/displays the first-page PDF leaf preview using high-fidelity vector styling and archival paper framing."
+    }
+  ],
+  "testing_attributes": {
+    "rule": "Every button, link, cart toggle, checkout trigger, input, and modal close must have a kebab-case data-testid attribute.",
+    "key_testids": [
+      "nav-brand-link",
+      "nav-library-link",
+      "nav-bag-toggle-btn",
+      "nav-mock-badge",
+      "book-card-item-${slug}",
+      "book-card-add-btn-${slug}",
+      "book-detail-preview-btn",
+      "book-detail-add-btn",
+      "smart-bag-drawer",
+      "smart-bag-tier-progress",
+      "smart-bag-coupon-input",
+      "smart-bag-apply-coupon-btn",
+      "smart-bag-checkout-btn",
+      "mock-checkout-submit-btn",
+      "mock-razorpay-confirm-btn",
+      "mock-razorpay-close-btn",
+      "concierge-toggle-btn",
+      "concierge-send-btn"
+    ]
+  },
+  "UNIVERSAL GUIDELINES FOR MAIN AGENT": {
+    "guidelines": [
+      "Avoid AI Slop: Do not use generic purple/blue gradients or centered bootstrap templates. Use an Ivory, Espresso, and Champagne Gold palette inspired by Assouline, Obys, and Vellum Editions.",
+      "High Contrast & Legibility: Always set explicit text colors on hover/focus. Never allow gray-on-gray low contrast text.",
+      "Mock Status Transparency: Prominently feature the MOCKED INTEGRATION badges on checkout, payments, and AI concierge to adhere strictly to client instructions.",
+      "Use Pre-installed packages: Tailwind v4, react-router-dom, motion, lucide-react, sonner are already installed. Do not reinstall them.",
+      "Do not use transparent background on header, dialogs, or dropdowns. Always provide backdrop-blur with minimum 80-90% background opacity."
+    ]
+  }
+}
