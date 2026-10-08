@@ -36,3 +36,5 @@ The original PDFs and five named cover JPGs are referenced from the supplied pub
 - Cover previews are intentionally compact, including the product hero and mobile two-column library.
 - The bag progress meter remains sticky while the recommendations and selected products scroll.
 - A left-bottom back-to-top control appears after the reader scrolls 480px; the assistant remains on the right.
+- Every route change resets the document to the top unless an explicit URL hash targets an in-page section.
+- Public pages use short fade/slide route transitions. Product pages add an animated hero, highlighted champagne price panel, scroll reveals, tactile hover feedback, and an animated contents accordion.
