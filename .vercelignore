@@ -1,0 +1,7 @@
+private-pdfs/
+.env*
+tests/
+test-results/
+playwright-report/
+docs/
+.git/

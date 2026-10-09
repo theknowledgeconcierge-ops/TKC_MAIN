@@ -92,3 +92,9 @@ android-sdk/
 credentials.json
 *.key
 .credentials
+!.env.example
+/playwright-report/
+/test-results/
+/supabase/.temp/
+/supabase/.branches/
+/private-pdfs/

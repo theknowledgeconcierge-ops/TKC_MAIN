@@ -1,195 +1,166 @@
-# farm-ts
+# The Knowledge Concierge
 
-Minimal split backend/frontend starter: **FastAPI + MongoDB** behind a
-**Vite + React 19 + TypeScript** frontend, joined by a small typed fetch layer
-over `/api`. This is a bare skeleton — no app features are implemented. Build on
-top of it.
+One Next.js 16 App Router / TypeScript application on Vercel. Supabase supplies PostgreSQL and private PDF Storage; Razorpay supplies payments. No separate backend, customer accounts, email provider, CMS, queues or Redis.
 
-## Layout
+The existing editorial design, fonts, covers, responsive pages, motion, bag and checkout review are retained. The repository contained five titles; the requested four-book storefront currently activates **The First Table, The Full Table, Behind the Kitchen Door, and The Math Behind the Menu**. “Empty Tables to Full House” remains inactive metadata. Original prices are retained: **1 / 2 / 3 / 4 books = ₹249 / ₹399 / ₹549 / ₹699**. The old five-book First50 promotion does not apply to four books.
 
-```
-farm-ts/
-  backend/   FastAPI + motor (async MongoDB) + Pydantic v2 — python, /root/.venv
-  frontend/  Vite + React 19 + Tailwind v4 + shadcn/ui (TypeScript strict)
-  tests/     Playwright e2e workspace (pre-scaffolded)
-```
+## Local development
 
-## Running
+Use Node **24** (`nvm use`) and npm:
 
-Two separate processes, managed by supervisor in the pod (see "Pod conventions"
-below); to run them by hand from two terminals instead:
-
-```bash
-cd backend && uvicorn server:app --host 0.0.0.0 --port 8001 --reload   # http://localhost:8001
-cd frontend && yarn dev                                                # http://localhost:3000
+```sh
+npm ci
+cp .env.example .env.local
+# Fill the six values described below when connecting external services.
+npm run check:env
+npm run dev
 ```
 
-## The `/api` proxy convention
+Open http://localhost:3000. The storefront and build work without credentials; payment/order/download APIs fail safely with configuration errors until configured. Next.js loads `.env.local`; operator scripts load it too. Restart after changing environment values.
 
-Every backend route lives under `/api` (the backend mounts one
-`APIRouter(prefix="/api")`), and the frontend dev server
-(`frontend/vite.config.ts`) proxies `/api/*` to `http://localhost:8001`. So
-frontend code always calls a **relative** path — `apiGet("/status")` →
-`/api/status` — and never an absolute backend URL. The same code works in dev
-(via the Vite proxy) and in production (once both are served behind a single
-origin).
+| Variable | Value | Exposure |
+| --- | --- | --- |
+| `APP_URL` | Exact origin, e.g. `http://localhost:3000` or your HTTPS production domain; no path | Server configuration |
+| `SUPABASE_URL` | Supabase project URL | Used only on server |
+| `SUPABASE_SERVICE_ROLE_KEY` | Project service-role key | Secret, server only |
+| `RAZORPAY_KEY_ID` | Matching test/live key ID | Server configuration; returned to authorized checkout because Razorpay requires it in the browser |
+| `RAZORPAY_KEY_SECRET` | Secret paired with key ID | Secret, server only |
+| `RAZORPAY_WEBHOOK_SECRET` | Strong secret you choose when registering the webhook (at least 20 characters) | Secret, server only |
 
-## Backend
+No Supabase anonymous key, `NEXT_PUBLIC_*` variables or duplicate Razorpay keys are needed. Never put secrets in public variables. Environment validation is lazy at the server boundary so builds do not need production credentials; `check:env` checks everything explicitly without printing values.
 
-FastAPI, async throughout. `python` is the app venv interpreter
-(`/root/.venv/bin/python`); backend deps are pip-installed from
-`backend/requirements.txt`.
+## Supabase setup: one migration path
 
-- **Entry point**: `backend/server.py` — creates `app = FastAPI()`, creates
-  `api_router = APIRouter(prefix="/api")`, registers routes **on the router**,
-  and calls `app.include_router(api_router)` at the bottom. CORS middleware is
-  added from `CORS_ORIGINS`. Never hang a route directly off `app` — it would
-  land outside `/api` and the Vite proxy would not reach it.
-- **The route pattern** (copy `status` in `server.py`):
-  1. a Pydantic model per request body and per response
-     (`StatusCheckCreate` / `StatusCheck`);
-  2. an `async def` handler decorated with
-     `@api_router.post("/status", response_model=StatusCheck)`;
-  3. `await` the motor call inside it.
-  FastAPI validates the request against the Pydantic model before your handler
-  runs — a malformed body never reaches your code, it gets an automatic `422`
-  with a `{"detail": [...]}` body.
-- **Growing the backend**: as `server.py` gets crowded, move models to
-  `backend/models/` and routers to `backend/routers/` (one module per resource,
-  each exporting its own `APIRouter`, mounted from `server.py` via
-  `api_router.include_router(...)` or `app.include_router(...)` with the `/api`
-  prefix preserved).
-- **MongoDB**: import the shared handle — `from lib.db import client, db`
-  (`backend/lib/db.py` self-loads `.env` before reading env). Use it from
-  `server.py`, every router, and standalone scripts like `seed.py`; never
-  construct another `AsyncIOMotorClient`. Collections are attributes:
-  `await db.status_checks.insert_one(...)`, `await db.status_checks.find().to_list(1000)`.
-  Motor connects lazily, so importing `server` never blocks on Mongo. `pymongo`
-  is installed too if you need a sync client in a script.
-- **Ids**: documents use a string `id` (`uuid4`) field, not Mongo's `ObjectId`
-  — `ObjectId` is not JSON-serializable and leaks into response bodies. Keep the
-  `uuid4` default-factory pattern from `StatusCheck`.
-- **Config**: `backend/.env` — `MONGO_URL` (connection string), `DB_NAME`
-  (database name), `CORS_ORIGINS`. `server.py` loads it with `python-dotenv`
-  above its local imports, and `lib/db.py` self-loads it so standalone scripts
-  inherit it too. The pod runs `mongod` locally, so `MONGO_URL` points at
-  `localhost`. Add new secrets/config here; read them with `os.environ`.
-- **Dates**: `backend/lib/dates.py` — `today_iso(tz=None)`. The pod clock is
-  UTC; anchor "today" server-side with this, never with client-side date math.
-- **Interactive check**: `cd /app/backend && python -c 'import server'` catches
-  syntax/import errors without waiting for the supervisor log.
+Create a **fresh Supabase project**. In its SQL Editor, run the entire contents of [`supabase/migrations/202610090001_storefront.sql`](supabase/migrations/202610090001_storefront.sql) once. This is one transaction that creates all tables, constraints, indexes, functions, permissions and the private `handbooks` bucket. No table design or dashboard policy editing is needed.
 
-## Frontend
+For repeatable CLI deployment, the same migration is compatible with:
 
-- Vite + React 19 + TypeScript strict, dev server on port `3000`.
-- Tailwind CSS v4 (via the `@tailwindcss/vite` plugin — no separate
-  `tailwind.config.js` needed) + shadcn/ui, initialized with the `base-nova`
-  style and `neutral` base color, `@` path alias (`@/*` → `src/*`) wired in both
-  `tsconfig.app.json`/`tsconfig.json` and `vite.config.ts`.
-- `react-router-dom` and `motion` are preinstalled — don't re-add them. `src/App.tsx`
-  is the `<Routes>` table and nothing else; screens live in `src/pages/*.tsx` and are
-  imported as `@/pages/<Name>`. `src/pages/Home.tsx` ships as the worked example. Add
-  a `<Route>` for every page you write, in the same edit that creates the page — a
-  page with no route is unreachable, and any URL without a matching `<Route>` renders a
-  **blank page** — `<Routes>` matches nothing and mounts nothing.
-- Components installed under `src/components/ui/`: button, card, input, label,
-  select, dialog, sheet, tabs, badge, calendar, sonner, textarea, table, popover,
-  dropdown-menu, checkbox. Add more with `npx shadcn@latest add <component>`.
-- `src/lib/api.ts` — the typed fetch layer: `apiGet<T>`, `apiPost<T>`,
-  `apiPut<T>`, `apiPatch<T>`, `apiDelete<T>`, all relative to base `/api`,
-  throwing `ApiError` (with `status` and the parsed body) on any non-2xx.
-  **Nothing infers across the Python boundary** — you declare the response type
-  yourself as a TS interface mirroring the endpoint's Pydantic model, and keeping
-  the two in sync is a manual discipline. When you change a Pydantic model,
-  change its TS interface in the same edit.
-- `src/pages/Home.tsx` is a minimal example of the wiring: TanStack Query's `useQuery`
-  with `apiGet<StatusCheck[]>("/status")` as the `queryFn`. It is a **non-blocking
-  connectivity probe**, not a proof of the round trip — the result is deliberately
-  discarded so the splash renders identically with no backend. `apiGet<T>` does no
-  runtime validation either; `T` is your assertion, not a check. See the
-  static-preview rule in `TEMPLATE.md` §4 for why no page may be gated on a fetch.
-
-## TypeScript
-
-`frontend/tsconfig.app.json` / `tsconfig.node.json` have `strict: true`. In the
-pod:
-
-```bash
-cd frontend && yarn typecheck
+```sh
+npx supabase login
+npx supabase link --project-ref YOUR_PROJECT_REF
+npx supabase db push
 ```
 
-— plain `tsc --noEmit` run from `frontend/` checks ZERO files (root tsconfig uses
-project references with `"files": []`) and exits 0 even with type errors. Always
-use `-b` for the frontend. Lint with `cd frontend && yarn lint` (oxlint).
+Use either SQL Editor or CLI for initial setup, not both on the same project. Subsequent changes should be new versioned migrations. Local PostgreSQL tests use a minimal Storage schema stub; only a real Supabase project can verify its Storage API and platform policies. Prefer separate Supabase projects and Razorpay keys for staging and production. Purchase payment mode is snapshotted; switching keys never relabels old test purchases as live purchases.
 
-## Data fetching
+### Private PDFs
 
-TanStack Query is wired: `QueryClientProvider` in `src/main.tsx`, `useQuery` demo
-in `src/pages/Home.tsx` (see above). Use `useQuery`/`useMutation`, not
-fetch-in-`useEffect`.
+The SQL migration creates bucket **`handbooks`**, `public=false`, MIME type `application/pdf`, maximum file size 50 MiB. Upload the following **object paths inside that bucket**:
 
-## Completion gate (tier 1)
+| Local filename | Bucket object path |
+| --- | --- |
+| `the-first-table.pdf` | `handbooks/the-first-table.pdf` |
+| `the-full-table.pdf` | `handbooks/the-full-table.pdf` |
+| `behind-the-kitchen-door.pdf` | `handbooks/behind-the-kitchen-door.pdf` |
+| `the-math-behind-the-menu.pdf` | `handbooks/the-math-behind-the-menu.pdf` |
 
-When the build is complete, run tier 1 once, all in the same turn: a curl smoke
-over the key `/api` endpoints (assert status AND a response field, plus one
-negative case), `cd frontend && yarn typecheck`, and ONE happy-path browser pass
-through the core user journey. Clean on all three → finish; any failure is a real
-bug — fix it, re-run the failed check, and escalate to the testing subagent.
-No routine typecheck/lint/smoke passes during the build — tier 1 runs exactly once.
+Use Storage dashboard upload or the idempotent uploader:
 
-
-## Testing
-
-Two lanes.
-
-**Backend (pytest)** — specs in `backend/tests/` as `test_*.py`, run with:
-
-```bash
-cd /app/backend && pytest
+```sh
+npm run storage:upload -- /absolute/path/to/pdfs
+npm run check:integrations
 ```
 
-`backend/pytest.ini` is canonical: `addopts = -n 2 --dist loadscope` (pytest-xdist,
-already parallel — do not pass your own `-n`) and `asyncio_mode = auto` (so
-`async def test_...` needs no marker). Serial is `-n 0`, **never**
-`-p no:xdist` (that errors, because `addopts` still passes `-n`/`--dist`).
-`backend/tests/conftest.py` is pre-scaffolded — a sync `client` fixture
-(`httpx.Client` rooted at `/api`), an async `aclient`, and an `api_url()` helper,
-all pointed at `BACKEND_URL` (default `http://localhost:8001`). Tests hit the
-live uvicorn process, so the app under test is the one the browser sees. Add
-app-specific fixtures below the marker; do not re-create the file.
+The uploader checks the private bucket, PDF header, size and existing file checksum; it refuses to replace different contents. Version object paths deliberately when replacing purchased files because orders snapshot them. `check:integrations` performs read-only database, private-file and Razorpay API checks. It does not simulate a payment.
 
-**Frontend (Playwright)** — `/app/tests/` is pre-scaffolded:
-`playwright.config.ts` (canonical — edit the marked lines only),
-`fixtures/helpers.ts`, and a `package.json` that resolves
-`@playwright/test@1.62.0` (node_modules baked into the image). Write specs into
-`tests/e2e/`. Do NOT re-create the config/helpers or install/upgrade playwright —
-matching Chromium browsers live at `/pw-browsers`.
+Three original PDFs were downloaded into the ignored local `private-pdfs/` directory during migration. They are **not committed or deployed**. The First Table's original source returned HTTP 403; supply that PDF with the exact filename above. Files staged in this workstation will not exist in a fresh clone.
 
-The backend lane is pytest: this template's backend is Python, so `vitest` does
-not apply to it.
+**Revoke/delete the old publicly hosted Emergent PDFs before launch.** The application no longer references them, but changing this repository cannot disable copies on external hosting.
 
-## Pod conventions
+## Database and server boundaries
 
-This template runs under supervisord in the Emergent agent pod — supersedes any
-local-run instructions above.
+| Table | Purpose and important constraints |
+| --- | --- |
+| `orders` | Random UUID and unique public reference; unique hashed access token, request fingerprint, explicit status/payment mode, INR integer-paise totals, unique provider order/payment IDs, paid timestamp and composite payment relationship |
+| `order_items` | Composite `(order_id, product_id)` key; snapshots title, unit price, quantity=1 and private storage path; subtotal checked on creation |
+| `payments` | Provider payment ID primary key; order FK; amount/currency, captured/failed/refunded status and bounded refund amount |
+| `payment_events` | Unique idempotency key, provider event reference, event type and order/payment FKs; no raw customer/card payload |
+| `download_entitlements` | Random UUID; unique `(order_id, product_id)`; item and payment/order FKs; customer, path and revocation timestamp |
+| `rate_limits` | Expiring hashed counters shared by serverless instances; no extra infrastructure |
 
-- Backend, frontend, and `mongod` are each a supervisor program. After code or
-  config changes, restart and wait for readiness:
+Provider IDs, token hashes, order items and entitlements have unique indexes. Additional indexes cover paid customer lookup, order/event dates, order payment/event lookup and counter expiry. All six tables have RLS enabled, no browser policies, and privileges revoked from anonymous/authenticated roles. Only the service role can use commerce tables/RPCs. Storage grants no customer object policies. All privileged code imports `server-only`; the browser never initializes Supabase.
 
-  ```bash
-  sudo supervisorctl restart frontend backend
-  until curl -sf -o /dev/null http://localhost:3000; do sleep 2; done
-  ```
+Atomic PostgreSQL RPCs create orders/items, claim gateway creation, bind provider orders and apply payments/events/entitlements. Row locks serialize callbacks and webhooks. Failure rolls back the entire fulfillment transaction, including event insertion, so a webhook retry can fulfill it. Only server-computed prices reach these RPCs.
 
-- Status, only after a restart you triggered:
-  `sudo supervisorctl status frontend backend`. Logs:
-  `/var/log/supervisor/backend.err.log`, `backend.out.log`,
-  `frontend.err.log`.
-- App in a browser: the pod's preview URL (frontend, port `3000`). Backend API
-  directly at port `8001`.
-- `mongod` runs locally in the pod (`--bind_ip_all`); `MONGO_URL` in
-  `backend/.env` points at `localhost`, no separate Mongo container.
-- Both dev servers hot-reload on file edits (uvicorn `--reload` for the backend,
-  Vite HMR for the frontend); no rebuild step needed for normal iteration. A
-  restart is still needed after changing `.env`, `requirements.txt`, or
-  `vite.config.ts`.
+```text
+src/app/                 App Router pages and Node API handlers
+  api/orders/            creation, private reads, access, resume, reconciliation, recovery link
+  api/payments/verify/   callback signature plus provider verification
+  api/webhooks/razorpay/ raw-body webhook verification
+  api/downloads/         authorized short-lived PDF access
+src/components/          retained storefront, accessible bag/checkout and UI primitives
+src/views/               existing customer page layouts
+src/lib/catalog/         typed canonical catalogue and server-only PDF mapping
+src/lib/commerce/        pricing, schemas and shared types
+src/lib/server/          commerce service, Supabase/Razorpay adapters, authorization, HTTP errors
+supabase/migrations/     deterministic PostgreSQL and Storage setup
+scripts/                 environment, upload, recovery, integration and SQL test tools
+tests/                   domain, service, HTTP, adapters, PostgreSQL and browser coverage
+public/                  local covers, favicons; no paid PDFs
+```
+
+## Payment and download lifecycle
+
+1. Browser submits active product IDs, contact details and a random 256-bit checkout capability. Unknown products/invalid input are rejected; browser amounts/status fields are ignored. Digital products are unique, quantity one.
+2. Server calculates canonical tier pricing, saves purchase snapshots and an internal order before contacting Razorpay. Repeated submissions reuse the same order. An atomic creation claim prevents parallel provider calls; the stable receipt recovers provider orders after a lost response or failed database bind.
+3. Authorized browser receives only the public key ID, locked provider order and safe checkout information. Pay opens Razorpay's hosted checkout. Closing checkout leaves the order resumable.
+4. Callback verification uses HMAC-SHA256 over the **stored** Razorpay order ID plus payment ID. Server then fetches Razorpay payment and order, validates IDs/relationship, internal notes/receipt, amount and currency. `authorized` alone grants nothing; only a captured payment can fulfill.
+5. Webhook verification uses HMAC-SHA256 over the unmodified raw body. Signed payload identifies provider records; fetched provider evidence is checked again. Body-derived event keys prevent an unsigned event header controlling idempotency. Duplicate and out-of-order events converge through one SQL transaction.
+6. Confirmation reads cookie-authorized server state. On mount, periodic checks and explicit “Check payment status” reconcile against Razorpay when a browser callback/webhook was lost. Failed attempts may later become paid; failed events cannot downgrade paid; any processed partial/full refund revokes the whole purchase. Refunded orders never resurrect on late capture events.
+7. Downloads recheck authorization, current provider payment, server status, entitlement, customer and payment relationship. Only then does Supabase create a **60-second** signed URL. Provider/DB failure denies a new download and permits a later retry.
+
+States: `created → payment_pending → paid`; failed attempts can produce `failed → paid`; captured payments can produce `paid → refunded`. A closed popup stays pending because it does not prove failure. No client redirect, session flag, order number or guessed entitlement grants access.
+
+Purchase capability tokens are stored only as SHA-256 hashes in PostgreSQL. HttpOnly, SameSite=Lax cookies last 30 days and are Secure on HTTPS. The checkout retry token may temporarily live in browser storage until creation is confirmed; cart state and purchase UUIDs are never authorization. Recovery links put the token in a **URL fragment**, exchanged for a cookie and removed before order queries. No token is included in server access-log URLs; pages/API use no-store and no-referrer policies. A purchase link is deliberately a bearer secret; customers must keep it private.
+
+No transactional email implementation existed, so none was added. Customers can save a private link **before payment** and on confirmation, and return through My purchases. Entitlements do not expire automatically; purchase access tokens expire after one year. For a lost/expired link, an operator must verify ownership against Razorpay records, then rotate it:
+
+```sh
+npm run order:recover -- ORDER_UUID --ownership-verified
+```
+
+This invalidates all old links/cookies and prints one replacement secret link for secure handoff. Email knowledge alone is insufficient. Do not paste private links into public tickets/logs. A signed URL can be shared during its short validity, and a buyer can copy a downloaded PDF; the system protects access, not DRM.
+
+## Tests and build
+
+```sh
+npm run typecheck
+npm run lint
+npm test
+npm run test:db
+npm run build
+npx playwright install chromium
+npm run test:e2e
+npm audit
+```
+
+`test:db` creates, migrates, tests and destroys a temporary PostgreSQL 16 cluster. On macOS/Homebrew it defaults to `/opt/homebrew/opt/postgresql@16/bin`; set `PG_BIN` to your PostgreSQL binaries elsewhere. Do not run it as root. Alternatively set `TEST_DATABASE_URL` to a **fresh isolated database with Supabase roles and Storage schema already installed**, with `psql` on PATH. **Never point tests at production.** Tests create deliberate failure triggers and sample payments.
+
+Browser tests start the production build on port 3100, cover desktop/mobile routes, storage, checkout, recovery and confirmation, and use provider/API fixtures. To use installed Google Chrome instead of bundled Chromium: `PLAYWRIGHT_CHANNEL=chrome npm run test:e2e`. Tests do not certify live Supabase/Razorpay behavior. See [verification and production audit](docs/SECURITY_AUDIT.md).
+
+## Production: exact setup sequence
+
+1. Create a fresh Supabase project; keep staging/test purchases separate.
+2. Set the six environment values above in `.env.local` for setup tools. Keep actual secrets out of Git.
+3. Apply the versioned SQL migration using the chosen setup path.
+4. Confirm the migration-created `handbooks` bucket is private; do not add public policies.
+5. Supply/upload all four PDFs with the exact paths above. Run `npm run check:integrations` after Razorpay credentials are ready. Revoke old public artifact files.
+6. Create matching Razorpay credentials and enable **automatic capture** in Razorpay payment settings. This application deliberately never fulfills merely authorized payments.
+7. Register `https://YOUR_DOMAIN/api/webhooks/razorpay` with the configured webhook secret. Subscribe to **`payment.captured`, `order.paid`, `payment.failed`, `refund.processed`**. Test and live dashboards need their own webhook configuration. Keep the secret stable while older deliveries are retrying.
+8. Import the repository into Vercel with **root directory `.`**, Next.js preset, Node **24.x**. Add all six values to the appropriate environments. Set `APP_URL` to the exact canonical HTTPS domain used by checkout and recovery links. Preview aliases require their own matching `APP_URL` and test credentials; production secrets should not reach untrusted previews.
+9. Review vendor security advisories, then deploy. `vercel.json` sets npm ci/build; no backend process, redirects to a backend, persistent disk or worker is required. Sensitive routes use Node, bounded provider timeouts and no-store responses. Public assets are local. Vercel handles HTTP→HTTPS; use one canonical domain matching `APP_URL`.
+10. Complete the smoke test below in Razorpay test mode, then a small live transaction/refund after configuring live credentials. Verify webhook delivery/retry status in the dashboard. Only then accept customer payments.
+
+**Vendor launch gate (9 October 2026):** Next.js announced an upstream security update for 14 October, covering two Critical and one High vulnerability. The announcement does not yet give affected ranges or patches. This repository pins the currently stable Next.js 16.4.0 and has a clean dependency audit, but that does not establish immunity. Check the [official announcement](https://nextjs.org/blog/upcoming-nextjs-security-update-october-2026), install the applicable stable patches, rerun this test/build suite and redeploy before taking live payments. Do not infer a fixed version from the absence of npm advisories.
+
+### External smoke test
+
+- `GET /api/health` returns 200/`status: ready`; `npm run check:integrations` passes with actual credentials/files.
+- Purchase one book and then four; confirm Razorpay receives 24900 and 69900 paise regardless of edited browser fields.
+- Close/reopen checkout and refresh; confirm the same internal/provider order is reused. Temporarily lose the callback or close the browser after paying; webhook/reconciliation must still mark paid.
+- Replay a signed event using Razorpay dashboard replay; verify one entitlement per item and no duplicate payment/fulfillment. Failed delivery must retry after the underlying issue is restored.
+- Open a saved private link in a clean browser; verify access. UUID alone, wrong token, another purchase's entitlement, forged callback and spoofed webhook must fail.
+- Download each real PDF; verify correct contents. A copied signed URL expires after 60 seconds, anonymous public bucket paths fail, and no service key appears in browser scripts/network responses.
+- Refund a test purchase; confirmation must show refunded and new download requests must fail. Check failure/loading messages and real Razorpay iframe/CSP behavior on mobile and desktop (browser fixtures cannot verify the provider's live assets).
+
+[Migration map](docs/MIGRATION.md) · [Production audit and certification limits](docs/SECURITY_AUDIT.md)
