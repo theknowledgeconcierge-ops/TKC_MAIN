@@ -54,6 +54,10 @@ Apply `202610100001_purchase_sessions.sql` with the new application while checko
 
 The five-book collection sells at ₹499 for every customer. The earlier first-time/returning-buyer rule, which charged ₹999 when an email (or mobile number) matched a previous paid or refunded order, was removed together with its purchase-history lookup. ₹999 remains only the regular reference collection price; the server still computes the payable amount and the Razorpay order amount (49,900 paise). Checkout again requires a valid email address as the delivery and receipt address; it is not an authorization factor.
 
+## Post-purchase email delivery — 10 October 2026
+
+Added `202610100002_email_delivery.sql` (additive). After verified payment the purchase session can confirm or correct a delivery address; the server emails only that order's entitled PDFs through Resend, idempotently, and locks the address once sent. `orders.customer_email` stays the immutable, nullable checkout email. A Netlify Scheduled Function delivers to the checkout email when the buyer closes the tab before confirming. See [email delivery](EMAIL_DELIVERY.md).
+
 ## Deployment provider change — 10 October 2026
 
 Netlify now hosts the same application through its automatically managed OpenNext adapter. Removed the former provider's deployment JSON and CLI ignore file; added minimal `netlify.toml` and ignored local `.netlify/` output. No dependencies, catalogue/UI, SQL or commerce contract changed.

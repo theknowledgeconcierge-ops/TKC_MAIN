@@ -1,17 +1,21 @@
 "use client";
-import { CheckCircle2, Download, RefreshCw } from "lucide-react";
+import { CheckCircle2, Download, Mail, RefreshCw } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import BookCover from "@/components/BookCover";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { catalogue, formatInr } from "@/lib/catalog";
 import { ApiError, apiGet, apiPost } from "@/lib/api";
 import { readStorage } from "@/lib/browser-storage";
 import { orderIdSchema } from "@/lib/commerce/validation";
-import type { CheckoutOrder, PublicOrder } from "@/lib/commerce/types";
+import type {
+  CheckoutOrder,
+  PublicDelivery,
+  PublicOrder,
+} from "@/lib/commerce/types";
 import {
   loadRazorpayCheckout,
   verifyCheckoutPayment,
@@ -54,9 +58,19 @@ export default function ThankYou() {
     retry: (attempt, error) =>
       !(error instanceof ApiError && error.status === 404) && attempt < 1,
     refetchInterval: (query) =>
-      ["created", "payment_pending"].includes(query.state.data?.status ?? "")
+      ["created", "payment_pending"].includes(query.state.data?.status ?? "") ||
+      query.state.data?.delivery?.status === "sending"
         ? 3000
         : false,
+  });
+  // The server derives recipients and attachments; the client names only its order.
+  const deliver = useMutation({
+    mutationFn: (email?: string) =>
+      apiPost<PublicOrder>("/orders/delivery", {
+        order_id: id,
+        ...(email ? { email } : {}),
+      }),
+    onSuccess: (order) => cache.setQueryData(["purchase", id], order),
   });
   const reconcile = useMutation({
     mutationFn: () =>
@@ -92,17 +106,20 @@ export default function ThankYou() {
     }
   }, [order, removePurchased]);
   const purchased = catalogue.filter((book) => order?.books.includes(book.id));
+  const downloadUrl = async (entitlementId: string) => {
+    const result = await apiPost<{ url: string }>("/downloads", {
+      order_id: id,
+      entitlement_id: entitlementId,
+    });
+    const url = new URL(result.url);
+    if (url.protocol !== "https:" && url.hostname !== "localhost")
+      throw new Error("Invalid download URL.");
+    return result.url;
+  };
   const download = async (entitlementId: string) => {
     setDownloading(entitlementId);
     try {
-      const result = await apiPost<{ url: string }>("/downloads", {
-        order_id: id,
-        entitlement_id: entitlementId,
-      });
-      const url = new URL(result.url);
-      if (url.protocol !== "https:" && url.hostname !== "localhost")
-        throw new Error("Invalid download URL.");
-      window.location.assign(result.url);
+      window.location.assign(await downloadUrl(entitlementId));
     } catch (error) {
       toast.error(
         error instanceof Error
@@ -113,6 +130,31 @@ export default function ThankYou() {
       setDownloading("");
     }
   };
+  const downloadAll = async () => {
+    setDownloading("all");
+    try {
+      const ordered = purchased
+        .map((book) => order?.entitlements.find((e) => e.product_id === book.id))
+        .filter((entitlement) => !!entitlement);
+      for (const [index, entitlement] of ordered.entries()) {
+        // Space attachment navigations so the browser starts every download.
+        if (index) await new Promise((resolve) => setTimeout(resolve, 900));
+        window.location.assign(await downloadUrl(entitlement.id));
+      }
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Download unavailable. Please retry.",
+      );
+    } finally {
+      setDownloading("");
+    }
+  };
+  const showDownloads = () =>
+    document
+      .getElementById("downloads")
+      ?.scrollIntoView({ behavior: "smooth", block: "start" });
   const retryPayment = async () => {
     if (retrying) return;
     setRetrying(true);
@@ -178,7 +220,44 @@ export default function ThankYou() {
       );
     }
   };
+  // A copied URL in another browser learns nothing about the purchase.
+  const unavailable =
+    query.error instanceof ApiError && query.error.status === 404;
   const error = query.error instanceof Error ? query.error.message : "";
+  const count = order?.books.length ?? 0;
+  const books = count === 1 ? "book" : `${count} books`;
+  if (id && unavailable)
+    return (
+      <div
+        className="mx-auto max-w-3xl px-4 py-16 sm:px-6 sm:py-20 lg:px-8"
+        data-testid="thank-you-page"
+      >
+        <div className="border border-[#b49a6a]/40 bg-[#f5f0e6] p-7 text-center sm:p-14">
+          <RefreshCw className="mx-auto size-10 text-[#b49a6a]" />
+          <h1
+            className="mt-6 font-serif text-3xl text-[#29231f] sm:text-4xl"
+            data-testid="thank-you-heading"
+            aria-live="polite"
+          >
+            This purchase is not available in this browser.
+          </h1>
+          <p
+            className="mx-auto mt-5 max-w-xl text-base leading-relaxed text-[#6e655e]"
+            data-testid="thank-you-copy"
+          >
+            Downloads and delivery settings are available only from the browser
+            used to complete the purchase.
+          </p>
+          <Link
+            href="/books"
+            className="mt-8 inline-flex h-9 items-center justify-center rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/80"
+            data-testid="thank-you-return-store"
+          >
+            Return to store
+          </Link>
+        </div>
+      </div>
+    );
   const heading = !id
     ? "Return to your purchases."
     : error
@@ -186,7 +265,7 @@ export default function ThankYou() {
       : !order
         ? "Loading your purchase…"
         : paid
-          ? "Your business companions are ready."
+          ? `Your ${books} ${count === 1 ? "is" : "are"} ready.`
           : order.status === "paid"
             ? "Payment confirmed. Purchase session unavailable."
             : order.status === "failed"
@@ -195,9 +274,9 @@ export default function ThankYou() {
                 ? "This purchase has been refunded."
                 : "Processing payment…";
   const copy = paid
-    ? "Your captured payment is confirmed. Download each handbook below from this browser."
+    ? "Download your books below now. We can also email the PDFs to you."
     : order?.status === "paid"
-      ? "Payment is confirmed, but this browser has no verified purchase session. Keep your Razorpay payment reference and contact the seller for recovery. Do not pay again."
+      ? "Payment is confirmed, but this browser has no verified purchase session. If you entered an email at checkout, your books will be emailed to it automatically within about 10 minutes. Do not pay again."
       : order?.status === "refunded"
         ? "Download access has been revoked because this purchase was refunded."
         : "Payment status comes from our server and Razorpay. If you were charged, check the status before paying again.";
@@ -212,10 +291,8 @@ export default function ThankYou() {
         ) : (
           <RefreshCw className="mx-auto size-10 text-[#b49a6a]" />
         )}
-        <p className="overline mt-5">
-          {paid
-            ? `Payment confirmed · ${order.payment_mode} mode`
-            : "Your private purchase"}
+        <p className="overline mt-5" data-testid="thank-you-overline">
+          {paid ? "✓ Payment successful" : "Your private purchase"}
         </p>
         <h1
           className="mt-4 font-serif text-4xl text-[#29231f] sm:text-5xl"
@@ -261,40 +338,37 @@ export default function ThankYou() {
                 </span>
               </div>
             </div>
-            <div className="mt-8 flex flex-wrap justify-center gap-3">
-              <Button
-                variant="outline"
-                onClick={() => reconcile.mutate()}
-                disabled={reconcile.isPending}
-                data-testid="check-payment-status"
-              >
-                Check payment status
-              </Button>
-              {["created", "payment_pending", "failed"].includes(
-                order.status,
-              ) && (
+            {!paid && (
+              <div className="mt-8 flex flex-wrap justify-center gap-3">
                 <Button
-                  onClick={retryPayment}
-                  disabled={retrying}
-                  data-testid="resume-payment"
+                  variant="outline"
+                  onClick={() => reconcile.mutate()}
+                  disabled={reconcile.isPending}
+                  data-testid="check-payment-status"
                 >
-                  {retrying
-                    ? "Opening checkout…"
-                    : `Resume payment · ${formatInr(order.pricing.total_inr)}`}
+                  Check payment status
                 </Button>
-              )}
-            </div>
+                {["created", "payment_pending", "failed"].includes(
+                  order.status,
+                ) && (
+                  <Button
+                    onClick={retryPayment}
+                    disabled={retrying}
+                    data-testid="resume-payment"
+                  >
+                    {retrying
+                      ? "Opening checkout…"
+                      : `Resume payment · ${formatInr(order.pricing.total_inr)}`}
+                  </Button>
+                )}
+              </div>
+            )}
             {reconcile.isError && (
               <p role="alert" className="mt-4 text-sm text-[#9b3d32]">
                 {reconcile.error.message} Your order is preserved; please check
                 again shortly.
               </p>
             )}
-            <p className="mt-5 text-xs leading-relaxed text-[#8c6d46]">
-              Download access uses a private session in this browser. Keep
-              your payment reference if you need help after clearing cookies or
-              changing devices.
-            </p>
           </>
         )}
         {!id && recent.length > 0 && (
@@ -320,39 +394,256 @@ export default function ThankYou() {
         </Link>
       </div>
       {paid && (
-        <div className="mt-12">
-          <p className="overline">Your handbooks</p>
-          <div className="mt-5 grid grid-cols-2 gap-4 lg:grid-cols-4">
-            {purchased.map((book) => {
-              const entitlement = order.entitlements.find(
-                (item) => item.product_id === book.id,
-              );
-              return (
-                <div
-                  key={book.id}
-                  className="border border-[#2e241f]/10 bg-white p-3"
-                >
-                  <BookCover book={book} compact />
-                  <p className="mt-3 font-serif text-lg text-[#29231f]">
-                    {book.title}
-                  </p>
-                  <Button
-                    className="mt-4 w-full"
-                    disabled={!entitlement || !!downloading}
-                    onClick={() => entitlement && download(entitlement.id)}
-                    data-testid={`download-${book.id}`}
+        <div className="mt-10 grid items-start gap-6 lg:grid-cols-2">
+          {order.delivery && (
+            <DeliveryPanel
+              delivery={order.delivery}
+              books={books}
+              count={count}
+              pending={deliver.isPending}
+              failure={
+                deliver.isError
+                  ? deliver.error instanceof ApiError &&
+                    deliver.error.code !== "EMAIL_UNAVAILABLE"
+                    ? deliver.error.message
+                    : "We couldn't send the email right now."
+                  : ""
+              }
+              onSend={(email) => deliver.mutate(email)}
+              onShowDownloads={showDownloads}
+            />
+          )}
+          <section
+            id="downloads"
+            className="border border-[#2e241f]/10 bg-white p-6 sm:p-8"
+            data-testid="downloads-panel"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <p className="overline">Download now</p>
+              <Button
+                variant="outline"
+                onClick={downloadAll}
+                disabled={!!downloading || !order.entitlements.length}
+                data-testid="downloads-all-btn"
+              >
+                <Download className="mr-2 size-4" />
+                {downloading === "all" ? "Preparing…" : "Download all"}
+              </Button>
+            </div>
+            <ul className="mt-6 divide-y divide-[#2e241f]/10">
+              {purchased.map((book) => {
+                const entitlement = order.entitlements.find(
+                  (item) => item.product_id === book.id,
+                );
+                return (
+                  <li
+                    key={book.id}
+                    className="flex items-center justify-between gap-4 py-4"
                   >
-                    <Download className="mr-2 size-4" />
-                    {downloading === entitlement?.id
-                      ? "Preparing…"
-                      : "Download PDF"}
-                  </Button>
-                </div>
-              );
-            })}
-          </div>
+                    <span className="font-serif text-lg text-[#29231f]">
+                      {book.title}
+                    </span>
+                    <Button
+                      size="sm"
+                      disabled={!entitlement || !!downloading}
+                      onClick={() => entitlement && download(entitlement.id)}
+                      data-testid={`download-${book.id}`}
+                    >
+                      {downloading === entitlement?.id
+                        ? "Preparing…"
+                        : "Download"}
+                    </Button>
+                  </li>
+                );
+              })}
+            </ul>
+            <p className="mt-4 text-xs leading-relaxed text-[#8c6d46]">
+              Downloads use a private session in this browser and work even if
+              email delivery is unavailable.
+            </p>
+          </section>
         </div>
       )}
     </div>
+  );
+}
+
+function DeliveryPanel({
+  delivery,
+  books,
+  count,
+  pending,
+  failure,
+  onSend,
+  onShowDownloads,
+}: {
+  delivery: PublicDelivery;
+  books: string;
+  count: number;
+  pending: boolean;
+  failure: string;
+  onSend: (email?: string) => void;
+  onShowDownloads: () => void;
+}) {
+  const [changing, setChanging] = useState(false);
+  const [draft, setDraft] = useState("");
+  const sending = pending || delivery.status === "sending";
+  const failed = !sending && (!!failure || delivery.status === "failed");
+  const editable = !delivery.locked && delivery.can_retry && !sending;
+  if (delivery.locked)
+    return (
+      <section
+        className="border border-[#b49a6a]/40 bg-[#f5f0e6] p-6 sm:p-8"
+        data-testid="delivery-sent"
+      >
+        <p className="overline">✓ Books sent</p>
+        <p className="mt-4 text-base text-[#6e655e]">
+          Your {books} {count === 1 ? "was" : "were"} sent to:
+        </p>
+        <p
+          className="mt-1 break-all font-medium text-[#29231f]"
+          data-testid="delivery-email"
+        >
+          {delivery.email}
+        </p>
+        <p className="mt-4 text-sm text-[#6e655e]">
+          Check Spam/Promotions if you don&apos;t see the email.
+        </p>
+        <Button className="mt-6" variant="outline" onClick={onShowDownloads}>
+          Download books
+        </Button>
+      </section>
+    );
+  const form = (label: string, action: string) => (
+    <form
+      className="mt-5 space-y-3"
+      data-testid="delivery-change-form"
+      onSubmit={(event) => {
+        event.preventDefault();
+        onSend(draft.trim().toLowerCase());
+      }}
+    >
+      <label className="block text-sm text-[#6e655e]" htmlFor="delivery-email">
+        {label}
+        <Input
+          id="delivery-email"
+          type="email"
+          required
+          maxLength={254}
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          className="mt-2"
+          autoComplete="email"
+          data-testid="delivery-email-input"
+        />
+      </label>
+      <div className="flex flex-wrap gap-3">
+        <Button type="submit" disabled={sending} data-testid="delivery-update-btn">
+          {sending ? "Sending…" : action}
+        </Button>
+        {delivery.email && (
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={() => setChanging(false)}
+          >
+            Cancel
+          </Button>
+        )}
+      </div>
+    </form>
+  );
+  return (
+    <section
+      className="border border-[#b49a6a]/40 bg-[#f5f0e6] p-6 sm:p-8"
+      data-testid={
+        sending ? "delivery-sending" : failed ? "delivery-failed" : "delivery-pending"
+      }
+    >
+      <p className="overline flex items-center gap-2">
+        <Mail className="size-4" aria-hidden="true" />
+        Send your books
+      </p>
+      {failed && (
+        <p role="alert" className="mt-4 font-medium text-[#9b3d32]">
+          {delivery.can_retry || failure
+            ? failure || "We couldn't send the email right now."
+            : "We couldn't send the email. Your books are ready to download, and you can keep your payment reference if you need help."}
+        </p>
+      )}
+      {changing || !delivery.email ? (
+        <>
+          {delivery.email && (
+            <>
+              <p className="mt-4 text-sm text-[#6e655e]">Change delivery email</p>
+              <p className="mt-1 text-sm text-[#6e655e]">
+                Current:{" "}
+                <span
+                  className="break-all font-medium text-[#29231f]"
+                  data-testid="delivery-email"
+                >
+                  {delivery.email}
+                </span>
+              </p>
+            </>
+          )}
+          {editable &&
+            form(
+              delivery.email
+                ? "Send my books instead to:"
+                : "Where should we send your books?",
+              delivery.email ? "Update & send books" : "Send books",
+            )}
+        </>
+      ) : (
+        <>
+          <p className="mt-4 text-base text-[#6e655e]">
+            {sending ? "Sending your books to:" : "We'll send the PDFs to:"}
+          </p>
+          <p
+            className="mt-1 break-all font-medium text-[#29231f]"
+            data-testid="delivery-email"
+          >
+            {delivery.email}
+          </p>
+          <div className="mt-6 flex flex-wrap gap-3">
+            {editable && (
+              <Button
+                onClick={() => onSend()}
+                data-testid={failed ? "delivery-retry-btn" : "delivery-confirm-btn"}
+              >
+                {failed ? "Try sending again" : "Confirm & send books"}
+              </Button>
+            )}
+            {sending && (
+              <Button disabled data-testid="delivery-confirm-btn">
+                Sending…
+              </Button>
+            )}
+            {failed && (
+              <Button variant="outline" onClick={onShowDownloads}>
+                Download books now
+              </Button>
+            )}
+          </div>
+          {editable && (
+            <p className="mt-4 text-sm text-[#6e655e]">
+              Wrong email?{" "}
+              <button
+                type="button"
+                className="underline"
+                onClick={() => {
+                  setDraft("");
+                  setChanging(true);
+                }}
+                data-testid="delivery-change-btn"
+              >
+                Change email
+              </button>
+            </p>
+          )}
+        </>
+      )}
+    </section>
   );
 }

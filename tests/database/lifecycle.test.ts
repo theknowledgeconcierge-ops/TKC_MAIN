@@ -20,6 +20,7 @@ import type {
 import { CommerceService } from "@/lib/server/commerce";
 import { createRepository } from "@/lib/server/supabase";
 import { createPaymentProvider } from "@/lib/server/razorpay";
+import { DEFAULT_EMAIL_FROM, createResendProvider } from "@/lib/server/email";
 
 const runtime = vi.hoisted(() => ({
   service: null as unknown as CommerceService,
@@ -32,6 +33,8 @@ import { POST as webhook } from "@/app/api/webhooks/razorpay/route";
 import { POST as reconcile } from "@/app/api/orders/reconcile/route";
 import { POST as resume } from "@/app/api/orders/resume/route";
 import { POST as download } from "@/app/api/downloads/route";
+import { POST as deliver } from "@/app/api/orders/delivery/route";
+import { POST as fallback } from "@/app/api/internal/email-deliveries/route";
 
 const pool = new pg.Pool({
   connectionString: process.env.TEST_DATABASE_URL,
@@ -43,6 +46,8 @@ const keyId = "rzp_test_lifecycle";
 const secret = "lifecycle-api-secret-not-real";
 const webhookSecret = "lifecycle-webhook-secret-not-real";
 const serviceKey = "lifecycle-service-key-not-real";
+const resendKey = "re_lifecycle_fixture_key";
+const cronSecret = "lifecycle-cron-secret-not-real-0123456789";
 const allIds = activeBooks.map((book) => book.id);
 let gateways: ProviderOrder[];
 let payments: ProviderPayment[];
@@ -55,8 +60,15 @@ let faults: {
   session: number;
   lostSessionCommit: number;
   wrongPaymentReference: number;
+  emailStatus: number;
+  emailTimeout: number;
+  emailLost: number;
 };
 let signedPaths: string[];
+// Every Resend request, and the messages Resend accepted (keyed like its idempotency store).
+let emailRequests: { key: string; body: { to: string[]; attachments: { filename: string; content: string }[] } & Record<string, unknown> }[];
+let acceptedEmails: Map<string, { id: string; body: string }>;
+let storageReads: string[];
 let clientIp: string;
 
 const hmac = (body: string, key = secret) =>
@@ -162,6 +174,9 @@ beforeEach(() => {
   gateways = [];
   payments = [];
   signedPaths = [];
+  emailRequests = [];
+  acceptedEmails = new Map();
+  storageReads = [];
   clientIp = `fixture-${randomUUID()}`;
   faults = {
     bind: 0,
@@ -172,6 +187,9 @@ beforeEach(() => {
     session: 0,
     lostSessionCommit: 0,
     wrongPaymentReference: 0,
+    emailStatus: 0,
+    emailTimeout: 0,
+    emailLost: 0,
   };
   vi.stubEnv("APP_URL", origin);
   vi.stubEnv("SUPABASE_URL", supabase);
@@ -179,6 +197,7 @@ beforeEach(() => {
   vi.stubEnv("RAZORPAY_KEY_ID", keyId);
   vi.stubEnv("RAZORPAY_KEY_SECRET", secret);
   vi.stubEnv("RAZORPAY_WEBHOOK_SECRET", webhookSecret);
+  vi.stubEnv("EMAIL_DELIVERY_CRON_SECRET", cronSecret);
   // Only external HTTP is replaced. Real route handlers, services, SDKs, adapters and SQL execute.
   vi.stubGlobal(
     "fetch",
@@ -186,6 +205,26 @@ beforeEach(() => {
       const url = new URL(String(value));
       const headers = new Headers(init?.headers);
       const body = init?.body ? JSON.parse(String(init.body)) : undefined;
+      if (url.origin === "https://api.resend.com") {
+        expect(url.pathname).toBe("/emails");
+        expect(headers.get("authorization")).toBe(`Bearer ${resendKey}`);
+        expect(headers.get("user-agent")).toBeTruthy();
+        const key = headers.get("idempotency-key")!;
+        emailRequests.push({ key, body });
+        if (faults.emailTimeout-- > 0) throw new Error("fixture_email_timeout");
+        if (faults.emailStatus-- > 0)
+          return Response.json({ name: "application_error" }, { status: 500 });
+        // Mirrors Resend: a repeated key returns the original email instead of sending again.
+        const previous = acceptedEmails.get(key);
+        if (previous)
+          return previous.body === String(init!.body)
+            ? Response.json({ id: previous.id })
+            : Response.json({ name: "invalid_idempotent_request" }, { status: 409 });
+        const accepted = { id: randomUUID(), body: String(init!.body) };
+        acceptedEmails.set(key, accepted);
+        if (faults.emailLost-- > 0) throw new Error("fixture_email_response_lost");
+        return Response.json({ id: accepted.id });
+      }
       if (url.origin === "https://api.razorpay.com") {
         expect(headers.get("authorization")).toBe(
           `Basic ${Buffer.from(`${keyId}:${secret}`).toString("base64")}`,
@@ -250,6 +289,10 @@ beforeEach(() => {
           "tkc_rate_limit",
           "tkc_create_purchase_session",
           "tkc_authorize_download",
+          "tkc_claim_email_delivery",
+          "tkc_claim_fallback_deliveries",
+          "tkc_email_delivery_payload",
+          "tkc_finish_email_delivery",
         ]).toContain(rpc);
         if (
           (rpc === "tkc_bind_gateway" && faults.bind-- > 0) ||
@@ -332,6 +375,26 @@ beforeEach(() => {
           ).rows,
         );
       }
+      if (url.pathname === "/rest/v1/email_deliveries") {
+        const id = url.searchParams.get("order_id")!.replace(/^eq\./, "");
+        return Response.json(
+          (
+            await pool.query(
+              "select * from public.email_deliveries where order_id=$1",
+              [id],
+            )
+          ).rows,
+        );
+      }
+      // Private object read with the service key (never the public or signed endpoint).
+      if (url.pathname.startsWith("/storage/v1/object/handbooks/")) {
+        expect(init?.method ?? "GET").toBe("GET");
+        const path = url.pathname.split("/object/handbooks/")[1];
+        storageReads.push(path);
+        return new Response(Buffer.from(`%PDF-1.7\n${path}\n%%EOF`), {
+          headers: { "Content-Type": "application/pdf" },
+        });
+      }
       if (url.pathname.startsWith("/storage/v1/object/sign/handbooks/")) {
         expect(body).toEqual({ expiresIn: 60 });
         if (faults.storage-- > 0)
@@ -356,6 +419,7 @@ beforeEach(() => {
       keySecret: secret,
       webhookSecret,
     },
+    { provider: createResendProvider(resendKey), from: DEFAULT_EMAIL_FROM },
   );
 });
 afterEach(() => {
@@ -1223,5 +1287,440 @@ describe("real routes → SDK/adapters → PostgreSQL purchase lifecycle (extern
     expect(response.status).toBe(409);
     expect(await response.json()).not.toHaveProperty("url");
     expect(signedPaths).toHaveLength(0);
+  });
+});
+
+describe("post-purchase email delivery through real routes and PostgreSQL", () => {
+  const pdf = (id: string) => `handbooks/${id}.pdf`;
+  const title = (id: string) => activeBooks.find((book) => book.id === id)!.title;
+  async function paidPurchase(ids = [allIds[0]]) {
+    const started = await start(ids);
+    const payment = capture(started.checkout);
+    const confirmed = await verify(
+      request(
+        "payments/verify",
+        verification(started.checkout, payment),
+        started.cookie,
+      ),
+    );
+    expect(confirmed.status).toBe(200);
+    const id = started.checkout.internal_order_id;
+    return {
+      ...started,
+      id,
+      payment,
+      purchase: (await confirmed.json()) as PublicOrder,
+      session: cookieFrom(confirmed, id, "session"),
+    };
+  }
+  async function paidByWebhook(ids = [allIds[0]]) {
+    const started = await start(ids);
+    const payment = capture(started.checkout);
+    expect((await notify(payment)).status).toBe(200);
+    return { ...started, id: started.checkout.internal_order_id, payment };
+  }
+  const orderRead = (id: string, cookie: string) =>
+    read(
+      new NextRequest(`${origin}/api/orders/${id}`, {
+        headers: { Cookie: cookie, "X-Forwarded-For": clientIp },
+      }),
+      { params: Promise.resolve({ id }) },
+    );
+  const send = (id: string, cookie: string, extra: Record<string, unknown> = {}) =>
+    deliver(request("orders/delivery", { order_id: id, ...extra }, cookie));
+  const runFallback = () =>
+    fallback(
+      new NextRequest(`${origin}/api/internal/email-deliveries`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${cronSecret}` },
+      }),
+    );
+  const deliveryRow = async (id: string) =>
+    (
+      await pool.query("select * from public.email_deliveries where order_id=$1", [
+        id,
+      ])
+    ).rows[0];
+  const backdate = (ids: string[], interval: string) =>
+    pool.query(
+      `update public.orders set paid_at = now() - interval '${interval}' where id = any($1::uuid[])`,
+      [ids],
+    );
+
+  it("shows and sends delivery only to the verified purchase session; a copied URL controls nothing", async () => {
+    const paid = await paidPurchase([allIds[0], allIds[2]]);
+    // Payment verification and webhooks never send email or create delivery state.
+    expect(emailRequests).toHaveLength(0);
+    expect(await deliveryRow(paid.id)).toBeUndefined();
+    const owner = (await (await orderRead(paid.id, paid.session)).json()) as PublicOrder;
+    expect(owner.delivery).toEqual({
+      email: paid.payload.email,
+      status: "pending",
+      locked: false,
+      sent_at: null,
+      error: null,
+      can_retry: true,
+    });
+    const copied = await orderRead(paid.id, "");
+    expect(copied.status).toBe(404);
+    const copiedText = await copied.text();
+    for (const secret of [paid.payload.email, paid.payload.full_name, paid.payload.mobile])
+      expect(copiedText).not.toContain(secret);
+    const other = await paidPurchase();
+    const otherToken = other.session.split("=")[1];
+    for (const cookie of [
+      "",
+      paid.cookie,
+      other.session,
+      cookieFor(paid.id, otherToken, "session"),
+      cookieFor(paid.id, "b".repeat(43), "session"),
+    ]) {
+      for (const extra of [{}, { email: "attacker@example.com" }]) {
+        const denied = await send(paid.id, cookie, extra);
+        expect(denied.status).toBe(404);
+        expect(await denied.text()).not.toContain(paid.payload.email);
+      }
+      const view = await orderRead(paid.id, cookie);
+      expect(JSON.stringify(await view.json())).not.toContain(paid.payload.email);
+      expect(
+        (
+          await download(
+            request(
+              "downloads",
+              { order_id: paid.id, entitlement_id: paid.purchase.entitlements[0].id },
+              cookie,
+            ),
+          )
+        ).status,
+      ).toBe(404);
+    }
+    expect(await deliveryRow(paid.id)).toBeUndefined();
+    expect(emailRequests).toHaveLength(0);
+    // The probes above exhausted that client's per-order delivery rate limit; the buyer is elsewhere.
+    expect((await send(paid.id, paid.session)).status).toBe(429);
+    clientIp = `buyer-${randomUUID()}`;
+
+    const sent = await send(paid.id, paid.session);
+    expect(sent.status).toBe(200);
+    expect(((await sent.json()) as PublicOrder).delivery).toMatchObject({
+      email: paid.payload.email,
+      status: "sent",
+      locked: true,
+      can_retry: false,
+    });
+    const row = await deliveryRow(paid.id);
+    expect(row).toMatchObject({
+      status: "sent",
+      delivery_email: paid.payload.email,
+      attempt_count: 1,
+      provider: "resend",
+      last_error: null,
+    });
+    expect(row.delivery_email_locked_at).not.toBeNull();
+    expect(row.delivery_email_confirmed_at).not.toBeNull();
+    expect(emailRequests).toHaveLength(1);
+    const [{ key, body }] = emailRequests;
+    expect(key).toBe(`pnp-delivery-${row.id}-v1`);
+    expect(body).toMatchObject({
+      from: DEFAULT_EMAIL_FROM,
+      to: [paid.payload.email],
+      subject: "Your Pixel n Palm books are here 📚",
+    });
+    expect(body.attachments.map((file) => file.filename)).toEqual([
+      `${title(allIds[0])}.pdf`,
+      `${title(allIds[2])}.pdf`,
+    ]);
+    for (const file of body.attachments) {
+      // Content only: no URL or storage path is handed to the provider.
+      expect(Object.keys(file).sort()).toEqual(["content", "filename"]);
+      expect(Buffer.from(file.content, "base64").subarray(0, 5).toString()).toBe("%PDF-");
+    }
+    expect(storageReads.sort()).toEqual([pdf(allIds[0]), pdf(allIds[2])].sort());
+    expect(signedPaths).toHaveLength(0);
+    expect(await snapshot(paid.id)).toMatchObject({ status: "paid", entitlements: 2 });
+  });
+
+  it("corrects the address before delivery, rejects malformed addresses and keeps the checkout email", async () => {
+    const paid = await paidPurchase();
+    for (const email of ["not-an-email", "a@", "spaces in@example.com"])
+      expect((await send(paid.id, paid.session, { email })).status).toBe(400);
+    expect(await deliveryRow(paid.id)).toBeUndefined();
+    const corrected = await send(paid.id, paid.session, {
+      email: "Reader.Correct@Example.com",
+    });
+    expect(corrected.status).toBe(200);
+    expect(((await corrected.json()) as PublicOrder).delivery).toMatchObject({
+      email: "reader.correct@example.com",
+      status: "sent",
+      locked: true,
+    });
+    expect(emailRequests.map((entry) => entry.body.to)).toEqual([
+      ["reader.correct@example.com"],
+    ]);
+    const { rows } = await pool.query(
+      "select customer_email from public.orders where id=$1",
+      [paid.id],
+    );
+    expect(rows[0].customer_email).toBe(paid.payload.email);
+    const locked = await send(paid.id, paid.session, { email: "third@example.com" });
+    expect(locked.status).toBe(409);
+    expect((await locked.json()).error.code).toBe("DELIVERY_LOCKED");
+    expect((await deliveryRow(paid.id)).delivery_email).toBe("reader.correct@example.com");
+    expect(emailRequests).toHaveLength(1);
+  });
+
+  it("attaches only the books in the paid order and ignores client-chosen files", async () => {
+    const paid = await paidPurchase([allIds[3]]);
+    const response = await send(paid.id, paid.session, {
+      attachments: [pdf(allIds[0]), "../../secrets.pdf"],
+      storage_path: pdf(allIds[1]),
+      product_ids: allIds,
+      book_ids: allIds,
+    });
+    expect(response.status).toBe(200);
+    expect(emailRequests).toHaveLength(1);
+    expect(emailRequests[0].body.attachments.map((file) => file.filename)).toEqual([
+      `${title(allIds[3])}.pdf`,
+    ]);
+    expect(storageReads).toEqual([pdf(allIds[3])]);
+  });
+
+  it("sends exactly one email for double clicks, concurrent requests and repeats after SENT", async () => {
+    const paid = await paidPurchase(allIds);
+    const responses = await Promise.all(
+      Array.from({ length: 4 }, () => send(paid.id, paid.session)),
+    );
+    for (const response of responses) expect(response.status).toBe(200);
+    expect(emailRequests).toHaveLength(1);
+    expect(emailRequests[0].body.attachments).toHaveLength(5);
+    const again = await send(paid.id, paid.session);
+    expect(((await again.json()) as PublicOrder).delivery?.status).toBe("sent");
+    expect(emailRequests).toHaveLength(1);
+    expect(await deliveryRow(paid.id)).toMatchObject({ status: "sent", attempt_count: 1 });
+  });
+
+  it("keeps the payment paid and downloads working through provider failures, and retries idempotently", async () => {
+    const paid = await paidPurchase([allIds[1]]);
+    const before = await snapshot(paid.id);
+    faults.emailStatus = 1;
+    const failed = await send(paid.id, paid.session);
+    expect(failed.status).toBe(200);
+    expect(((await failed.json()) as PublicOrder).delivery).toMatchObject({
+      status: "failed",
+      error: "provider_unavailable",
+      locked: false,
+      can_retry: true,
+    });
+    expect(await snapshot(paid.id)).toMatchObject({
+      status: before.status,
+      payments: before.payments,
+      entitlements: before.entitlements,
+    });
+    const downloadBody = {
+      order_id: paid.id,
+      entitlement_id: paid.purchase.entitlements[0].id,
+    };
+    expect((await download(request("downloads", downloadBody, paid.session))).status).toBe(200);
+    faults.emailTimeout = 1;
+    expect(((await (await send(paid.id, paid.session)).json()) as PublicOrder).delivery).toMatchObject({
+      status: "failed",
+      error: "provider_timeout",
+    });
+    // Resend accepted the email but the response was lost: the retry must not send twice.
+    faults.emailLost = 1;
+    expect(((await (await send(paid.id, paid.session)).json()) as PublicOrder).delivery?.status).toBe("failed");
+    const retried = await send(paid.id, paid.session);
+    expect(((await retried.json()) as PublicOrder).delivery).toMatchObject({
+      status: "sent",
+      locked: true,
+    });
+    expect(emailRequests).toHaveLength(4);
+    expect(new Set(emailRequests.map((entry) => entry.key)).size).toBe(1);
+    expect(acceptedEmails.size).toBe(1);
+    expect(await deliveryRow(paid.id)).toMatchObject({ status: "sent", attempt_count: 4 });
+    expect(await snapshot(paid.id)).toMatchObject({ status: "paid", payments: 1, entitlements: 1 });
+    expect((await download(request("downloads", downloadBody, paid.session))).status).toBe(200);
+  });
+
+  it("lets a failed delivery be redirected to a corrected address with a new idempotency key", async () => {
+    const paid = await paidPurchase();
+    faults.emailStatus = 1;
+    await send(paid.id, paid.session);
+    const redirected = await send(paid.id, paid.session, { email: "fixed@example.com" });
+    expect(((await redirected.json()) as PublicOrder).delivery).toMatchObject({
+      email: "fixed@example.com",
+      status: "sent",
+    });
+    const row = await deliveryRow(paid.id);
+    expect(emailRequests.map((entry) => [entry.key, entry.body.to[0]])).toEqual([
+      [`pnp-delivery-${row.id}-v1`, paid.payload.email],
+      [`pnp-delivery-${row.id}-v2`, "fixed@example.com"],
+    ]);
+  });
+
+  it("blocks delivery after a refund, as downloads already are", async () => {
+    const paid = await paidPurchase();
+    paid.payment.amount_refunded = paid.payment.amount;
+    expect((await notify(paid.payment, "refund.processed")).status).toBe(200);
+    expect((await send(paid.id, paid.session)).status).toBe(403);
+    expect(
+      (
+        await download(
+          request(
+            "downloads",
+            { order_id: paid.id, entitlement_id: paid.purchase.entitlements[0].id },
+            paid.session,
+          ),
+        )
+      ).status,
+    ).toBe(403);
+    expect(emailRequests).toHaveLength(0);
+  });
+
+  it("fails safely without RESEND_API_KEY: no delivery state, payment and downloads intact", async () => {
+    runtime.service = new CommerceService(
+      createRepository(supabase, serviceKey),
+      createPaymentProvider(keyId, secret),
+      { keyId, keySecret: secret, webhookSecret },
+    );
+    const paid = await paidPurchase();
+    const response = await send(paid.id, paid.session);
+    expect(response.status).toBe(503);
+    expect((await response.json()).error.code).toBe("EMAIL_UNAVAILABLE");
+    expect(await deliveryRow(paid.id)).toBeUndefined();
+    expect(await snapshot(paid.id)).toMatchObject({ status: "paid", entitlements: 1 });
+    expect(
+      (
+        await download(
+          request(
+            "downloads",
+            { order_id: paid.id, entitlement_id: paid.purchase.entitlements[0].id },
+            paid.session,
+          ),
+        )
+      ).status,
+    ).toBe(200);
+    expect((await runFallback()).status).toBe(503);
+  });
+
+  it("loads historical paid orders without an email and delivers only to an address the session supplies", async () => {
+    const paid = await paidPurchase();
+    await pool.query("update public.orders set customer_email=null where id=$1", [paid.id]);
+    await pool.query(
+      "update public.download_entitlements set customer_email=null where order_id=$1",
+      [paid.id],
+    );
+    const view = await orderRead(paid.id, paid.session);
+    expect(view.status).toBe(200);
+    expect(((await view.json()) as PublicOrder).delivery).toMatchObject({
+      email: null,
+      status: "pending",
+    });
+    expect(
+      (
+        await download(
+          request(
+            "downloads",
+            { order_id: paid.id, entitlement_id: paid.purchase.entitlements[0].id },
+            paid.session,
+          ),
+        )
+      ).status,
+    ).toBe(200);
+    const missing = await send(paid.id, paid.session);
+    expect(missing.status).toBe(400);
+    expect((await missing.json()).error.code).toBe("DELIVERY_EMAIL_REQUIRED");
+    expect(await deliveryRow(paid.id)).toBeUndefined();
+    const supplied = await send(paid.id, paid.session, { email: "Recovered@Example.com" });
+    expect(((await supplied.json()) as PublicOrder).delivery).toMatchObject({
+      email: "recovered@example.com",
+      status: "sent",
+    });
+  });
+
+  it("emails unconfirmed paid orders to the checkout email after the grace period, exactly once and only when deliverable", async () => {
+    const eligible = await paidByWebhook([allIds[4]]);
+    const manual = await paidPurchase();
+    expect((await send(manual.id, manual.session)).status).toBe(200);
+    const confirmedFailure = await paidPurchase();
+    faults.emailStatus = 1;
+    await send(confirmedFailure.id, confirmedFailure.session);
+    const recent = await paidByWebhook();
+    const stale = await paidByWebhook();
+    const noEmail = await paidByWebhook();
+    await pool.query("update public.orders set customer_email=null where id=$1", [noEmail.id]);
+    await pool.query(
+      "update public.download_entitlements set customer_email=null where order_id=$1",
+      [noEmail.id],
+    );
+    const unpaid = await start();
+    const failedPayment = await start();
+    expect(
+      (
+        await notify(
+          capture(failedPayment.checkout, { status: "failed", captured: false }),
+          "payment.failed",
+        )
+      ).status,
+    ).toBe(200);
+    const refunded = await paidByWebhook();
+    refunded.payment.amount_refunded = refunded.payment.amount;
+    expect((await notify(refunded.payment, "refund.processed")).status).toBe(200);
+    await backdate(
+      [
+        eligible.id,
+        manual.id,
+        confirmedFailure.id,
+        noEmail.id,
+        refunded.id,
+        unpaid.checkout.internal_order_id,
+        failedPayment.checkout.internal_order_id,
+      ],
+      "6 minutes",
+    );
+    await backdate([stale.id], "2 days");
+    const earlier = emailRequests.length;
+
+    const run = await runFallback();
+    expect(run.status).toBe(200);
+    expect(await run.json()).toEqual({ claimed: 1, sent: 1, failed: 0 });
+    const automatic = emailRequests.slice(earlier);
+    expect(automatic).toHaveLength(1);
+    expect(automatic[0].body.to).toEqual([eligible.payload.email]);
+    expect(automatic[0].body.attachments.map((file) => file.filename)).toEqual([
+      `${title(allIds[4])}.pdf`,
+    ]);
+    const row = await deliveryRow(eligible.id);
+    expect(row).toMatchObject({ status: "sent", delivery_email: eligible.payload.email });
+    expect(row.delivery_email_confirmed_at).toBeNull();
+    expect(row.delivery_email_locked_at).not.toBeNull();
+    for (const id of [recent.id, stale.id, noEmail.id, refunded.id])
+      expect(await deliveryRow(id)).toBeUndefined();
+    expect(await deliveryRow(confirmedFailure.id)).toMatchObject({
+      status: "failed",
+      attempt_count: 1,
+    });
+    expect(await deliveryRow(manual.id)).toMatchObject({ status: "sent", attempt_count: 1 });
+
+    const repeat = await runFallback();
+    expect(await repeat.json()).toEqual({ claimed: 0, sent: 0, failed: 0 });
+    expect(emailRequests).toHaveLength(earlier + 1);
+  });
+
+  it("retries a failed automatic delivery a bounded number of times", async () => {
+    const paid = await paidByWebhook();
+    await backdate([paid.id], "6 minutes");
+    faults.emailStatus = 10;
+    expect(await (await runFallback()).json()).toMatchObject({ claimed: 1, failed: 1 });
+    for (let attempt = 2; attempt <= 4; attempt++) {
+      await pool.query(
+        "update public.email_deliveries set failed_at = now() - interval '16 minutes' where order_id=$1",
+        [paid.id],
+      );
+      await runFallback();
+    }
+    expect(await deliveryRow(paid.id)).toMatchObject({ status: "failed", attempt_count: 3 });
+    expect(emailRequests).toHaveLength(3);
+    expect(await snapshot(paid.id)).toMatchObject({ status: "paid", entitlements: 1 });
   });
 });

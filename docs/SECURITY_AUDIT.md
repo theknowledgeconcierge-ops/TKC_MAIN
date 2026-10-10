@@ -27,6 +27,10 @@ The session is hash-only in `purchase_sessions` and raw only in a 30-day HttpOnl
 
 The complete [lifecycle matrix](LIFECYCLE_AUDIT.md) documents failure and recovery boundaries. Apply the new migration and app together; existing data remains, legacy purchase authorization is invalidated. No production database was modified by this local fix.
 
+## Post-purchase email delivery boundary
+
+Email delivery reuses the purchase-session boundary: viewing the delivery address, confirming, correcting, sending and retrying all require the order's HttpOnly purchase session, fresh Razorpay evidence and a locked SQL recheck of the session. A copied thank-you URL returns a generic page with no customer data. Attachments are derived server-side from the paid order's active entitlements and the canonical storage mapping, read privately; clients cannot name files and the bucket stays private. Claims, leases and stable provider idempotency keys prevent duplicate emails; email failure never alters payment state. The scheduled fallback endpoint is bearer-secret protected and returns counts only. Details: [email delivery](EMAIL_DELIVERY.md).
+
 ## Findings fixed in code
 
 | Severity | Finding | Resolution and evidence |

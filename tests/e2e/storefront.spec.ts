@@ -376,11 +376,20 @@ test("legacy purchase links and a copied thank-you URL cannot unlock a clean bro
   await page.goto(`/thank-you?order=${id}#access=${"a".repeat(43)}`);
   // Array form retries until the route transition leaves exactly one page.
   await expect(page.getByTestId("thank-you-heading")).toHaveText([
-    "We couldn’t open this purchase.",
+    "This purchase is not available in this browser.",
   ]);
+  await expect(page.getByTestId("thank-you-copy")).toHaveText(
+    "Downloads and delivery settings are available only from the browser used to complete the purchase.",
+  );
+  await expect(page.getByTestId("thank-you-return-store")).toHaveAttribute(
+    "href",
+    "/books",
+  );
   expect(new URL(page.url()).hash).toBe("");
   expect(exchanged).toBe(false);
   await expect(page.locator('[data-testid^="download-"]')).toHaveCount(0);
+  await expect(page.locator('[data-testid^="delivery-"]')).toHaveCount(0);
+  await expect(page.getByTestId("thank-you-order-number")).toHaveCount(0);
   await expect(page.getByTestId("save-purchase-link")).toHaveCount(0);
   expect(
     (
@@ -661,3 +670,154 @@ for (const count of [1, 2, 3, 4, 5]) {
     );
   });
 }
+
+const deliveryOrderId = "5d2c3c7e-8f1a-4b6e-9d0c-2a7b9e4f1c63";
+function deliveryOrder(delivery: Record<string, unknown>) {
+  return {
+    id: deliveryOrderId,
+    order_number: "TKC-delivery-fixture",
+    status: "paid",
+    books: [ids[0], ids[1]],
+    pricing: { total_inr: 399 },
+    payment_mode: "test",
+    download_authorized: true,
+    entitlements: [
+      { id: "5d2c3c7e-8f1a-4b6e-9d0c-2a7b9e4f1c60", product_id: ids[0] },
+      { id: "5d2c3c7e-8f1a-4b6e-9d0c-2a7b9e4f1c61", product_id: ids[1] },
+    ],
+    delivery: {
+      email: "checkout@example.com",
+      status: "pending",
+      locked: false,
+      sent_at: null,
+      error: null,
+      can_retry: true,
+      ...delivery,
+    },
+  };
+}
+async function routeDelivery(
+  page: import("@playwright/test").Page,
+  responses: Record<string, unknown>[],
+) {
+  let current = deliveryOrder({});
+  const bodies: Record<string, unknown>[] = [];
+  for (const path of [`**/api/orders/${deliveryOrderId}`, "**/api/orders/reconcile"])
+    await page.route(path, (route) => route.fulfill({ json: current }));
+  await page.route("**/api/orders/delivery", async (route) => {
+    bodies.push(route.request().postDataJSON());
+    current = deliveryOrder(responses.shift()!);
+    await route.fulfill({ json: current });
+  });
+  return bodies;
+}
+
+test("post-purchase delivery confirms, survives a provider failure and locks after sending", async ({
+  page,
+}) => {
+  const bodies = await routeDelivery(page, [
+    { status: "failed", error: "provider_unavailable" },
+    {
+      status: "sent",
+      locked: true,
+      can_retry: false,
+      sent_at: "2026-10-10T12:00:00.000Z",
+    },
+  ]);
+  await page.goto(`/thank-you?order=${deliveryOrderId}`);
+  // Array form retries until the route transition leaves exactly one page.
+  await expect(page.getByTestId("thank-you-overline")).toHaveText([
+    "✓ Payment successful",
+  ]);
+  await expect(page.getByTestId("thank-you-heading")).toHaveText([
+    "Your 2 books are ready.",
+  ]);
+  const panel = page.getByTestId("delivery-pending");
+  await expect(panel).toContainText("We'll send the PDFs to:");
+  await expect(panel.getByTestId("delivery-email")).toHaveText(
+    "checkout@example.com",
+  );
+  await expect(page.getByTestId("downloads-panel")).toBeVisible();
+  await page.getByTestId("delivery-confirm-btn").click();
+  const failed = page.getByTestId("delivery-failed");
+  await expect(failed).toContainText("We couldn't send the email right now.");
+  await expect(failed.getByRole("button", { name: "Download books now" })).toBeVisible();
+  // Email failure never hides the paid state or browser downloads.
+  await expect(page.getByTestId("thank-you-payment-status")).toHaveText("paid");
+  await expect(page.getByTestId(`download-${ids[0]}`)).toBeEnabled();
+  await page.getByTestId("delivery-retry-btn").click();
+  const sent = page.getByTestId("delivery-sent");
+  await expect(sent).toContainText("✓ Books sent");
+  await expect(sent).toContainText("Your 2 books were sent to:");
+  await expect(sent).toContainText("Check Spam/Promotions if you don't see the email.");
+  await expect(page.getByTestId("delivery-change-btn")).toHaveCount(0);
+  expect(bodies).toEqual([
+    { order_id: deliveryOrderId },
+    { order_id: deliveryOrderId },
+  ]);
+});
+
+test("post-purchase delivery sends to a corrected email and offers no further changes", async ({
+  page,
+}) => {
+  const bodies = await routeDelivery(page, [
+    { email: "reader@example.com", status: "sent", locked: true, can_retry: false },
+  ]);
+  await page.goto(`/thank-you?order=${deliveryOrderId}`);
+  await page.getByTestId("delivery-change-btn").click();
+  const form = page.getByTestId("delivery-change-form");
+  await expect(page.getByTestId("delivery-pending")).toContainText(
+    "Current: checkout@example.com",
+  );
+  await expect(form).toContainText("Send my books instead to:");
+  await page.getByTestId("delivery-email-input").fill("not-an-email");
+  await page.getByTestId("delivery-update-btn").click();
+  expect(bodies).toHaveLength(0);
+  await page.getByTestId("delivery-email-input").fill("Reader@Example.com");
+  await page.getByTestId("delivery-update-btn").click();
+  await expect(page.getByTestId("delivery-sent").getByTestId("delivery-email")).toHaveText(
+    "reader@example.com",
+  );
+  await expect(page.getByTestId("delivery-change-btn")).toHaveCount(0);
+  await expect(page.getByTestId("delivery-email-input")).toHaveCount(0);
+  // The client names its order and address only; recipients' files are chosen by the server.
+  expect(bodies).toEqual([
+    { order_id: deliveryOrderId, email: "reader@example.com" },
+  ]);
+});
+
+test("download all requests exactly the purchased books from the authorized order", async ({
+  page,
+}) => {
+  await routeDelivery(page, []);
+  const requested: string[] = [];
+  const files: string[] = [];
+  await page.route("**/api/downloads", async (route) => {
+    const body = route.request().postDataJSON();
+    expect(body.order_id).toBe(deliveryOrderId);
+    const entitlement = deliveryOrder({}).entitlements.find(
+      (item) => item.id === body.entitlement_id,
+    )!;
+    requested.push(entitlement.product_id);
+    await route.fulfill({
+      json: {
+        url: `https://delivery-fixture.supabase.co/storage/v1/object/sign/handbooks/handbooks/${entitlement.product_id}.pdf?token=expiring-fixture`,
+        expires_in: 60,
+      },
+    });
+  });
+  await page.route("https://delivery-fixture.supabase.co/**", async (route) => {
+    const filename = new URL(route.request().url()).pathname.split("/").at(-1)!;
+    files.push(filename);
+    await route.fulfill({
+      contentType: "application/pdf",
+      headers: { "Content-Disposition": `attachment; filename="${filename}"` },
+      body: `%PDF-1.7\nfixture ${filename}\n%%EOF`,
+    });
+  });
+  await page.goto(`/thank-you?order=${deliveryOrderId}`);
+  await page.getByTestId("downloads-all-btn").click();
+  await expect.poll(() => requested).toEqual([ids[0], ids[1]]);
+  await expect.poll(() => files).toEqual([`${ids[0]}.pdf`, `${ids[1]}.pdf`]);
+  await expect(page.getByTestId("thank-you-page")).toBeVisible();
+});

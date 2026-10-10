@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createHmac, randomBytes, randomUUID } from "node:crypto";
 import { CommerceService } from "@/lib/server/commerce";
 import type { Repository, PaymentProvider } from "@/lib/server/contracts";
+import type { EmailProvider } from "@/lib/server/email";
 import type {
   OrderRecord,
   PaymentEvidence,
@@ -154,6 +155,12 @@ beforeEach(() => {
         "https://fixture.supabase.co/storage/v1/object/sign/handbooks/test.pdf?token=temporary",
     ),
     rateLimit: async () => true,
+    getEmailDelivery: vi.fn(async () => null),
+    claimEmailDelivery: vi.fn(async () => ({ outcome: "sent" as const })),
+    claimFallbackDeliveries: vi.fn(async () => []),
+    emailDeliveryPayload: vi.fn(async () => null),
+    finishEmailDelivery: vi.fn(async () => true),
+    readPdf: vi.fn(async () => Buffer.from("%PDF-1.7 fixture")),
   };
   provider = {
     createOrder: vi.fn(async (o) => {
@@ -665,5 +672,161 @@ describe("webhook authenticity, duplicates and retry", () => {
     await service.webhook(Buffer.from(body), signed(body));
     expect(orders.get(checkout.internal_order_id)?.status).toBe("refunded");
     expect(entitlements[0].revoked_at).not.toBeNull();
+  });
+});
+describe("post-purchase email delivery boundaries", () => {
+  async function paid() {
+    const { checkout, payment } = await captured();
+    await service.verify(
+      {
+        internal_order_id: checkout.internal_order_id,
+        razorpay_order_id: payment.order_id,
+        razorpay_payment_id: payment.id,
+        razorpay_signature: signature(payment.order_id, payment.id),
+      },
+      token,
+    );
+    return {
+      id: checkout.internal_order_id,
+      session: await service.issuePurchaseSession(
+        checkout.internal_order_id,
+        payment.id,
+      ),
+    };
+  }
+  const emailing = (send: EmailProvider["send"]) =>
+    new CommerceService(
+      repo,
+      provider,
+      { keyId: "rzp_test_fixture", keySecret: secret },
+      { provider: { name: "test", send }, from: "Pixel n Palm <books@example.com>" },
+    );
+  it("rejects a missing purchase session before any order, delivery or provider lookup", async () => {
+    const { id } = await paid();
+    const spies = [
+      vi.spyOn(repo, "getPurchaseSession"),
+      vi.spyOn(repo, "getOrder"),
+      vi.mocked(repo.getEmailDelivery),
+      vi.mocked(repo.claimEmailDelivery),
+    ];
+    for (const spy of spies) spy.mockClear();
+    await expect(service.deliver(id, undefined, "a@example.com")).rejects.toMatchObject({
+      status: 404,
+      code: "PURCHASE_SESSION_REQUIRED",
+    });
+    for (const spy of spies) expect(spy).not.toHaveBeenCalled();
+    // A checkout continuation key is not a purchase session either.
+    await expect(service.deliver(id, token)).rejects.toMatchObject({ status: 404 });
+    expect(repo.getOrder).not.toHaveBeenCalled();
+    expect(repo.claimEmailDelivery).not.toHaveBeenCalled();
+  });
+  it("shows delivery state only to the purchase session", async () => {
+    const { id, session } = await paid();
+    expect((await service.read(id, token)).delivery).toBeNull();
+    expect((await service.read(id, undefined, session)).delivery).toEqual({
+      email: "buyer@example.com",
+      status: "pending",
+      locked: false,
+      sent_at: null,
+      error: null,
+      can_retry: true,
+    });
+  });
+  it("keeps the paid purchase view and downloads working when delivery state is unavailable", async () => {
+    const { id, session } = await paid();
+    vi.mocked(repo.getEmailDelivery).mockRejectedValue(new Error("database"));
+    const order = await service.read(id, undefined, session);
+    expect(order).toMatchObject({ download_authorized: true, delivery: null });
+    expect(order.entitlements).toHaveLength(1);
+  });
+  it("fails safely without an email provider and leaves the paid order and downloads intact", async () => {
+    const { id, session } = await paid();
+    await expect(service.deliver(id, session)).rejects.toMatchObject({
+      status: 503,
+      code: "EMAIL_UNAVAILABLE",
+    });
+    expect(repo.claimEmailDelivery).not.toHaveBeenCalled();
+    expect(orders.get(id)!.status).toBe("paid");
+    await expect(
+      service.download(id, entitlements[0].id, session),
+    ).resolves.toMatchObject({ expires_in: 60 });
+  });
+  it.each([
+    [
+      "attachment_mapping_mismatch",
+      [{ product_id: "the-first-table", storage_path: "handbooks/secret.pdf" }],
+      1,
+    ],
+    [
+      "incomplete_entitlements",
+      [{ product_id: "the-first-table", storage_path: "handbooks/the-first-table.pdf" }],
+      2,
+    ],
+    ["incomplete_entitlements", [], 0],
+  ] as const)(
+    "fails delivery as %s without sending when attachments are not exactly the purchased books",
+    async (error, attachments, item_count) => {
+      const { id, session } = await paid();
+      const send = vi.fn(async () => ({ id: "email_fixture" }));
+      vi.mocked(repo.claimEmailDelivery).mockResolvedValueOnce({
+        outcome: "claimed",
+        delivery_id: "d",
+        claim_token: "c",
+      });
+      vi.mocked(repo.emailDeliveryPayload).mockResolvedValueOnce({
+        delivery_email: "buyer@example.com",
+        idempotency_key: "pnp-delivery-d-v1",
+        order_id: id,
+        order_number: orders.get(id)!.order_number,
+        customer_name: "Test Buyer",
+        total: 24900,
+        currency: "INR",
+        razorpay_payment_id: "pay_abc",
+        item_count,
+        attachments: [...attachments],
+      });
+      await emailing(send).deliver(id, session);
+      expect(send).not.toHaveBeenCalled();
+      expect(repo.readPdf).not.toHaveBeenCalled();
+      expect(repo.finishEmailDelivery).toHaveBeenCalledWith({
+        delivery_id: "d",
+        claim_token: "c",
+        outcome: "failed",
+        error,
+      });
+    },
+  );
+  it("refuses an oversize order as a whole instead of silently dropping a book", async () => {
+    const { id, session } = await paid();
+    const send = vi.fn(async () => ({ id: "email_fixture" }));
+    vi.mocked(repo.readPdf).mockResolvedValue(
+      Buffer.concat([Buffer.from("%PDF-"), Buffer.alloc(20 * 1024 * 1024)]),
+    );
+    vi.mocked(repo.claimEmailDelivery).mockResolvedValueOnce({
+      outcome: "claimed",
+      delivery_id: "d",
+      claim_token: "c",
+    });
+    vi.mocked(repo.emailDeliveryPayload).mockResolvedValueOnce({
+      delivery_email: "buyer@example.com",
+      idempotency_key: "pnp-delivery-d-v1",
+      order_id: id,
+      order_number: orders.get(id)!.order_number,
+      customer_name: "Test Buyer",
+      total: 39900,
+      currency: "INR",
+      razorpay_payment_id: "pay_abc",
+      item_count: 2,
+      attachments: [
+        { product_id: "the-first-table", storage_path: "handbooks/the-first-table.pdf" },
+        { product_id: "the-full-table", storage_path: "handbooks/the-full-table.pdf" },
+      ],
+    });
+    await emailing(send).deliver(id, session);
+    expect(send).not.toHaveBeenCalled();
+    expect(repo.finishEmailDelivery).toHaveBeenCalledWith(
+      expect.objectContaining({ outcome: "failed", error: "attachments_too_large" }),
+    );
+    expect(orders.get(id)!.status).toBe("paid");
   });
 });

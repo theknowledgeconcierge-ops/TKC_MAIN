@@ -28,6 +28,9 @@ Open http://localhost:3000. The storefront and build work without credentials; p
 | `RAZORPAY_KEY_ID` | Matching test/live key ID | Server configuration; returned to authorized checkout because Razorpay requires it in the browser |
 | `RAZORPAY_KEY_SECRET` | Secret paired with key ID | Secret, server only |
 | `RAZORPAY_WEBHOOK_SECRET` | Webhook secret (at least 20 characters); required for production deployments or live Razorpay keys, optional for test checkout in local development/Netlify Deploy Previews and branch deploys | Secret, server only |
+| `RESEND_API_KEY` | Resend API key (`re_...`, sending access). Required for post-purchase email delivery; unset ⇒ delivery fails safely and downloads still work | Secret, server only |
+| `EMAIL_FROM` | Optional sender, default `Pixel n Palm <books@pixelnpalm.com>` (requires the verified Resend domain) | Server configuration |
+| `EMAIL_DELIVERY_CRON_SECRET` | At least 32 random characters; authorizes the scheduled close-tab delivery fallback. Set with Functions scope | Secret, server only |
 
 No Supabase anonymous key, `NEXT_PUBLIC_*` variables or duplicate Razorpay keys are needed. Never put secrets in public variables. Environment validation is lazy at the server boundary so builds do not need production credentials; `check:env` checks everything explicitly without printing values.
 
@@ -41,9 +44,9 @@ Upload all five PDFs before accepting live purchases. A preview with incomplete 
 
 ## Supabase setup: one migration path
 
-For a **fresh Supabase project**, run every file in `supabase/migrations/` once in filename order: `202610090001_storefront.sql`, then `202610100001_purchase_sessions.sql`. Each file is transactional; together they create the tables, constraints, indexes, functions, permissions and private `handbooks` bucket. No dashboard policy editing is needed.
+For a **fresh Supabase project**, run every file in `supabase/migrations/` once in filename order: `202610090001_storefront.sql`, then `202610100001_purchase_sessions.sql`, then `202610100002_email_delivery.sql`. Each file is transactional; together they create the tables, constraints, indexes, functions, permissions and private `handbooks` bucket. No dashboard policy editing is needed.
 
-**Existing deployments:** apply only the new `202610100001_purchase_sessions.sql` migration. It renames the old authorization columns to checkout-only names, adds hash-only purchase sessions and relaxes the database `NOT NULL` on customer email (checkout itself requires a valid email). Coordinate this migration with the new application deployment while checkout is paused: the older application expects the old column names. Existing orders, payments and entitlements remain; old purchase links/cookies no longer authorize downloads. Never rerun the initial migration against an initialized project.
+**Existing deployments:** apply every unapplied migration in filename order. `202610100002_email_delivery.sql` is additive (delivery table, indexes and functions only) and must be applied before or with the email-delivery release. `202610100001_purchase_sessions.sql`, if not yet applied, It renames the old authorization columns to checkout-only names, adds hash-only purchase sessions and relaxes the database `NOT NULL` on customer email (checkout itself requires a valid email). Coordinate this migration with the new application deployment while checkout is paused: the older application expects the old column names. Existing orders, payments and entitlements remain; old purchase links/cookies no longer authorize downloads. Never rerun the initial migration against an initialized project.
 
 For repeatable CLI deployment, the same migration is compatible with:
 
@@ -92,9 +95,10 @@ Three original PDFs remain in the ignored local `private-pdfs/` staging director
 | `payment_events` | Unique idempotency key, provider event reference, event type and order/payment FKs; no raw customer/card payload |
 | `download_entitlements` | Random UUID; unique `(order_id, product_id)`; item and payment/order FKs; customer, path and revocation timestamp |
 | `purchase_sessions` | SHA-256 session hash primary key; order/payment foreign keys, 30-day expiry; issued only after verified fulfillment |
+| `email_deliveries` | One row per paid order: checkout-preserving delivery address, confirmation/lock timestamps, `pending → sending → sent/failed` state, claim lease, attempt count and unique provider idempotency key ([email delivery](docs/EMAIL_DELIVERY.md)) |
 | `rate_limits` | Expiring hashed counters shared by serverless instances; no extra infrastructure |
 
-Provider IDs, token hashes, order items and entitlements have unique indexes. Additional indexes cover paid customer lookup, order/event dates, order payment/event lookup and counter expiry. All seven tables have RLS enabled, no browser policies, and privileges revoked from anonymous/authenticated roles. Only the service role can use commerce tables/RPCs. Storage grants no customer object policies. All privileged code imports `server-only`; the browser never initializes Supabase.
+Provider IDs, token hashes, order items and entitlements have unique indexes. Additional indexes cover paid customer lookup, order/event dates, order payment/event lookup and counter expiry. All eight tables have RLS enabled, no browser policies, and privileges revoked from anonymous/authenticated roles. Only the service role can use commerce tables/RPCs. Storage grants no customer object policies. All privileged code imports `server-only`; the browser never initializes Supabase.
 
 Atomic PostgreSQL RPCs create orders/items, claim gateway creation, bind provider orders and apply payments/events/entitlements. Row locks serialize callbacks and webhooks. Failure rolls back the entire fulfillment transaction, including event insertion, so a webhook retry can fulfill it. Only server-computed prices reach these RPCs.
 
@@ -128,7 +132,7 @@ docs/                    migration decisions and security/verification evidence
 
 States: `created → payment_pending → paid`; failed attempts can produce `failed → paid`; any processed partial/full refund produces `paid → refunded` and revokes entitlements. A dismissed popup stays pending because dismissal is not payment evidence.
 
-No accounts are required. A valid email is required at checkout as the delivery and receipt address; it never authorizes downloads, and transactional email delivery is not implemented yet. My purchases stores only non-authorizing order UUIDs and works in the browser that received the verified purchase session. Clearing cookies, changing devices or losing the callback before session issuance requires separately verified recovery. The application deliberately has no URL-token exchange, exported purchase link or token-minting recovery script. A webhook still fulfills a closed-browser payment durably, but its checkout cookie cannot unlock those PDFs. Keep the Razorpay payment reference and contact the seller; do not pay again. Automated cross-device recovery is outside this change and is not claimed implemented.
+No accounts are required. A valid email is required at checkout. After verified payment the purchasing browser can download immediately and confirm or correct the delivery email; the server then emails only that paid order's PDFs as attachments through Resend, and locks the address once sent. If the browser closes before confirmation, a scheduled job emails the checkout address after about 5–10 minutes. Email is V1 cross-device delivery and recovery, never authorization: the thank-you URL and order UUIDs grant nothing in another browser. Email failure never affects the paid order or downloads. Details, state machine and the production checklist: [email delivery](docs/EMAIL_DELIVERY.md). My purchases stores only non-authorizing order UUIDs. The application deliberately has no URL-token exchange, exported purchase link or token-minting recovery script. Keep the Razorpay payment reference; do not pay again.
 
 Already-issued signed URLs remain usable for their 60-second lifetime; downloaded PDFs can be copied. Access control protects private hosting, not DRM.
 

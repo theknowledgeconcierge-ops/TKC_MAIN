@@ -9,7 +9,7 @@ const answers: Record<string, string> = {
   "What's included in the bundle?":
     "All five restaurant business handbooks: The First Table, The Full Table, Behind the Kitchen Door, The Math Behind the Menu, and Empty Tables to Full House.",
   "How do I download my purchase?":
-    "After payment is verified, open My purchases in the same browser to download your handbooks. Keep your payment reference for help if you clear cookies or change devices.",
+    "After payment is verified, download your handbooks on the purchase page in the same browser. We also email the PDFs to the address you confirm, so you can access them on any device.",
   "Are these physical books?":
     "No. These are digital PDF handbooks designed for reading and repeated reference on supported devices.",
 };

@@ -94,6 +94,47 @@ export interface PublicOrder {
   checkout_expires_at: string;
   download_authorized: boolean;
   entitlements: { id: string; product_id: string }[];
+  // Present only for a verified purchase session on a paid order.
+  delivery: PublicDelivery | null;
+}
+export type DeliveryStatus = "pending" | "sending" | "sent" | "failed";
+export interface PublicDelivery {
+  email: string | null;
+  status: DeliveryStatus;
+  locked: boolean;
+  sent_at: string | null;
+  error: string | null;
+  can_retry: boolean;
+}
+export interface EmailDeliveryRecord {
+  id: string;
+  order_id: string;
+  delivery_email: string;
+  status: DeliveryStatus;
+  attempt_count: number;
+  lease_expires_at: string | null;
+  delivery_email_locked_at: string | null;
+  last_error: string | null;
+  sent_at: string | null;
+}
+export interface DeliveryClaim {
+  delivery_id: string;
+  claim_token: string;
+}
+export type DeliveryClaimResult =
+  | ({ outcome: "claimed" } & DeliveryClaim)
+  | { outcome: "sent" | "in_progress" | "exhausted" };
+export interface DeliveryPayload {
+  delivery_email: string;
+  idempotency_key: string;
+  order_id: string;
+  order_number: string;
+  customer_name: string;
+  total: number;
+  currency: string;
+  razorpay_payment_id: string;
+  item_count: number;
+  attachments: { product_id: string; storage_path: string }[];
 }
 export interface CheckoutOrder {
   key_id: string;

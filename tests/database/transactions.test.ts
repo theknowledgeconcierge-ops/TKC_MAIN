@@ -279,6 +279,7 @@ describe("real PostgreSQL transaction invariants", () => {
           client.query("select public.tkc_apply_payment('{}')"),
         ).rejects.toThrow("permission denied");
         for (const table of [
+          "email_deliveries",
           "purchase_sessions",
           "download_entitlements",
           "storage.objects",
@@ -291,6 +292,10 @@ describe("real PostgreSQL transaction invariants", () => {
         for (const name of [
           "tkc_create_purchase_session",
           "tkc_authorize_download",
+          "tkc_claim_email_delivery",
+          "tkc_claim_fallback_deliveries",
+          "tkc_email_delivery_payload",
+          "tkc_finish_email_delivery",
         ])
           await expect(
             client.query(`select public.${name}('{}')`),

@@ -1,7 +1,7 @@
 import "server-only";
 import { randomBytes, randomUUID } from "node:crypto";
 import { z } from "zod";
-import { activeBooks, type ProductId } from "@/lib/catalog";
+import { activeBooks, catalogue, type ProductId } from "@/lib/catalog";
 import { pdfPaths } from "@/lib/catalog/storage";
 import { quoteFor } from "@/lib/commerce/pricing";
 import {
@@ -14,7 +14,10 @@ import {
 } from "@/lib/commerce/validation";
 import type {
   CheckoutOrder,
+  DeliveryClaim,
+  DeliveryPayload,
   OrderRecord,
+  PublicDelivery,
   PublicOrder,
   ProviderOrder,
   ProviderPayment,
@@ -22,6 +25,15 @@ import type {
 } from "@/lib/commerce/types";
 import type { Repository, PaymentProvider } from "./contracts";
 import { HttpError } from "./errors";
+import {
+  DEFAULT_EMAIL_FROM,
+  EmailDeliveryError,
+  assertWithinEmailLimit,
+  deliveryEmailContent,
+  type EmailAttachment,
+  type EmailMessage,
+  type EmailProvider,
+} from "./email";
 import {
   assertCapturedPayment,
   assertPaymentMatches,
@@ -40,6 +52,24 @@ const webhookSchema = z.object({
       .optional(),
   }),
 });
+// Email delivery bounds. Browser downloads never depend on these.
+const delivery = {
+  maxAttempts: 5,
+  // The close-tab fallback retries a failed automatic send at most three times.
+  fallbackMaxAttempts: 3,
+  leaseSeconds: 120,
+  graceSeconds: 300,
+  // Older paid orders are never emailed automatically, e.g. after first deployment.
+  maxAgeSeconds: 24 * 60 * 60,
+  retryAfterSeconds: 15 * 60,
+  batch: 3,
+} as const;
+const sessionRequired = () =>
+  new HttpError(
+    404,
+    "PURCHASE_SESSION_REQUIRED",
+    "Open this purchase in the browser used to complete payment.",
+  );
 export class CommerceService {
   constructor(
     readonly repo: Repository,
@@ -49,6 +79,10 @@ export class CommerceService {
       keySecret: string;
       webhookSecret?: string;
     },
+    private readonly email: {
+      provider: EmailProvider | null;
+      from: string;
+    } = { provider: null, from: DEFAULT_EMAIL_FROM },
   ) {}
   get mode(): "test" | "live" {
     return this.config.keyId.startsWith("rzp_live_") ? "live" : "test";
@@ -232,10 +266,10 @@ export class CommerceService {
     order: OrderRecord,
     purchaseSession = false,
   ): Promise<PublicOrder> {
-    const entitlements =
-      order.status === "paid" && purchaseSession
-        ? await this.repo.getEntitlements(order.id)
-        : [];
+    const paidSession = order.status === "paid" && purchaseSession;
+    const entitlements = paidSession
+      ? await this.repo.getEntitlements(order.id)
+      : [];
     return {
       id: order.id,
       order_number: order.order_number,
@@ -251,6 +285,39 @@ export class CommerceService {
         id,
         product_id,
       })),
+      // Email state must never block a paid buyer's downloads.
+      delivery: paidSession
+        ? await this.deliveryView(order).catch(() => null)
+        : null,
+    };
+  }
+  private async deliveryView(order: OrderRecord): Promise<PublicDelivery> {
+    const record = await this.repo.getEmailDelivery(order.id);
+    if (!record)
+      return {
+        email: order.customer_email,
+        status: "pending",
+        locked: false,
+        sent_at: null,
+        error: null,
+        can_retry: true,
+      };
+    // A lease that expired without a recorded outcome is shown as a retryable failure.
+    const interrupted =
+      record.status === "sending" &&
+      Date.parse(record.lease_expires_at ?? "") <= Date.now();
+    return {
+      email: record.delivery_email,
+      status: interrupted ? "failed" : record.status,
+      locked: record.status === "sent",
+      sent_at: record.sent_at,
+      error: interrupted
+        ? "interrupted"
+        : record.status === "failed"
+          ? record.last_error
+          : null,
+      can_retry:
+        record.status !== "sent" && record.attempt_count < delivery.maxAttempts,
     };
   }
   async read(id: string, checkoutToken?: string, sessionToken?: string) {
@@ -441,6 +508,156 @@ export class CommerceService {
         "This download is unavailable for your purchase.",
       );
     return { url: await this.repo.signDownload(path, 60), expires_in: 60 };
+  }
+  // Confirm, correct or retry delivery for the order bound to this purchase session.
+  async deliver(
+    id: string,
+    sessionToken?: string,
+    email?: string,
+  ): Promise<PublicOrder> {
+    // Authorization precedes every order, delivery and provider lookup.
+    if (!sessionToken) throw sessionRequired();
+    // The same fresh Razorpay evidence as a download: refunds and contradictions block delivery.
+    const current = await this.reconcile(id, undefined, sessionToken);
+    if (current.status !== "paid")
+      throw new HttpError(
+        403,
+        "PAYMENT_REQUIRED",
+        "Book delivery requires a captured payment and is unavailable after a refund.",
+      );
+    const provider = this.email.provider;
+    if (!provider)
+      throw new HttpError(
+        503,
+        "EMAIL_UNAVAILABLE",
+        "We couldn't send the email right now. Your books are ready to download.",
+      );
+    const claim = await this.repo.claimEmailDelivery({
+      order_id: id,
+      session_hash: hashToken(sessionToken),
+      email: email ?? null,
+      provider: provider.name,
+      max_attempts: delivery.maxAttempts,
+      lease_seconds: delivery.leaseSeconds,
+    });
+    if (claim.outcome === "claimed")
+      await this.sendClaimed(provider, claim, false);
+    return this.read(id, undefined, sessionToken);
+  }
+  // Close-tab/callback-loss fallback, invoked by the scheduled function.
+  async processFallbackDeliveries() {
+    const provider = this.email.provider;
+    if (!provider)
+      throw new HttpError(
+        503,
+        "EMAIL_UNAVAILABLE",
+        "Email delivery is not configured.",
+      );
+    const claims = await this.repo.claimFallbackDeliveries({
+      payment_mode: this.mode,
+      provider: provider.name,
+      limit: delivery.batch,
+      grace_seconds: delivery.graceSeconds,
+      max_age_seconds: delivery.maxAgeSeconds,
+      max_attempts: delivery.fallbackMaxAttempts,
+      retry_after_seconds: delivery.retryAfterSeconds,
+      lease_seconds: delivery.leaseSeconds,
+    });
+    let sent = 0;
+    for (const claim of claims)
+      if (await this.sendClaimed(provider, claim, true)) sent++;
+    return { claimed: claims.length, sent, failed: claims.length - sent };
+  }
+  // Only the claim holder sends. Failures are recorded on the delivery, never the order.
+  private async sendClaimed(
+    provider: EmailProvider,
+    claim: DeliveryClaim,
+    verifyPayment: boolean,
+  ): Promise<boolean> {
+    let result:
+      | { outcome: "sent"; provider_message_id: string }
+      | { outcome: "failed"; error: string };
+    try {
+      const payload = await this.repo.emailDeliveryPayload(claim);
+      if (!payload) throw new EmailDeliveryError("not_deliverable");
+      if (verifyPayment) await this.confirmCurrentPayment(payload.order_id);
+      const { id } = await provider.send(await this.deliveryMessage(payload));
+      result = { outcome: "sent", provider_message_id: id };
+    } catch (error) {
+      result = {
+        outcome: "failed",
+        error:
+          error instanceof EmailDeliveryError ? error.code : "delivery_error",
+      };
+    }
+    // If this write is lost the lease expires; the stable idempotency key makes the retry safe.
+    const recorded = await this.repo.finishEmailDelivery({
+      ...claim,
+      ...result,
+    });
+    return recorded && result.outcome === "sent";
+  }
+  // Without a buyer request, recheck Razorpay before attaching PDFs (refunds revoke access).
+  private async confirmCurrentPayment(orderId: string) {
+    try {
+      const order = await this.repo.getOrder(orderId);
+      if (!order?.razorpay_payment_id) throw new Error("not_paid");
+      this.assertMode(order);
+      const payment = await this.provider.getPayment(order.razorpay_payment_id);
+      await this.apply(order, payment, {
+        key: `delivery:${payment.id}`,
+        type: "payment.reconciled",
+      });
+      assertCapturedPayment(payment, order.razorpay_payment_id);
+    } catch {
+      throw new EmailDeliveryError("payment_not_confirmed");
+    }
+  }
+  // Attachments are derived from the paid order's entitlements, never from the client.
+  private async deliveryMessage(payload: DeliveryPayload): Promise<EmailMessage> {
+    if (
+      !payload.attachments.length ||
+      payload.attachments.length !== payload.item_count
+    )
+      throw new EmailDeliveryError("incomplete_entitlements");
+    const books = payload.attachments
+      .map(({ product_id, storage_path }) => {
+        const index = catalogue.findIndex((book) => book.id === product_id);
+        if (
+          index < 0 ||
+          pdfPaths[product_id as ProductId] !== storage_path
+        )
+          throw new EmailDeliveryError("attachment_mapping_mismatch");
+        return { index, title: catalogue[index].title, storage_path };
+      })
+      .sort((a, b) => a.index - b.index);
+    const attachments: EmailAttachment[] = [];
+    for (const book of books) {
+      let content: Buffer;
+      try {
+        content = await this.repo.readPdf(book.storage_path);
+      } catch {
+        throw new EmailDeliveryError("storage_unavailable");
+      }
+      if (content.subarray(0, 5).toString("latin1") !== "%PDF-")
+        throw new EmailDeliveryError("invalid_attachment");
+      attachments.push({ filename: `${book.title}.pdf`, content });
+      // Never silently drop a purchased book: an oversize order fails as a whole.
+      assertWithinEmailLimit(attachments);
+    }
+    return {
+      from: this.email.from,
+      to: payload.delivery_email,
+      ...deliveryEmailContent({
+        customerName: payload.customer_name,
+        orderNumber: payload.order_number,
+        amountPaise: payload.total,
+        paymentReference: payload.razorpay_payment_id,
+        titles: books.map((book) => book.title),
+      }),
+      attachments,
+      idempotencyKey: payload.idempotency_key,
+    };
   }
   async webhook(
     raw: Buffer,

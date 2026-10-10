@@ -1,6 +1,10 @@
 import "server-only";
 import { createClient } from "@supabase/supabase-js";
 import type {
+  DeliveryClaim,
+  DeliveryClaimResult,
+  DeliveryPayload,
+  EmailDeliveryRecord,
   Entitlement,
   OrderRecord,
   PaymentEvidence,
@@ -9,6 +13,35 @@ import type {
 import { PDF_BUCKET } from "@/lib/catalog/storage";
 import type { Repository, NewOrder } from "./contracts";
 import { HttpError, unavailable } from "./errors";
+
+// Expected delivery refusals raised inside the locked SQL transition.
+const deliveryErrors: Record<string, HttpError> = {
+  delivery_not_authorized: new HttpError(
+    404,
+    "PURCHASE_SESSION_REQUIRED",
+    "Open this purchase in the browser used to complete payment.",
+  ),
+  delivery_not_allowed: new HttpError(
+    403,
+    "PAYMENT_REQUIRED",
+    "Book delivery requires a captured payment and is unavailable after a refund.",
+  ),
+  delivery_email_required: new HttpError(
+    400,
+    "DELIVERY_EMAIL_REQUIRED",
+    "Enter the email address where your books should be sent.",
+  ),
+  delivery_locked: new HttpError(
+    409,
+    "DELIVERY_LOCKED",
+    "Your books were already sent. The delivery email can no longer be changed.",
+  ),
+  delivery_too_many_changes: new HttpError(
+    409,
+    "DELIVERY_EMAIL_CHANGE_LIMIT",
+    "The delivery email has been changed too many times. Download your books from this page.",
+  ),
+};
 
 export function createRepository(url: string, key: string): Repository {
   const db = createClient(url, key, {
@@ -37,6 +70,9 @@ export function createRepository(url: string, key: string): Repository {
           "CHECKOUT_CONFLICT",
           "This checkout already has different details.",
         );
+      const delivery = deliveryErrors[result.error.message ?? ""];
+      if (delivery)
+        throw new HttpError(delivery.status, delivery.code, delivery.message);
       console.error(
         JSON.stringify({
           event: "database_operation_failed",
@@ -124,5 +160,32 @@ export function createRepository(url: string, key: string): Repository {
     },
     rateLimit: (key, limit, seconds) =>
       rpc<boolean>("tkc_rate_limit", { key, limit, seconds }),
+    async getEmailDelivery(orderId) {
+      return checked(
+        await db
+          .from("email_deliveries")
+          .select(
+            "id,order_id,delivery_email,status,attempt_count,lease_expires_at,delivery_email_locked_at,last_error,sent_at",
+          )
+          .eq("order_id", orderId)
+          .maybeSingle(),
+      ) as EmailDeliveryRecord | null;
+    },
+    claimEmailDelivery: (input) =>
+      rpc<DeliveryClaimResult>("tkc_claim_email_delivery", input),
+    claimFallbackDeliveries: (input) =>
+      rpc<DeliveryClaim[]>("tkc_claim_fallback_deliveries", input),
+    emailDeliveryPayload: (claim) =>
+      rpc<DeliveryPayload | null>("tkc_email_delivery_payload", claim),
+    finishEmailDelivery: (input) =>
+      rpc<boolean>("tkc_finish_email_delivery", input),
+    async readPdf(path) {
+      const result = await db.storage.from(PDF_BUCKET).download(path);
+      if (result.error || !result.data) {
+        console.error(JSON.stringify({ event: "storage_read_failed" }));
+        throw unavailable();
+      }
+      return Buffer.from(await result.data.arrayBuffer());
+    },
   };
 }

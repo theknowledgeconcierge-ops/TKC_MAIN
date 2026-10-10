@@ -19,6 +19,7 @@ try {
     ["download_entitlements", "id,order_id,payment_id"],
     ["rate_limits", "key"],
     ["purchase_sessions", "token_hash,order_id,payment_id,expires_at"],
+    ["email_deliveries", "id,order_id,status,delivery_email,idempotency_key"],
   ]) {
     // GET with zero rows validates the current schema without reading customer data.
     // HEAD responses can lose the PostgREST error body in the SDK.
@@ -28,7 +29,7 @@ try {
         `Cannot access ${table}. Apply migrations and check server credentials.`,
       );
   }
-  console.log("Database: all seven tables accessible with server credentials");
+  console.log("Database: all eight tables accessible with server credentials");
   const { data: denied, error: authorizationError } = await db.rpc(
     "tkc_authorize_download",
     {
@@ -85,6 +86,39 @@ try {
   console.log(
     `Razorpay: ${env.RAZORPAY_KEY_ID.startsWith("rzp_live_") ? "live" : "test"} API authentication accepted`,
   );
+  if (env.RESEND_API_KEY) {
+    // Read-only: reports sender-domain verification. Sending-only keys cannot list domains.
+    const domain = (env.EMAIL_FROM ?? "books@pixelnpalm.com")
+      .replace(/^.*</, "")
+      .replace(/>$/, "")
+      .split("@")[1];
+    const domains = await fetch("https://api.resend.com/domains", {
+      cache: "no-store",
+      signal: AbortSignal.timeout(12000),
+      headers: {
+        Authorization: `Bearer ${env.RESEND_API_KEY}`,
+        "User-Agent": "pixelnpalm-store/1.0",
+      },
+    });
+    if (domains.status === 401 || domains.status === 403)
+      console.log(
+        "Resend: key accepted for sending only; verify the sender domain in the Resend dashboard",
+      );
+    else if (!domains.ok)
+      throw new Error("Resend authentication failed. Check RESEND_API_KEY.");
+    else {
+      const { data } = (await domains.json()) as {
+        data?: { name: string; status: string }[];
+      };
+      const match = data?.find((item) => item.name === domain);
+      console.log(
+        `Resend: sender domain ${domain} ${match ? `status ${match.status}` : "not added yet"}`,
+      );
+    }
+  } else
+    console.log(
+      "Resend: RESEND_API_KEY not set; email delivery fails safely and downloads still work",
+    );
   console.log(
     "Read-only checks passed. Complete the documented checkout/webhook/refund smoke test separately.",
   );

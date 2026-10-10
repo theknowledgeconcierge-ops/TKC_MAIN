@@ -8,6 +8,10 @@ import type {
   ProviderOrder,
   ProviderPayment,
   PurchaseSession,
+  EmailDeliveryRecord,
+  DeliveryClaim,
+  DeliveryClaimResult,
+  DeliveryPayload,
 } from "@/lib/commerce/types";
 export interface NewOrder {
   id: string;
@@ -44,6 +48,35 @@ export interface Repository {
   ): Promise<string | null>;
   signDownload(path: string, seconds: number): Promise<string>;
   rateLimit(key: string, limit: number, seconds: number): Promise<boolean>;
+  getEmailDelivery(orderId: string): Promise<EmailDeliveryRecord | null>;
+  claimEmailDelivery(input: {
+    order_id: string;
+    session_hash: string;
+    email: string | null;
+    provider: string;
+    max_attempts: number;
+    lease_seconds: number;
+  }): Promise<DeliveryClaimResult>;
+  claimFallbackDeliveries(input: {
+    payment_mode: "test" | "live";
+    provider: string;
+    limit: number;
+    grace_seconds: number;
+    max_age_seconds: number;
+    max_attempts: number;
+    retry_after_seconds: number;
+    lease_seconds: number;
+  }): Promise<DeliveryClaim[]>;
+  emailDeliveryPayload(claim: DeliveryClaim): Promise<DeliveryPayload | null>;
+  finishEmailDelivery(
+    input: DeliveryClaim &
+      (
+        | { outcome: "sent"; provider_message_id: string }
+        | { outcome: "failed"; error: string }
+      ),
+  ): Promise<boolean>;
+  // Private object read with the service role; never a public or signed URL.
+  readPdf(path: string): Promise<Buffer>;
 }
 export interface PaymentProvider {
   createOrder(order: OrderRecord): Promise<ProviderOrder>;

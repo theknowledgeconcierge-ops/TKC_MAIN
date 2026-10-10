@@ -27,6 +27,23 @@ export const envSchema = z.object({
     (value) => (value === "" ? undefined : value),
     z.string().min(20).optional(),
   ),
+  // Email delivery is optional configuration: checkout and downloads never depend on it.
+  RESEND_API_KEY: z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z.string().regex(/^re_[A-Za-z0-9_]{8,}$/).optional(),
+  ),
+  EMAIL_FROM: z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z
+      .string()
+      .max(200)
+      .regex(/^([^<>@\r\n]{1,80} <)?[^<>@\s]+@[^<>@\s]+\.[^<>@\s]+>?$/)
+      .optional(),
+  ),
+  EMAIL_DELIVERY_CRON_SECRET: z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z.string().min(32).optional(),
+  ),
   // These are runtime/platform values, not additional operator credentials.
   NODE_ENV: z.enum(["development", "test", "production"]).optional(),
   DEPLOY_CONTEXT: z

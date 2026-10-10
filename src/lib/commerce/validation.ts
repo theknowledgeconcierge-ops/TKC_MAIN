@@ -8,13 +8,14 @@ const productIdSchema = z
     (id) => activeBooks.some((book) => book.id === id),
     "Unknown product",
   );
+const emailSchema = z
+  .email()
+  .max(254)
+  .transform((value) => value.toLowerCase());
 export const createOrderSchema = z.object({
   book_ids: z.array(productIdSchema).min(1).max(5),
   full_name: z.string().trim().min(2).max(120),
-  email: z
-    .email()
-    .max(254)
-    .transform((value) => value.toLowerCase()),
+  email: emailSchema,
   mobile: z
     .string()
     .trim()
@@ -38,4 +39,9 @@ export const downloadSchema = z.object({
   entitlement_id: z.uuid(),
 });
 export const reconcileSchema = z.object({ order_id: orderIdSchema });
+// Clients name only their order and, optionally, a corrected address; never files.
+export const deliverySchema = z.object({
+  order_id: orderIdSchema,
+  email: emailSchema.optional(),
+});
 export type CreateOrderInput = z.infer<typeof createOrderSchema>;

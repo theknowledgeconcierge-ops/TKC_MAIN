@@ -10,6 +10,8 @@ const fixture = vi.hoisted(() => ({
     download: vi.fn(),
     webhook: vi.fn(),
     issuePurchaseSession: vi.fn(),
+    deliver: vi.fn(),
+    processFallbackDeliveries: vi.fn(),
     repo: { rateLimit: vi.fn() },
   },
 }));
@@ -19,6 +21,8 @@ import { GET as read } from "@/app/api/orders/[id]/route";
 import { POST as verify } from "@/app/api/payments/verify/route";
 import { POST as webhook } from "@/app/api/webhooks/razorpay/route";
 import { POST as download } from "@/app/api/downloads/route";
+import { POST as deliver } from "@/app/api/orders/delivery/route";
+import { POST as fallback } from "@/app/api/internal/email-deliveries/route";
 const id = "99a3cb9b-6ef1-4fb7-a60e-87a758e9f612";
 const token = "a".repeat(43);
 const request = (
@@ -267,5 +271,89 @@ describe("Next.js HTTP boundaries", () => {
     const response = await create(request("orders", orderInput));
     expect(response.status).toBe(429);
     expect(response.headers.get("retry-after")).toBe("60");
+  });
+});
+describe("email delivery HTTP boundaries", () => {
+  it("names only the order and an optional address; client file selections are discarded", async () => {
+    fixture.service.deliver.mockResolvedValue({ id, delivery: null });
+    const response = await deliver(
+      request("orders/delivery", {
+        order_id: id,
+        email: "Reader@Example.com",
+        attachments: ["handbooks/the-full-table.pdf"],
+        storage_path: "handbooks/the-full-table.pdf",
+        product_ids: ["the-full-table"],
+      }),
+    );
+    expect(response.status).toBe(200);
+    // No purchase-session cookie was sent, so the service receives none.
+    expect(fixture.service.deliver).toHaveBeenCalledWith(
+      id,
+      undefined,
+      "reader@example.com",
+    );
+  });
+  it.each(["not-an-email", "a@", ""])(
+    "rejects a malformed delivery email %j before calling delivery logic",
+    async (email) => {
+      const response = await deliver(
+        request("orders/delivery", { order_id: id, email }),
+      );
+      expect(response.status).toBe(400);
+      expect(fixture.service.deliver).not.toHaveBeenCalled();
+    },
+  );
+  it("rejects cross-origin delivery requests", async () => {
+    const response = await deliver(
+      request(
+        "orders/delivery",
+        { order_id: id },
+        { Origin: "https://attacker.example" },
+      ),
+    );
+    expect(response.status).toBe(403);
+    expect(fixture.service.deliver).not.toHaveBeenCalled();
+  });
+  it("keeps the fallback endpoint closed without its configured secret", async () => {
+    delete process.env.EMAIL_DELIVERY_CRON_SECRET;
+    const response = await fallback(
+      request("internal/email-deliveries", {}, { Authorization: "Bearer x" }),
+    );
+    expect(response.status).toBe(503);
+    expect(fixture.service.processFallbackDeliveries).not.toHaveBeenCalled();
+  });
+  it.each([undefined, "Bearer wrong", `Bearer ${"s".repeat(39)}`])(
+    "hides the fallback endpoint from %s",
+    async (authorization) => {
+      process.env.EMAIL_DELIVERY_CRON_SECRET = "s".repeat(40);
+      const response = await fallback(
+        request(
+          "internal/email-deliveries",
+          {},
+          authorization ? { Authorization: authorization } : {},
+        ),
+      );
+      expect(response.status).toBe(404);
+      expect(fixture.service.processFallbackDeliveries).not.toHaveBeenCalled();
+      delete process.env.EMAIL_DELIVERY_CRON_SECRET;
+    },
+  );
+  it("runs the fallback for the scheduler and returns counts only", async () => {
+    process.env.EMAIL_DELIVERY_CRON_SECRET = "s".repeat(40);
+    fixture.service.processFallbackDeliveries.mockResolvedValue({
+      claimed: 1,
+      sent: 1,
+      failed: 0,
+    });
+    const response = await fallback(
+      request(
+        "internal/email-deliveries",
+        {},
+        { Authorization: `Bearer ${"s".repeat(40)}`, Origin: "" },
+      ),
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ claimed: 1, sent: 1, failed: 0 });
+    delete process.env.EMAIL_DELIVERY_CRON_SECRET;
   });
 });

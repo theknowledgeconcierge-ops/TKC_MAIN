@@ -6,7 +6,7 @@ const faqs = [
   ],
   [
     "How will I receive my purchase?",
-    "After a captured payment, open My purchases to download your PDFs. Use the same browser to return to your purchase; copied URLs do not grant access.",
+    "After a captured payment, download your PDFs from the purchase page in the same browser, and we email them to the delivery address you confirm. Copied purchase URLs do not grant access.",
   ],
   [
     "Can I buy books separately?",
