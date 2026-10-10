@@ -652,7 +652,6 @@ export class CommerceService {
         customerName: payload.customer_name,
         orderNumber: payload.order_number,
         amountPaise: payload.total,
-        paymentReference: payload.razorpay_payment_id,
         titles: books.map((book) => book.title),
       }),
       attachments,

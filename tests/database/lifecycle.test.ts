@@ -1430,6 +1430,17 @@ describe("post-purchase email delivery through real routes and PostgreSQL", () =
       `${title(allIds[0])}.pdf`,
       `${title(allIds[2])}.pdf`,
     ]);
+    // The version-controlled template lists exactly the purchased titles in both parts.
+    const html = String(body.html);
+    const text = String(body.text);
+    expect(text).toContain(`01  ${title(allIds[0])}`);
+    expect(text).toContain(`02  ${title(allIds[2])}`);
+    for (const other of allIds.filter((id) => id !== allIds[0] && id !== allIds[2]))
+      expect(html + text).not.toContain(title(other));
+    expect(html + text).not.toMatch(/supabase|storage\/v1|token=|tkc_session/i);
+    expect(html + text).not.toContain(paid.id);
+    expect(html + text).not.toContain(paid.id.replaceAll("-", ""));
+    expect(html).not.toMatch(/<img/i);
     for (const file of body.attachments) {
       // Content only: no URL or storage path is handed to the provider.
       expect(Object.keys(file).sort()).toEqual(["content", "filename"]);

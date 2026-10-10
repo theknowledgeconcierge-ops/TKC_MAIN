@@ -20,7 +20,8 @@
     "check:env": "tsx scripts/check-env.ts",
     "check:assets": "tsx scripts/check-public-assets.ts public",
     "storage:upload": "tsx scripts/upload-pdfs.ts",
-    "check:integrations": "tsx scripts/check-integrations.ts"
+    "check:integrations": "tsx scripts/check-integrations.ts",
+    "email:preview": "tsx scripts/preview-delivery-email.ts"
   },
   "dependencies": {
     "@base-ui/react": "1.6.0",

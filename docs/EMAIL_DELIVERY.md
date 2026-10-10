@@ -46,11 +46,22 @@ Resend's documented limit is **40 MB per email including Base64-encoded attachme
 
 ## Resend integration
 
-`src/lib/server/email.ts` is the only Resend caller (`EmailProvider` interface). It posts to `https://api.resend.com/emails` with `Authorization`, `Idempotency-Key` and an explicit `User-Agent` (required by Resend). Errors map to codes only: `provider_timeout` (unknown outcome), `provider_unavailable` (5xx), `provider_rate_limited` (429), `provider_busy`/`provider_conflict` (409 idempotency responses), `provider_rejected` (other 4xx, e.g. unverified domain). Addresses and payloads are never logged. Subject: "Your Pixel n Palm books are here 📚"; body lists the titles, a short order reference (`TKC-XXXXXXXX`, not the internal UUID), the amount paid and the Razorpay payment reference. Customer text is HTML-escaped.
+`src/lib/server/email.ts` is the only Resend caller (`EmailProvider` interface). It posts to `https://api.resend.com/emails` with `Authorization`, `Idempotency-Key` and an explicit `User-Agent` (required by Resend). Errors map to codes only: `provider_timeout` (unknown outcome), `provider_unavailable` (5xx), `provider_rate_limited` (429), `provider_busy`/`provider_conflict` (409 idempotency responses), `provider_rejected` (other 4xx, e.g. unverified domain). Addresses and payloads are never logged.
 
 Without `RESEND_API_KEY`, delivery requests return `503 EMAIL_UNAVAILABLE` without changing state, the fallback endpoint returns 503, and checkout/downloads are unaffected. Tests use an injected provider or a Resend HTTP fixture; automated tests never send real email.
 
 **Resend webhooks: deferred.** API acceptance (an email ID) is recorded as SENT. Delivery webhooks would mainly add bounce visibility; they need a second public endpoint, Svix signature verification and another secret, and would not change authorization. V1 already confirms the address twice (checkout review and post-purchase confirmation), and browser downloads remain available. Revisit after launch if bounces are observed.
+
+## Email template
+
+The delivery email is version-controlled in `src/lib/email/purchase-delivery-email.ts` (no Resend dashboard template). `renderPurchaseDeliveryEmail({ firstName, displayOrderId, bookTitles, formattedAmount })` returns `{ subject, html, text }`; `deliveryEmailContent` in `email.ts` maps server data onto it (first name from the checkout name, `TKC-XXXXXXXX` short reference instead of the internal UUID, ₹ amount from integer paise) and the Resend adapter sends both the HTML and the required plain-text part. Attachments are unchanged and still come from the entitlement mapping above.
+
+- Subject "Your Pixel n Palm books are here 📚"; header, hero, greeting, order summary (order, book count, amount paid, PDF attachments), numbered list of exactly the purchased titles, keep-safe note and transactional footer. Singular copy for one-book orders. No unsubscribe link (transactional).
+- Email-client safe: table layout, inline styles, 600px maximum width, a small media query for phones, Georgia/Helvetica/Arial fallbacks, light colour scheme in the storefront's cream, dark and warm-gold palette, hidden preheader, Outlook (MSO) width wrapper.
+- No images, remote assets, scripts, external CSS, tracking pixels or links carrying customer data. The only link is the static `https://pixelnpalm.com`. Every interpolated value is HTML-escaped and reduced to one line. Output is deterministic so an idempotent retry sends an identical payload.
+- Keep **open and click tracking disabled** for the sending domain in Resend (Domains → domain → Configuration; off by default). The API send never enables tracking.
+
+**Local preview (fake data only):** `npm run email:preview` writes `email-preview/five-books.html`, `one-book.html` and matching `.txt` files (customer "Rahul", order `TKC-12345678`, ₹499 / ₹249). The folder is Git-ignored, outside `public/`, and never built or deployed; the script never reads production data.
 
 ## Close-tab / callback-loss fallback
 
@@ -95,7 +106,7 @@ Use Razorpay **test mode** first, then one small live purchase. Use mailboxes yo
 2. **Payment return:** the thank-you page shows "✓ Payment successful / Your 5 books are ready." with Send your books and Download now panels; status `paid`.
 3. **Immediate downloads:** click each Download and Download all; every PDF opens and matches its title.
 4. **Email confirmation:** the panel shows the checkout email; click **Confirm & send books**; the panel changes to "✓ Books sent" and Change email disappears.
-5. **Actual PDF delivery and attachment correctness:** the email arrives from Pixel n Palm <books@pixelnpalm.com> with subject "Your Pixel n Palm books are here 📚", correct first name, short order reference, amount ₹499 and payment reference; exactly the purchased PDFs are attached and open. Repeat with a one-book order: exactly one attachment.
+5. **Actual PDF delivery and attachment correctness:** the email arrives from Pixel n Palm <books@pixelnpalm.com> with subject "Your Pixel n Palm books are here 📚", correct first name, short order reference, book count, amount ₹499 and a numbered list of exactly the purchased titles; exactly those PDFs are attached and open. Check the layout in Gmail (web and app), Apple Mail and Outlook, and view the plain-text part. Repeat with a one-book order: exactly one attachment.
 6. **Email correction:** on a new purchase, click **Change email**, enter another address you control, **Update & send books**; only the new address receives the email. In Supabase, `orders.customer_email` is unchanged and `email_deliveries.delivery_email` is the new address.
 7. **Duplicate send attempts:** double-click Confirm, refresh and click again, and open two tabs and confirm in both; exactly one email arrives and the Resend dashboard shows one message per order.
 8. **Shared URL in Incognito / another browser:** paste the thank-you URL; it shows only "This purchase is not available in this browser…" with Return to store, no email, name, mobile, books or buttons.

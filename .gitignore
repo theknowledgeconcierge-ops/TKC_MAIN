@@ -11,6 +11,7 @@ next-env.d.ts
 # Test artifacts
 playwright-report/
 test-results/
+email-preview/
 
 # Credentials and private purchase assets (only the template is tracked)
 .env

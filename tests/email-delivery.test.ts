@@ -7,6 +7,8 @@ import {
   deliveryEmailContent,
   displayOrderNumber,
 } from "@/lib/server/email";
+import { renderPurchaseDeliveryEmail } from "@/lib/email/purchase-delivery-email";
+import { activeBooks } from "@/lib/catalog";
 import { envSchema } from "@/lib/env-schema";
 import emailDeliveryFallback, {
   config as fallbackSchedule,
@@ -89,32 +91,122 @@ describe("Resend provider adapter", () => {
   });
 });
 
-describe("delivery email content and limits", () => {
-  const content = deliveryEmailContent({
-    customerName: "  <Asha> Kumar ",
-    orderNumber: "TKC-0f1e2d3c4b5a69788796a5b4c3d2e1f0",
-    amountPaise: 49900,
-    paymentReference: "pay_ABC123",
-    titles: ["The First Table", "Empty Tables to Full House"],
+describe("purchase delivery email template", () => {
+  const titles = activeBooks.map((book) => book.title);
+  const uuidHex = "0f1e2d3c4b5a69788796a5b4c3d2e1f0";
+  const render = (overrides: Partial<Parameters<typeof renderPurchaseDeliveryEmail>[0]> = {}) =>
+    renderPurchaseDeliveryEmail({
+      firstName: "Rahul",
+      displayOrderId: "TKC-12345678",
+      bookTitles: titles,
+      formattedAmount: "₹499",
+      ...overrides,
+    });
+  // Everything a recipient's client could fetch or follow.
+  const urls = (html: string) =>
+    [...html.matchAll(/(?:href|src)\s*=\s*"([^"]*)"/gi)].map((match) => match[1]);
+
+  it("renders the agreed subject, hero, greeting, summary and footer in both parts", () => {
+    const email = render();
+    expect(email.subject).toBe("Your Pixel n Palm books are here 📚");
+    for (const part of [email.html, email.text]) {
+      expect(part).toContain("PIXEL N PALM");
+      expect(part).toContain("Your books are here.");
+      expect(part).toContain("Hi Rahul,");
+      expect(part).toContain(
+        "Your Pixel n Palm books are attached to this email and ready to read.",
+      );
+      expect(part).toContain("TKC-12345678");
+      expect(part).toContain("PDF attachments");
+      expect(part).toContain("Digital books for curious minds.");
+      expect(part).toContain("pixelnpalm.com");
+      expect(part).toContain(
+        "This is a transactional email sent because you purchased digital books from Pixel n Palm.",
+      );
+      expect(part).not.toMatch(/unsubscribe/i);
+    }
+    expect(email.text).toContain(
+      "Your books are attached directly to this email. Keep this email somewhere safe so you can access them again whenever you need them.",
+    );
+    expect(email.text).toMatch(/Order: TKC-12345678\nBooks: 5\nAmount paid: ₹499\nDelivery: PDF attachments/);
   });
-  it("uses the agreed subject, first name, amount and safe order reference", () => {
-    expect(content.subject).toBe("Your Pixel n Palm books are here 📚");
-    expect(content.text).toContain("Hi <Asha>,");
-    expect(content.text).toContain("Order: TKC-0F1E2D3C");
-    expect(content.text).toContain("Amount paid: ₹499");
-    expect(content.text).toContain("- Empty Tables to Full House");
-    expect(content.text).toContain(
-      "Keep this email safe so you can access your books again whenever you need them.",
+  it("lists a five-book order in order with zero-padded numbers", () => {
+    const { html, text } = render();
+    titles.forEach((title, index) => {
+      const number = String(index + 1).padStart(2, "0");
+      expect(text).toContain(`${number}  ${title}`);
+      expect(html).toContain(title);
+    });
+    expect(text.indexOf(titles[0])).toBeLessThan(text.indexOf(titles[4]));
+    expect(text).not.toContain("06  ");
+  });
+  it("renders a one-book order with singular copy and only that title", () => {
+    const { html, text } = render({ bookTitles: [titles[2]] });
+    expect(text).toContain("Your book is here.");
+    expect(text).toContain("Books: 1");
+    expect(text).toContain(`01  ${titles[2]}`);
+    expect(text).toContain("Your book is attached directly to this email.");
+    for (const other of titles.filter((title) => title !== titles[2])) {
+      expect(text).not.toContain(other);
+      expect(html).not.toContain(other);
+    }
+    expect(() => render({ bookTitles: [] })).toThrow();
+  });
+  it("lets long book titles wrap instead of widening the layout", () => {
+    const long = "An Exceptionally Long Restaurant Operations Handbook Title ".repeat(4).trim();
+    const { html, text } = render({ bookTitles: [long] });
+    expect(text).toContain(`01  ${long}`);
+    expect(html).toContain(long);
+    expect(html).toMatch(/word-break:break-word;overflow-wrap:anywhere;/);
+    expect(html).toContain('max-width:600px');
+  });
+  it("escapes customer-controlled text and keeps special characters", () => {
+    const { html, text } = render({
+      firstName: `<img src=x onerror="alert(1)">&'Zoë`,
+      displayOrderId: "TKC-<b>1</b>",
+      formattedAmount: "₹499",
+    });
+    expect(html).toContain("Hi &lt;img src=x onerror=&quot;alert(1)&quot;&gt;&amp;&#39;Zoë,");
+    expect(html).toContain("TKC-&lt;b&gt;1&lt;/b&gt;");
+    expect(html).not.toContain("<img");
+    expect(html).not.toContain("onerror=\"");
+    // Plain text is not HTML: it keeps the characters but never breaks onto new lines.
+    expect(text).toContain(`Hi <img src=x onerror="alert(1)">&'Zoë,`);
+    expect(render({ firstName: "Søren\r\nBcc: x@example.com" }).text).toContain(
+      "Hi Søren Bcc: x@example.com,",
     );
-    // The full order number embeds the internal order UUID.
-    expect(content.text + content.html).not.toContain(
-      "0f1e2d3c4b5a69788796a5b4c3d2e1f0",
-    );
+    expect(render({ firstName: "   " }).text).toContain("Hi there,");
+  });
+  it("formats ₹499 from integer paise through the server adapter", () => {
+    const { html, text } = deliveryEmailContent({
+      customerName: "Rahul Sharma",
+      orderNumber: `TKC-${uuidHex}`,
+      amountPaise: 49900,
+      titles,
+    });
+    expect(text).toContain("Amount paid: ₹499");
+    expect(html).toContain("₹499");
+    expect(text).toContain("Hi Rahul,");
+    expect(text).toContain("Order: TKC-0F1E2D3C");
     expect(displayOrderNumber("TKC-abcdef0123")).toBe("TKC-ABCDEF01");
   });
-  it("escapes customer-controlled text in HTML", () => {
-    expect(content.html).toContain("Hi &lt;Asha&gt;,");
-    expect(content.html).not.toContain("<Asha>");
+  it("contains no internal order UUID, storage URL, session token, image or tracking pixel", () => {
+    const { html, text } = deliveryEmailContent({
+      customerName: "Rahul",
+      orderNumber: `TKC-${uuidHex}`,
+      amountPaise: 49900,
+      titles,
+    });
+    for (const part of [html, text]) {
+      expect(part).not.toContain(uuidHex);
+      expect(part).not.toMatch(/supabase|storage\/v1|token=|tkc_session|tkc_checkout|__Host-/i);
+    }
+    expect(html).not.toMatch(/<img|<script|<link|<iframe|<form|url\(|@import|javascript:/i);
+    // The only followable URL is the static storefront link; nothing carries customer data.
+    expect(urls(html)).toEqual(["https://pixelnpalm.com"]);
+  });
+  it("is deterministic so an idempotent retry sends an identical payload", () => {
+    expect(render()).toEqual(render());
   });
   it("rejects attachments beyond the provider limit after Base64 encoding", () => {
     const limit = Math.floor((MAX_ATTACHMENT_BYTES / 4) * 3);
