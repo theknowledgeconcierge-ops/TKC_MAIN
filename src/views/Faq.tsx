@@ -6,7 +6,7 @@ const faqs = [
   ],
   [
     "How will I receive my purchase?",
-    "After a captured payment, open My purchases to download your PDFs. Use the same browser to return to your purchase; copied URLs do not grant access. No email is sent.",
+    "After a captured payment, open My purchases to download your PDFs. Use the same browser to return to your purchase; copied URLs do not grant access.",
   ],
   [
     "Can I buy books separately?",
@@ -14,11 +14,11 @@ const faqs = [
   ],
   [
     "What is included in the complete collection?",
-    "All five restaurant business handbooks, priced at ₹999 together, or ₹499 for eligible first-time buyers with First50. Eligibility is confirmed at checkout.",
+    "All five restaurant business handbooks for a ₹499 promotional price. The regular collection price is ₹999.",
   ],
   [
     "How do collection savings work?",
-    "One handbook is ₹249, two are ₹399, three are ₹549, four are ₹699, and all five are ₹999. Eligible first-time buyers receive the ₹499 First50 collection price. Your exact payable amount is confirmed before payment.",
+    "One handbook is ₹249, two are ₹399, three are ₹549 and four are ₹699. All five have a ₹999 regular collection price and a ₹499 promotional price. Your exact payable amount is confirmed before payment.",
   ],
   [
     "Will these books guarantee restaurant success?",

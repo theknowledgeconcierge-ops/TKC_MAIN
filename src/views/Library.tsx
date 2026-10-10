@@ -67,7 +67,7 @@ export default function Library() {
             </h2>
             <p className="mt-3 max-w-2xl text-sm leading-relaxed text-[#d2c3b3]">
               Collection savings unlock as you add books. All five complete your
-              collection, with First50 eligibility confirmed at checkout.
+              collection at the ₹499 promotional price.
             </p>
           </div>
           <Link

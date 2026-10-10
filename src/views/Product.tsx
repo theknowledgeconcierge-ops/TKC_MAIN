@@ -233,10 +233,10 @@ export default function Product({ slug }: { slug: string }) {
                 <span>2 · ₹399</span>
                 <span>3 · ₹549</span>
                 <span>4 · ₹699</span>
-                <span>5 · ₹999</span>
+                <span>5 · ₹499</span>
               </div>
               <p className="mt-5 text-xs leading-relaxed text-[#8c6d46]">
-                First50: ₹499 for eligible first-time buyers of all five books.
+                All five: ₹499 promotional price (regular collection price ₹999).
                 Your payable total is confirmed securely at checkout.
               </p>
               <Button

@@ -87,7 +87,6 @@ const input = (ids = [allIds[0]]) => ({
   price: 1,
   quantity: 999,
   status: "paid",
-  eligible_first_time: true,
 });
 async function start(ids = [allIds[0]]) {
   const payload = input(ids);
@@ -500,22 +499,93 @@ describe("real routes → SDK/adapters → PostgreSQL purchase lifecycle (extern
     ).toEqual([{ quantity: 1 }, { quantity: 1 }]);
   });
 
-  it("derives returning-buyer collection pricing from real paid database history", async () => {
-    const first = await start(allIds);
-    expect((await notify(capture(first.checkout))).status).toBe(200);
-    const second = await create(
-      request("orders", { ...input(allIds), email: first.payload.email }),
+  it("charges ₹499 for the collection to new and repeat customers despite real paid history", async () => {
+    const promotional = async (body: ReturnType<typeof input>) => {
+      const response = await create(request("orders", body));
+      expect(response.status).toBe(201);
+      const checkout = (await response.json()) as CheckoutOrder;
+      expect(checkout.amount_paise).toBe(49900);
+      expect(checkout.pricing).toMatchObject({
+        regular_total_inr: 1245,
+        automatic_discount_inr: 246,
+        coupon_discount_inr: 500,
+        total_inr: 499,
+      });
+      expect(gateways.at(-1)).toMatchObject({
+        amount: 49900,
+        currency: "INR",
+        notes: { internal_order_id: checkout.internal_order_id },
+      });
+      expect(await snapshot(checkout.internal_order_id)).toMatchObject({
+        total: 49900,
+        subtotal: 124500,
+        items: 5,
+      });
+      return checkout;
+    };
+    const pay = async (checkout: CheckoutOrder) => {
+      expect((await notify(capture(checkout))).status).toBe(200);
+      expect((await snapshot(checkout.internal_order_id)).status).toBe("paid");
+    };
+    const customer = { ...input(allIds), mobile: "9123456780" };
+    await pay(await promotional(customer));
+    await pay(await promotional({ ...input(allIds), email: customer.email }));
+    await pay(
+      await promotional({ ...input(allIds), mobile: customer.mobile }),
     );
-    expect(second.status).toBe(201);
-    const checkout = (await second.json()) as CheckoutOrder;
-    expect(checkout.amount_paise).toBe(99900);
-    expect(checkout.pricing.eligible_first_time).toBe(false);
-    expect(await snapshot(checkout.internal_order_id)).toMatchObject({
-      total: 99900,
-      subtotal: 124500,
-      items: 5,
-      entitlements: 0,
+    const { rows } = await pool.query(
+      `select count(*) filter (where customer_email=$1)::int email,
+        count(*) filter (where customer_mobile=$2)::int mobile
+        from public.orders where status='paid'`,
+      [customer.email, customer.mobile],
+    );
+    // Orders 1-2 share the email and orders 1/3 the mobile: three prior paid orders.
+    expect(rows[0]).toEqual({ email: 2, mobile: 2 });
+    await promotional({
+      ...input(allIds),
+      email: customer.email,
+      mobile: customer.mobile,
     });
+    expect(gateways).toHaveLength(4);
+  });
+
+  it("ignores client price, discount and eligibility claims for the collection", async () => {
+    const response = await create(
+      request("orders", {
+        ...input(allIds),
+        total: 99900,
+        amount: 1,
+        amount_paise: 100,
+        currency: "USD",
+        coupon_discount_inr: 0,
+        automatic_discount_inr: 0,
+        eligible_first_time: false,
+        returning_customer: true,
+        pricing: { total_inr: 1, coupon_discount_inr: 0 },
+      }),
+    );
+    expect(response.status).toBe(201);
+    const checkout = (await response.json()) as CheckoutOrder;
+    expect(checkout).toMatchObject({ amount_paise: 49900, currency: "INR" });
+    expect(gateways).toEqual([
+      expect.objectContaining({ amount: 49900, currency: "INR" }),
+    ]);
+    const { rows } = await pool.query(
+      "select total, subtotal, pricing from public.orders where id=$1",
+      [checkout.internal_order_id],
+    );
+    expect(rows[0]).toMatchObject({
+      total: 49900,
+      subtotal: 124500,
+      pricing: { total_inr: 499, coupon_discount_inr: 500 },
+    });
+    expect(rows[0].pricing).not.toHaveProperty("eligible_first_time");
+    for (const coupon_code of ["SAVE90", "FIRST100"])
+      expect(
+        (await create(request("orders", { ...input(allIds), coupon_code })))
+          .status,
+      ).toBe(400);
+    expect(gateways).toHaveLength(1);
   });
 
   it("serializes simultaneous checkout submissions without creating extra gateway orders", async () => {
@@ -995,38 +1065,28 @@ describe("real routes → SDK/adapters → PostgreSQL purchase lifecycle (extern
     ).rejects.toThrow("purchase_not_fulfilled");
   });
 
-  it("fulfills and downloads an email-free purchase with an HttpOnly session", async () => {
-    const payload = { ...input(), email: undefined };
-    const response = await create(request("orders", payload));
-    expect(response.status).toBe(201);
-    const checkout = (await response.json()) as CheckoutOrder;
-    expect(checkout.customer_email).toBeNull();
-    const payment = capture(checkout);
-    const confirmed = await verify(
-      request(
-        "payments/verify",
-        verification(checkout, payment),
-        cookieFrom(response, checkout.internal_order_id),
-      ),
-    );
-    expect(confirmed.status).toBe(200);
-    const purchase = (await confirmed.json()) as PublicOrder;
-    expect(purchase.download_authorized).toBe(true);
-    expect(
-      (
-        await download(
-          request(
-            "downloads",
-            {
-              order_id: purchase.id,
-              entitlement_id: purchase.entitlements[0].id,
-            },
-            cookieFrom(confirmed, purchase.id, "session"),
-          ),
-        )
-      ).status,
-    ).toBe(200);
-  });
+  it.each([undefined, "", "not-an-email", "buyer@"])(
+    "rejects checkout without a valid email (%j) before creating any order",
+    async (email) => {
+      const payload = {
+        ...input(allIds),
+        full_name: `Email Check ${randomUUID()}`,
+        email,
+      };
+      const response = await create(request("orders", payload));
+      expect(response.status).toBe(400);
+      expect(await response.json()).toMatchObject({
+        error: { code: "INVALID_REQUEST" },
+      });
+      expect(response.headers.get("set-cookie")).toBeNull();
+      expect(gateways).toHaveLength(0);
+      const { rows } = await pool.query(
+        "select count(*)::int n from public.orders where customer_name=$1",
+        [payload.full_name],
+      );
+      expect(rows[0].n).toBe(0);
+    },
+  );
 
   it("cannot exchange a different or uncaptured attempt for a session on an already-paid order", async () => {
     const { checkout, cookie } = await start();

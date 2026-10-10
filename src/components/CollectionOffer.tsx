@@ -8,10 +8,6 @@ import { useStore } from "@/lib/store";
 import { quoteFor } from "@/lib/commerce/pricing";
 
 const collection = quoteFor(books.map((book) => book.id));
-const firstTimeCollection = quoteFor(
-  books.map((book) => book.id),
-  true,
-);
 
 export default function CollectionOffer() {
   const { addBooks, setBagOpen } = useStore();
@@ -48,26 +44,26 @@ export default function CollectionOffer() {
                 <p className="text-sm text-[#5e4938]">
                   Bundle price{" "}
                   <del className="text-lg">
-                    {formatInr(collection.total_inr)}
+                    {formatInr(collection.automatic_price_inr)}
                   </del>
                 </p>
                 <p className="mt-1 font-serif text-6xl leading-none tracking-tight">
                   <span className="sr-only">Offer price </span>
-                  {formatInr(firstTimeCollection.total_inr)}
+                  {formatInr(collection.total_inr)}
                 </p>
               </div>
               <div className="border-l border-[#302821]/25 pl-5 text-sm">
                 All five handbooks
                 <p className="mt-1 font-semibold">
                   Save{" "}
-                  {formatInr(collection.total_inr - firstTimeCollection.total_inr)}
+                  {formatInr(collection.coupon_discount_inr)}
                 </p>
               </div>
             </div>
           </div>
           <p className="mt-4 text-sm text-[#d2c3b3]">
-            For eligible first-time buyers. Eligibility is confirmed at
-            checkout.
+            Promotional collection price. Your total is verified securely
+            before payment.
           </p>
           <Button
             className="mt-8 bg-[#c5a880] text-[#181412] hover:bg-[#b38f56]"

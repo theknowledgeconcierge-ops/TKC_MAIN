@@ -72,17 +72,6 @@ export function createRepository(url: string, key: string): Repository {
       if (!order) throw unavailable();
       return order;
     },
-    async hasPreviousPurchase(email, mobile) {
-      const rows = checked(
-        await db
-          .from("orders")
-          .select("id")
-          .eq(email ? "customer_email" : "customer_mobile", email ?? mobile)
-          .in("status", ["paid", "refunded"])
-          .limit(1),
-      );
-      return !!rows?.length;
-    },
     claimGateway: (id) => rpc<boolean>("tkc_claim_gateway", { order_id: id }),
     async bindGateway(id, providerId) {
       await rpc("tkc_bind_gateway", {

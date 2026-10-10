@@ -13,8 +13,6 @@ export interface PricingQuote {
   coupon_discount_inr: number;
   total_inr: number;
   total_savings_inr: number;
-  eligible_first_time: boolean | null;
-  eligibility_status: string;
   message: string;
 }
 export interface OrderItem {

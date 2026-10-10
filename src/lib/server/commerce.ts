@@ -74,13 +74,9 @@ export class CommerceService {
         "This checkout already has different details. Start a new checkout.",
       );
     if (!order) {
-      const firstTime =
-        ids.length === 5
-          ? !(await this.repo.hasPreviousPurchase(input.email, input.mobile))
-          : null;
       let pricing;
       try {
-        pricing = quoteFor(ids, firstTime, input.coupon_code);
+        pricing = quoteFor(ids, input.coupon_code);
       } catch {
         throw new HttpError(
           400,

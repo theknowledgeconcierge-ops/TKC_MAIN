@@ -2,7 +2,7 @@
 
 One Next.js 16 App Router / TypeScript application on Netlify using its automatically managed OpenNext adapter. Supabase supplies PostgreSQL and private PDF Storage; Razorpay supplies payments. No separate backend, customer accounts, email provider, CMS, queues or Redis.
 
-The existing editorial design, fonts, covers, responsive pages, motion, bag and checkout review are retained. All five titles are active: **The First Table, The Full Table, Behind the Kitchen Door, The Math Behind the Menu, and Empty Tables to Full House**. Original prices are retained: **1 / 2 / 3 / 4 / 5 books = ₹249 / ₹399 / ₹549 / ₹699 / ₹999**. Eligible first-time buyers receive the **₹499 First50** price for all five books; the server checks purchase history and confirms the payable amount before payment.
+The existing editorial design, fonts, covers, responsive pages, motion, bag and checkout review are retained. All five titles are active: **The First Table, The Full Table, Behind the Kitchen Door, The Math Behind the Menu, and Empty Tables to Full House**. Prices: **1 / 2 / 3 / 4 books = ₹249 / ₹399 / ₹549 / ₹699**. All five books sell at the **₹499 promotional price for every customer**, including repeat buyers; ₹999 is shown only as the regular collection reference price. The server computes the payable amount before payment; purchase history, email or mobile number never change it.
 
 The visual source of truth is `src/app/globals.css`: warm paper/brown/gold colors, Playfair Display headings, DM Sans body text and JetBrains Mono labels. Shared controls live in `src/components/ui/`; page compositions live in `src/views/`.
 
@@ -43,7 +43,7 @@ Upload all five PDFs before accepting live purchases. A preview with incomplete 
 
 For a **fresh Supabase project**, run every file in `supabase/migrations/` once in filename order: `202610090001_storefront.sql`, then `202610100001_purchase_sessions.sql`. Each file is transactional; together they create the tables, constraints, indexes, functions, permissions and private `handbooks` bucket. No dashboard policy editing is needed.
 
-**Existing deployments:** apply only the new `202610100001_purchase_sessions.sql` migration. It renames the old authorization columns to checkout-only names, adds hash-only purchase sessions and permits purchases without email. Coordinate this migration with the new application deployment while checkout is paused: the older application expects the old column names. Existing orders, payments and entitlements remain; old purchase links/cookies no longer authorize downloads. Never rerun the initial migration against an initialized project.
+**Existing deployments:** apply only the new `202610100001_purchase_sessions.sql` migration. It renames the old authorization columns to checkout-only names, adds hash-only purchase sessions and relaxes the database `NOT NULL` on customer email (checkout itself requires a valid email). Coordinate this migration with the new application deployment while checkout is paused: the older application expects the old column names. Existing orders, payments and entitlements remain; old purchase links/cookies no longer authorize downloads. Never rerun the initial migration against an initialized project.
 
 For repeatable CLI deployment, the same migration is compatible with:
 
@@ -118,7 +118,7 @@ docs/                    migration decisions and security/verification evidence
 
 ## Payment and download lifecycle
 
-1. Browser submits active product IDs, name/mobile, optional email and a random checkout idempotency key. Runtime validation rejects invalid input and ignores browser prices/status. Products are unique, quantity one. This key/cookie can only continue checkout and read limited order status; it never authorizes downloads, even after a webhook marks the order paid.
+1. Browser submits active product IDs, name, mobile, a required email address and a random checkout idempotency key. Runtime validation rejects invalid input and ignores browser prices/status. Products are unique, quantity one. This key/cookie can only continue checkout and read limited order status; it never authorizes downloads, even after a webhook marks the order paid.
 2. Server calculates canonical pricing and saves purchase snapshots before creating the Razorpay order. Duplicate requests reuse the same internal/provider order. A row-locked creation claim and stable receipt recover lost provider responses.
 3. The review receives safe Razorpay checkout information and a checkout-only HttpOnly cookie. Closing checkout leaves it resumable. No purchase link, download session or entitlement is returned before verification.
 4. Callback verification checks HMAC-SHA256 using the **stored** provider order ID, then fetches payment/order evidence and verifies IDs, internal association, amount, currency and captured status. One PostgreSQL transaction writes payment/event/order-paid/entitlements. The callback must prove the exact captured payment associated with this purchase; an authorized or failed attempt cannot borrow another attempt's paid status.
@@ -128,7 +128,7 @@ docs/                    migration decisions and security/verification evidence
 
 States: `created → payment_pending → paid`; failed attempts can produce `failed → paid`; any processed partial/full refund produces `paid → refunded` and revokes entitlements. A dismissed popup stays pending because dismissal is not payment evidence.
 
-No accounts or email provider are required; **email is optional**. My purchases stores only non-authorizing order UUIDs and works in the browser that received the verified purchase session. Clearing cookies, changing devices or losing the callback before session issuance requires separately verified recovery. The application deliberately has no URL-token exchange, exported purchase link or token-minting recovery script. A webhook still fulfills a closed-browser payment durably, but its checkout cookie cannot unlock those PDFs. Keep the Razorpay payment reference and contact the seller; do not pay again. Automated cross-device recovery is outside this change and is not claimed implemented.
+No accounts are required. A valid email is required at checkout as the delivery and receipt address; it never authorizes downloads, and transactional email delivery is not implemented yet. My purchases stores only non-authorizing order UUIDs and works in the browser that received the verified purchase session. Clearing cookies, changing devices or losing the callback before session issuance requires separately verified recovery. The application deliberately has no URL-token exchange, exported purchase link or token-minting recovery script. A webhook still fulfills a closed-browser payment durably, but its checkout cookie cannot unlock those PDFs. Keep the Razorpay payment reference and contact the seller; do not pay again. Automated cross-device recovery is outside this change and is not claimed implemented.
 
 Already-issued signed URLs remain usable for their 60-second lifetime; downloaded PDFs can be copied. Access control protects private hosting, not DRM.
 
@@ -167,7 +167,7 @@ Browser tests start the production build on port 3100, cover desktop/mobile rout
 ### External smoke test
 
 - `GET /api/health` returns 200/`status: ready`; `npm run check:integrations` passes with actual credentials/files.
-- Purchase one book, four books and all five; confirm Razorpay receives 24900, 69900 and either 49900 (eligible first-time buyer) or 99900 (returning buyer) paise regardless of edited browser fields.
+- Purchase one book, four books and all five; confirm Razorpay receives 24900, 69900 and 49900 paise regardless of edited browser fields. Repeat the five-book purchase with the same email and mobile: it must still be 49900.
 - Close/reopen checkout and refresh; confirm the same internal/provider order is reused. Temporarily lose a verification response and verify callback retry. Close the browser before verification: webhook/reconciliation must still mark paid, but must not turn the checkout cookie into download access; separate recovery is required.
 - Replay a signed event using Razorpay dashboard replay; verify one entitlement per item and no duplicate payment/fulfillment. Failed delivery must retry after the underlying issue is restored.
 - Complete verified payment and download in that browser, then refresh and repeat. Copy its thank-you URL into a clean browser: no purchase/session/download access. Checkout cookies, legacy fragments, wrong/expired sessions, another purchase's entitlement, forged callbacks and spoofed webhooks must fail.

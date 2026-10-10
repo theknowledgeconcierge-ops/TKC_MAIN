@@ -245,9 +245,7 @@ export default function CheckoutModal({
                 className="mt-3 font-serif text-3xl text-[#29231f]"
                 data-testid="razorpay-checkout-title"
               >
-                {checkoutOrder
-                  ? "Review your verified total"
-                  : "Complete your order"}
+                {checkoutOrder ? "Review your order" : "Complete your order"}
               </h2>
             </div>
             <Button
@@ -271,7 +269,7 @@ export default function CheckoutModal({
                   data-testid="razorpay-price-change-notice"
                 >
                   <p className="font-medium text-[#7a5c32]">
-                    Your payable amount was updated after eligibility
+                    Your payable amount was updated after server
                     verification.
                   </p>
                   <p className="mt-2 text-sm leading-relaxed text-[#6e655e]">
@@ -299,7 +297,7 @@ export default function CheckoutModal({
                 </div>
                 {checkoutOrder.pricing.coupon_discount_inr > 0 && (
                   <div className="mt-2 flex justify-between text-sm text-[#8c6d46]">
-                    <span>{checkoutOrder.pricing.coupon_code}</span>
+                    <span>Promotional discount</span>
                     <span>
                       −{formatInr(checkoutOrder.pricing.coupon_discount_inr)}
                     </span>
@@ -315,6 +313,17 @@ export default function CheckoutModal({
                   {checkoutOrder.pricing.message}
                 </p>
               </div>
+              {checkoutOrder.customer_email && (
+                <div
+                  className="text-sm text-[#6e655e]"
+                  data-testid="razorpay-delivery-email"
+                >
+                  Delivery email:
+                  <span className="mt-1 block break-all font-medium text-[#29231f]">
+                    {checkoutOrder.customer_email}
+                  </span>
+                </div>
+              )}
               <div className="flex items-start gap-3 text-sm leading-relaxed text-[#6e655e]">
                 <ShieldCheck className="mt-0.5 size-5 shrink-0 text-[#b49a6a]" />
                 <span>
@@ -325,7 +334,7 @@ export default function CheckoutModal({
               </div>
               <p className="text-xs text-[#6e655e]">
                 Downloads become available in this browser only after your
-                payment is verified. No email is required or sent.
+                payment is verified.
               </p>
               <Button
                 className="w-full"
@@ -369,7 +378,7 @@ export default function CheckoutModal({
                   className="text-sm text-[#6e655e]"
                   htmlFor="checkout-name"
                 >
-                  Full name
+                  Full name <span aria-hidden="true">*</span>
                   <Input
                     id="checkout-name"
                     required
@@ -385,7 +394,7 @@ export default function CheckoutModal({
                   className="text-sm text-[#6e655e]"
                   htmlFor="checkout-mobile"
                 >
-                  Mobile number
+                  Mobile number <span aria-hidden="true">*</span>
                   <Input
                     id="checkout-mobile"
                     required
@@ -403,16 +412,25 @@ export default function CheckoutModal({
                 className="block text-sm text-[#6e655e]"
                 htmlFor="checkout-email"
               >
-                Email for your purchase record (optional)
+                Email address <span aria-hidden="true">*</span>
                 <Input
                   id="checkout-email"
+                  required
                   type="email"
+                  maxLength={254}
                   value={email}
                   onChange={(event) => setEmail(event.target.value)}
                   className="mt-2"
                   autoComplete="email"
+                  aria-describedby="checkout-email-note"
                   data-testid="razorpay-checkout-email-input"
                 />
+                <span
+                  id="checkout-email-note"
+                  className="mt-1.5 block text-xs text-[#8c6d46]"
+                >
+                  Your books and purchase receipt will be delivered here.
+                </span>
               </label>
               {selectedIds.length === 5 && (
                 <label
@@ -438,7 +456,25 @@ export default function CheckoutModal({
                   <span>Selected books</span>
                   <span>{selectedIds.length}</span>
                 </div>
-                <div className="mt-2 flex justify-between font-serif text-2xl text-[#29231f]">
+                <div className="mt-2 flex justify-between text-sm text-[#6e655e]">
+                  <span>
+                    {summary.count > 1
+                      ? "Regular collection price"
+                      : "Regular price"}
+                  </span>
+                  <span>{formatInr(summary.regularTotal)}</span>
+                </div>
+                <div className="mt-2 flex justify-between text-sm text-[#8c6d46]">
+                  <span>Collection discount</span>
+                  <span>−{formatInr(summary.automaticDiscount)}</span>
+                </div>
+                {summary.couponDiscount > 0 && (
+                  <div className="mt-2 flex justify-between text-sm text-[#8c6d46]">
+                    <span>Promotional discount</span>
+                    <span>−{formatInr(summary.couponDiscount)}</span>
+                  </div>
+                )}
+                <div className="mt-3 flex justify-between border-t border-[#2e241f]/10 pt-3 font-serif text-2xl text-[#29231f]">
                   <span>Estimated total</span>
                   <span>{formatInr(summary.total)}</span>
                 </div>
@@ -463,7 +499,7 @@ export default function CheckoutModal({
                     Creating secure order…
                   </>
                 ) : (
-                  "Review verified total"
+                  "Review order"
                 )}
               </Button>
             </form>

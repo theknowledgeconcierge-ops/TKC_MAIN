@@ -291,9 +291,9 @@ export default function ThankYou() {
               </p>
             )}
             <p className="mt-5 text-xs leading-relaxed text-[#8c6d46]">
-              No email is sent. Download access uses a private session in this
-              browser. Keep your payment reference if you need help after
-              clearing cookies or changing devices.
+              Download access uses a private session in this browser. Keep
+              your payment reference if you need help after clearing cookies or
+              changing devices.
             </p>
           </>
         )}

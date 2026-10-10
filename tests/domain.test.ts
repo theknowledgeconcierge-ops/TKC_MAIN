@@ -12,19 +12,26 @@ import {
 
 const ids = catalogue.filter((book) => book.active).map((book) => book.id);
 describe("catalogue and authoritative pricing", () => {
-  it.each([undefined, ""])(
-    "permits a guest checkout without email (%s)",
-    (email) => {
-      const input = createOrderSchema.safeParse({
-        book_ids: [ids[0]],
-        full_name: "A Buyer",
-        email,
-        mobile: "9876543210",
-        checkout_token: "a".repeat(43),
-      });
-      expect(input.success).toBe(true);
-    },
-  );
+  it.each([
+    undefined,
+    null,
+    "",
+    "   ",
+    "not-an-email",
+    "buyer@",
+    "@example.com",
+    "buyer @example.com",
+    `${"a".repeat(250)}@example.com`,
+  ])("requires a well-formed email address (%j)", (email) => {
+    const input = createOrderSchema.safeParse({
+      book_ids: [ids[0]],
+      full_name: "A Buyer",
+      email,
+      mobile: "9876543210",
+      checkout_token: "a".repeat(43),
+    });
+    expect(input.success).toBe(false);
+  });
   it("offers all five handbooks, including Empty Tables to Full House", () => {
     expect(ids).toHaveLength(5);
     expect(ids).toContain("empty-tables-to-full-house");
@@ -34,24 +41,31 @@ describe("catalogue and authoritative pricing", () => {
     [2, 399],
     [3, 549],
     [4, 699],
-    [5, 999],
+    [5, 499],
   ])("prices %i books from trusted configuration", (count, total) => {
     expect(quoteFor(ids.slice(0, count)).total_inr).toBe(total);
   });
-  it.each([
-    [true, 499],
-    [false, 999],
-    [null, 999],
-  ] as const)(
-    "prices the full collection with first-time eligibility %s",
-    (eligible, total) => {
-      expect(quoteFor(ids, eligible).total_inr).toBe(total);
-    },
-  );
-  it("accepts First50 only for the complete collection and verifies eligibility separately", () => {
-    expect(quoteFor(ids, true, "First50").total_inr).toBe(499);
-    expect(quoteFor(ids, false, "First50").total_inr).toBe(999);
-    expect(() => quoteFor(ids.slice(0, 4), true, "First50")).toThrow();
+  it("prices the complete collection at the ₹499 promotional price", () => {
+    const quote = quoteFor(ids);
+    expect(quote).toMatchObject({
+      book_count: 5,
+      regular_total_inr: 1245,
+      automatic_price_inr: 999,
+      automatic_discount_inr: 246,
+      coupon_code: "FIRST50",
+      coupon_discount_inr: 500,
+      total_inr: 499,
+      total_savings_inr: 746,
+    });
+    // No customer, purchase-history or eligibility input exists.
+    expect(quote).not.toHaveProperty("eligible_first_time");
+    expect(quote).not.toHaveProperty("eligibility_status");
+  });
+  it("accepts First50 only for the complete collection and never changes the ₹499 price", () => {
+    for (const code of [undefined, "", "First50", " first50 ", "FIRST50"])
+      expect(quoteFor(ids, code).total_inr).toBe(499);
+    expect(() => quoteFor(ids.slice(0, 4), "First50")).toThrow();
+    expect(() => quoteFor(ids, "SAVE90")).toThrow();
   });
   it("rejects unknown products and empty selections", () => {
     expect(() => quoteFor(["unknown"])).toThrow();

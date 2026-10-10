@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { createHmac, randomUUID } from "node:crypto";
+import { createHmac, randomBytes, randomUUID } from "node:crypto";
 import { CommerceService } from "@/lib/server/commerce";
 import type { Repository, PaymentProvider } from "@/lib/server/contracts";
 import type {
@@ -45,7 +45,6 @@ beforeEach(() => {
       [...orders.values()].find((o) => o.checkout_token_hash === hash) ?? null,
     findByProviderOrder: async (id) =>
       [...orders.values()].find((o) => o.razorpay_order_id === id) ?? null,
-    hasPreviousPurchase: async () => false,
     createOrder: async (data) => {
       const existing = [...orders.values()].find(
         (o) => o.checkout_token_hash === data.checkout_token_hash,
@@ -206,32 +205,61 @@ async function captured(orderInput = input()) {
 const signature = (order: string, payment: string) =>
   createHmac("sha256", secret).update(`${order}|${payment}`).digest("hex");
 describe("checkout and recovery", () => {
+  const collection = (details: { email?: string } = {}) =>
+    createOrderSchema.parse({
+      ...input(),
+      ...details,
+      book_ids: catalogue.map((book) => book.id),
+      checkout_token: randomBytes(32).toString("base64url"),
+    });
+  // Seeds the durable paid history that the removed eligibility lookup used to read.
+  const purchaseHistory = async (details: { email?: string }) => {
+    const { internal_order_id } = await service.create(collection(details));
+    await repo.applyPayment({
+      order_id: internal_order_id,
+      razorpay_order_id: "order_abc",
+      payment_id: `pay_${randomUUID().replaceAll("-", "")}`,
+      amount: 49900,
+      currency: "INR",
+      status: "captured",
+      amount_refunded: 0,
+      event_key: `history:${internal_order_id}`,
+      event_type: "payment.captured",
+    });
+  };
   it.each([
-    [false, 49900],
-    [true, 99900],
+    ["a new customer", []],
+    ["a previous customer using the same email", [{}]],
+    [
+      "a previous customer using the same mobile and a new email",
+      [{ email: "earlier@example.com" }],
+    ],
+    [
+      "a customer with multiple previous orders",
+      [{}, {}, { email: "earlier@example.com" }],
+    ],
   ] as const)(
-    "uses server purchase history for five-book pricing (returning: %s)",
-    async (returning, amount) => {
-      repo.hasPreviousPurchase = vi.fn(async () => returning);
-      const orderInput = createOrderSchema.parse({
-        ...input(),
-        book_ids: catalogue.map((book) => book.id),
+    "prices the collection at ₹499 for %s and asks Razorpay for 49900 paise",
+    async (_, history) => {
+      for (const details of history) await purchaseHistory(details);
+      expect(
+        [...orders.values()].filter((order) => order.status === "paid"),
+      ).toHaveLength(history.length);
+      const checkout = await service.create(collection());
+      expect(checkout.amount_paise).toBe(49900);
+      expect(checkout.pricing).toMatchObject({
+        regular_total_inr: 1245,
+        automatic_discount_inr: 246,
         coupon_code: "FIRST50",
-        total: 1,
-        eligible_first_time: true,
+        coupon_discount_inr: 500,
+        total_inr: 499,
       });
-      const checkout = await service.create(orderInput);
-      expect(checkout.amount_paise).toBe(amount);
-      expect(repo.hasPreviousPurchase).toHaveBeenCalledWith(
-        orderInput.email,
-        orderInput.mobile,
-      );
       const order = orders.get(checkout.internal_order_id)!;
       expect(order.subtotal).toBe(124500);
-      expect(order.total).toBe(amount);
+      expect(order.total).toBe(49900);
       expect(order.order_items).toHaveLength(5);
-      expect(provider.createOrder).toHaveBeenCalledWith(
-        expect.objectContaining({ total: amount }),
+      expect(provider.createOrder).toHaveBeenLastCalledWith(
+        expect.objectContaining({ id: order.id, total: 49900 }),
       );
     },
   );

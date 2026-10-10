@@ -32,10 +32,7 @@ function sanitizeBag(value: unknown): string[] {
       ]
     : [];
 }
-export function summaryFor(
-  ids: string[],
-  eligibleFirstTime = true,
-): BagSummary {
+export function summaryFor(ids: string[]): BagSummary {
   const selected = sanitizeBag(ids);
   if (!selected.length)
     return {
@@ -47,7 +44,7 @@ export function summaryFor(
       total: 0,
       totalSavings: 0,
     };
-  const q = quoteFor(selected, eligibleFirstTime);
+  const q = quoteFor(selected);
   return {
     count: q.book_count,
     regularTotal: q.regular_total_inr,

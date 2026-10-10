@@ -41,8 +41,8 @@ export default function SmartBag() {
           : summary.count === 3
             ? "Add 1 more book to unlock 4 for ₹699 and save ₹297."
             : summary.count === 4
-              ? "Complete your five-book collection. First50 eligibility is checked at checkout."
-              : "Complete collection unlocked: ₹999 standard, or ₹499 for eligible first-time buyers.";
+              ? "Add 1 more book to unlock all 5 for ₹499 and save ₹746."
+              : "Complete collection unlocked: ₹499 promotional price (regular ₹999).";
   const closeBag = () => {
     setConfirmClear(false);
     setBagOpen(false);
@@ -182,9 +182,9 @@ export default function SmartBag() {
                       {bestValue && (
                         <span
                           className="mt-0.5 block text-[6px] leading-[1.05] text-[#d7c8b8] sm:text-[7px]"
-                          data-testid="smart-bag-best-value-eligibility"
+                          data-testid="smart-bag-best-value-promo"
                         >
-                          First-time buyers
+                          Promo price
                         </span>
                       )}
                     </div>
@@ -201,9 +201,8 @@ export default function SmartBag() {
                 className="mt-1 text-[9px] leading-relaxed text-[#8c6d46]"
                 data-testid="smart-bag-milestone-footnote"
               >
-                *First50 applies to eligible first-time buyers of all five
-                books. The standard collection price is ₹999. Your exact amount
-                is confirmed before payment.
+                *Promotional price for all five books. The regular collection
+                price is ₹999. Your exact amount is confirmed before payment.
               </p>
             </div>
 
@@ -358,7 +357,7 @@ export default function SmartBag() {
                 </div>
                 {summary.couponDiscount > 0 && (
                   <div className="mt-2 flex justify-between gap-4 text-sm text-[#8c6d46]">
-                    <span>First50 · eligibility checked at checkout</span>
+                    <span>Promotional discount</span>
                     <span>−{formatInr(summary.couponDiscount)}</span>
                   </div>
                 )}
@@ -369,9 +368,7 @@ export default function SmartBag() {
                   <span>{formatInr(summary.total)}</span>
                 </div>
                 <p className="mt-2 text-right text-xs font-mono uppercase tracking-[0.14em] text-[#8c6d46]">
-                  {summary.count === 5
-                    ? `${formatInr(summary.totalSavings)} potential first-time savings`
-                    : `${formatInr(summary.totalSavings)} saved automatically`}
+                  {`${formatInr(summary.totalSavings)} saved automatically`}
                 </p>
               </div>
             )}

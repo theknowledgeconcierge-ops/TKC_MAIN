@@ -85,6 +85,17 @@ describe("Next.js HTTP boundaries", () => {
     ).toBe(400);
     expect(fixture.service.create).not.toHaveBeenCalled();
   });
+  it.each([undefined, "", "not-an-email", "buyer@"])(
+    "rejects checkout without a valid email (%j) before calling payment logic",
+    async (email) => {
+      const response = await create(
+        request("orders", { ...orderInput, email }),
+      );
+      expect(response.status).toBe(400);
+      expect(response.headers.get("set-cookie")).toBeNull();
+      expect(fixture.service.create).not.toHaveBeenCalled();
+    },
+  );
   it.each(["https://attacker.example", "null", ""])(
     "denies cross-origin or missing-origin checkout %s",
     async (origin) => {

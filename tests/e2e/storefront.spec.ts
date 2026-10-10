@@ -74,6 +74,15 @@ test("bag persists, deduplicates and confirms Remove all", async ({ page }) => {
   await expect(page.getByTestId("smart-bag-price-summary")).toContainText(
     "499",
   );
+  await expect(page.getByTestId("smart-bag-price-summary")).toContainText(
+    "Promotional discount",
+  );
+  await expect(page.getByTestId("smart-bag-best-value-promo")).toHaveText(
+    "Promo price",
+  );
+  await expect(page.locator("body")).not.toContainText(
+    /eligib|first-time|returning customer/i,
+  );
   await expect(page.getByTestId("smart-bag-tier-progress")).toContainText(
     "100%",
   );
@@ -105,71 +114,104 @@ test("bag persists, deduplicates and confirms Remove all", async ({ page }) => {
   await page.keyboard.press("Escape");
   await expect(page.getByTestId("collection-page-add-all-btn")).toBeFocused();
 });
-for (const eligible of [true, false]) {
-  test(`five-book checkout reviews the server price for ${eligible ? "first-time" : "returning"} buyers`, async ({
-    page,
-  }) => {
-    const total = eligible ? 499 : 999;
-    await page.route("**/api/orders", async (route) => {
-      const body = route.request().postDataJSON();
-      expect(body.book_ids).toEqual([...ids].sort());
-      expect(body).not.toHaveProperty("total");
-      expect(body).not.toHaveProperty("eligible_first_time");
-      await route.fulfill({
-        json: {
-          key_id: "rzp_test_fixture",
-          payment_mode: "test",
-          internal_order_id: "99a3cb9b-6ef1-4fb7-a60e-87a758e9f612",
-          order_number: "TKC-five-fixture",
-          razorpay_order_id: "order_fivefixture",
-          amount_paise: total * 100,
-          currency: "INR",
-          customer_name: "Test Buyer",
-          customer_email: "buyer@example.com",
-          customer_mobile: "9876543210",
-          description: "Five handbooks",
-          pricing: {
-            book_count: 5,
-            regular_total_inr: 1245,
-            automatic_discount_inr: 246,
-            automatic_price_inr: 999,
-            coupon_code: eligible ? "FIRST50" : null,
-            coupon_discount_inr: eligible ? 500 : 0,
-            total_inr: total,
-            total_savings_inr: 1245 - total,
-            eligible_first_time: eligible,
-            eligibility_status: eligible ? "eligible" : "returning_customer",
-            message: eligible
-              ? "First50 applied for a first-time buyer."
-              : "The standard collection price applies to returning customers.",
-          },
+test("five-book checkout shows the server-verified ₹499 promotional price on both screens", async ({
+  page,
+}) => {
+  const requests: unknown[] = [];
+  await page.route("**/api/orders", async (route) => {
+    const body = route.request().postDataJSON();
+    requests.push(body);
+    expect(body.book_ids).toEqual([...ids].sort());
+    expect(body.email).toBe("buyer@example.com");
+    for (const field of ["total", "amount_paise", "pricing", "eligible_first_time"])
+      expect(body).not.toHaveProperty(field);
+    await route.fulfill({
+      json: {
+        key_id: "rzp_test_fixture",
+        payment_mode: "test",
+        internal_order_id: "99a3cb9b-6ef1-4fb7-a60e-87a758e9f612",
+        order_number: "TKC-five-fixture",
+        razorpay_order_id: "order_fivefixture",
+        amount_paise: 49900,
+        currency: "INR",
+        customer_name: "Test Buyer",
+        customer_email: "buyer@example.com",
+        customer_mobile: "9876543210",
+        description: "Five handbooks",
+        pricing: {
+          book_count: 5,
+          regular_total_inr: 1245,
+          automatic_discount_inr: 246,
+          automatic_price_inr: 999,
+          coupon_code: "FIRST50",
+          coupon_discount_inr: 500,
+          total_inr: 499,
+          total_savings_inr: 746,
+          message: "Promotional collection price applied.",
         },
-      });
+      },
     });
-    await page.goto("/restaurant-business-collection");
-    await page.getByTestId("collection-page-add-all-btn").click();
-    await page.getByTestId("smart-bag-checkout-btn").click();
-    await expect(page.getByTestId("razorpay-estimated-summary")).toContainText(
-      "499",
-    );
-    await page.getByTestId("razorpay-checkout-name-input").fill("Test Buyer");
-    await page
-      .getByTestId("razorpay-checkout-email-input")
-      .fill("buyer@example.com");
-    await page.getByTestId("razorpay-checkout-mobile-input").fill("9876543210");
-    await page.getByTestId("razorpay-checkout-coupon-input").fill("First50");
-    await page.getByTestId("razorpay-create-order-btn").click();
-    await expect(
-      page.getByText("Save your private purchase link", { exact: true }),
-    ).toHaveCount(0);
-    await expect(page.getByTestId("razorpay-confirmed-total")).toHaveText(
-      `₹${total}`,
-    );
-    await expect(page.getByTestId("razorpay-open-btn")).toContainText(
-      `₹${total}`,
-    );
   });
-}
+  await page.goto("/restaurant-business-collection");
+  await page.getByTestId("collection-page-add-all-btn").click();
+  await page.getByTestId("smart-bag-checkout-btn").click();
+  const estimate = page.getByTestId("razorpay-estimated-summary");
+  for (const row of [
+    /Selected books\s*5/,
+    /Regular collection price\s*₹1,245/,
+    /Collection discount\s*−₹246/,
+    /Promotional discount\s*−₹500/,
+    /Estimated total\s*₹499/,
+  ])
+    await expect(estimate).toContainText(row);
+  const email = page.getByTestId("razorpay-checkout-email-input");
+  await expect(email).toHaveAttribute("required", "");
+  await expect(page.locator("#checkout-email-note")).toHaveText(
+    "Your books and purchase receipt will be delivered here.",
+  );
+  await page.getByTestId("razorpay-checkout-name-input").fill("Test Buyer");
+  await page.getByTestId("razorpay-checkout-mobile-input").fill("9876543210");
+  await page.getByTestId("razorpay-checkout-coupon-input").fill("First50");
+  for (const value of ["", "not-an-email"]) {
+    await email.fill(value);
+    await page.getByTestId("razorpay-create-order-btn").click();
+    expect(
+      await email.evaluate((node) => (node as HTMLInputElement).validity.valid),
+    ).toBe(false);
+  }
+  expect(requests).toHaveLength(0);
+  await email.fill("buyer@example.com");
+  await page.getByTestId("razorpay-create-order-btn").click();
+  await expect(page.getByTestId("razorpay-checkout-title")).toHaveText(
+    "Review your order",
+  );
+  const review = page.getByTestId("razorpay-confirmed-summary");
+  for (const row of [
+    /Regular price\s*₹1,245/,
+    /Collection discount\s*−₹246/,
+    /Promotional discount\s*−₹500/,
+    /Payable\s*₹499/,
+  ])
+    await expect(review).toContainText(row);
+  await expect(page.getByTestId("razorpay-confirmed-total")).toHaveText("₹499");
+  await expect(page.getByTestId("razorpay-delivery-email")).toContainText(
+    "buyer@example.com",
+  );
+  await expect(page.getByTestId("razorpay-open-btn")).toContainText(
+    "Pay ₹499 with Razorpay",
+  );
+  await expect(page.getByTestId("razorpay-edit-details-btn")).toHaveText(
+    "Edit customer details",
+  );
+  await expect(page.getByTestId("razorpay-price-change-notice")).toHaveCount(0);
+  await expect(page.getByTestId("razorpay-checkout-modal")).not.toContainText(
+    /eligib|first-time|returning|No email is required/i,
+  );
+  await expect(
+    page.getByText("Save your private purchase link", { exact: true }),
+  ).toHaveCount(0);
+  expect(requests).toHaveLength(1);
+});
 test("invalid browser persistence and forged success cannot unlock downloads", async ({
   page,
 }) => {
@@ -559,10 +601,9 @@ for (const count of [1, 2, 3, 4, 5]) {
     await page
       .getByTestId("razorpay-checkout-name-input")
       .fill("Lifecycle Buyer");
-    if (count !== 1)
-      await page
-        .getByTestId("razorpay-checkout-email-input")
-        .fill("buyer@example.com");
+    await page
+      .getByTestId("razorpay-checkout-email-input")
+      .fill("buyer@example.com");
     await page.getByTestId("razorpay-checkout-mobile-input").fill("9876543210");
     await page.getByTestId("razorpay-create-order-btn").click();
     await expect(page.getByTestId("checkout-save-purchase-link")).toHaveCount(

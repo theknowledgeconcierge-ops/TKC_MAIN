@@ -11,14 +11,10 @@ const productIdSchema = z
 export const createOrderSchema = z.object({
   book_ids: z.array(productIdSchema).min(1).max(5),
   full_name: z.string().trim().min(2).max(120),
-  email: z.preprocess(
-    (value) => (value === undefined || value === "" ? null : value),
-    z
-      .email()
-      .max(254)
-      .transform((value) => value.toLowerCase())
-      .nullable(),
-  ),
+  email: z
+    .email()
+    .max(254)
+    .transform((value) => value.toLowerCase()),
   mobile: z
     .string()
     .trim()

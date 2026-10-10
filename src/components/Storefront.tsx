@@ -43,8 +43,8 @@ function Header() {
           href="/restaurant-business-collection"
           data-testid="announcement-collection-link"
         >
-          All 5 restaurant handbooks · ₹999 standard · ₹499 for eligible
-          first-time buyers{" "}
+          All 5 restaurant handbooks · ₹999 regular · ₹499 promotional
+          price{" "}
           <span className="ml-1 text-[#c5a880] sm:ml-2">Shop →</span>
         </Link>
       </div>

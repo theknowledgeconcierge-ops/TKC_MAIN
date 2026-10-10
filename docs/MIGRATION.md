@@ -26,7 +26,7 @@ The original brief described four books; the owner subsequently confirmed that a
 | Mongo orders and webhook collection | Replace | SQL migrations; constraints, row locks, RLS and service-only RPCs |
 | Public paid-PDF URLs | Delete | Private bucket, entitlements, 60-second signed downloads |
 | Emergent covers | Replace | Same cover artwork, served locally |
-| Future email/auth placeholders | Delete | Guest checkout and post-payment HttpOnly purchase session; email optional |
+| Future email/auth placeholders | Delete | Guest checkout and post-payment HttpOnly purchase session; email required for delivery records, never for authorization |
 | Vite/proxy/overlays, Python/Uvicorn/Motor/PyMongo | Delete after parity | One root Next.js production application |
 | Old scaffold/docs/test reports | Replace | Current README, security audit, TypeScript/API/SQL/browser tests |
 
@@ -48,7 +48,11 @@ No accounts, CMS, email provider, queue, worker, Redis or additional deployment.
 
 The former checkout token was also a future download capability, exposed through saveable purchase links before payment. Removed both URL exchange/export endpoints and the operator link-rotation script. Checkout continuation remains separate (7-day expiry). Only a fully verified captured callback can issue an independent 256-bit purchase session in an HttpOnly/Secure/SameSite cookie. Hash-only sessions and authorization RPCs recheck payment/order/entitlement relationships; webhook/status reconciliation never issues a session. Old links/cookies cannot authorize downloads, including purchases fulfilled later by webhook.
 
-Apply `202610100001_purchase_sessions.sql` with the new application while checkout is paused. Existing commerce data is retained, but older deployments are incompatible with the renamed checkout columns. Email is nullable; name/mobile remain required. Original pricing and the payment-fulfillment transaction are unchanged.
+Apply `202610100001_purchase_sessions.sql` with the new application while checkout is paused. Existing commerce data is retained, but older deployments are incompatible with the renamed checkout columns. The email column is nullable at the database level; the application requires name, mobile and email at checkout. Original pricing and the payment-fulfillment transaction are unchanged.
+
+## Collection pricing correction — 10 October 2026
+
+The five-book collection sells at ₹499 for every customer. The earlier first-time/returning-buyer rule, which charged ₹999 when an email (or mobile number) matched a previous paid or refunded order, was removed together with its purchase-history lookup. ₹999 remains only the regular reference collection price; the server still computes the payable amount and the Razorpay order amount (49,900 paise). Checkout again requires a valid email address as the delivery and receipt address; it is not an authorization factor.
 
 ## Deployment provider change — 10 October 2026
 

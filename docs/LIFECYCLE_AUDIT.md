@@ -1,6 +1,6 @@
 # Customer purchase and delivery audit — 10 October 2026
 
-The current catalogue contains **five active handbooks**. Pricing is unchanged: one through five unique titles cost ₹249 / ₹399 / ₹549 / ₹699 / ₹999; eligible first-time five-book purchases cost ₹499. This audit follows the actual frontend, handlers, server service, provider adapters and PostgreSQL functions, including the subsequent purchase-session security fix.
+The current catalogue contains **five active handbooks**. One through four unique titles cost ₹249 / ₹399 / ₹549 / ₹699. All five cost the ₹499 promotional price for every customer; ₹999 is only the regular reference collection price, and no purchase history, email, mobile number or customer count changes it. This audit follows the actual frontend, handlers, server service, provider adapters and PostgreSQL functions, including the subsequent purchase-session security fix.
 
 ## Authorization boundary
 
@@ -21,8 +21,8 @@ All code evidence below uses production handlers/service/adapters and actual Pos
 | --- | --- | --- | --- | --- |
 | Land/browse/product | `src/app` → Storefront/views → canonical `lib/catalog` | None | Invalid slug gives 404; retained responsive navigation/design | Production browser tests |
 | Select one/multiple books | `lib/store.tsx`, SmartBag, CheckoutModal | None | Local storage failure preserves usable in-memory shopping; unknown/duplicate IDs cannot control price | Domain/browser tests |
-| Enter details | CheckoutModal → `createOrderSchema` | None until validation passes | Name/mobile required; email optional; submitted totals/status/quantity ignored | Domain/API/email-free DB/browser tests |
-| Authoritative price | `/api/orders` → `CommerceService.create` → `quoteFor`, purchase history | None during calculation | Unknown books/coupons fail; returning-buyer eligibility is server-controlled | All 31 non-empty selections and real DB history |
+| Enter details | CheckoutModal → `createOrderSchema` | None until validation passes | Name, mobile and a well-formed email required; submitted totals/status/quantity/eligibility claims ignored | Domain/API/DB/browser tests |
+| Authoritative price | `/api/orders` → `CommerceService.create` → `quoteFor` (no customer or purchase-history input) | None during calculation | Unknown books/coupons fail; the five-book price is ₹499 for new and repeat customers alike | All 31 non-empty selections; repeat email/mobile and multi-order real DB history |
 | Create internal order | Repository → `tkc_create_order` | `orders`, snapshot `order_items` atomically | Unique checkout hash/fingerprint deduplicates; mismatched retry conflicts; bad snapshot rolls back | Concurrent API/SQL tests |
 | Create Razorpay order | `ensureGateway` → `claimGateway`, provider adapter, `tkc_bind_gateway` | Creation claim/provider order binding | Stable receipt recovers lost response/bind; same provider/internal order reused | Adapter and DB-backed API tests |
 | Review/open Checkout | CheckoutModal → `razorpay-checkout.ts` | None | Only checkout cookie issued; no purchase session/link/entitlements. Dismissal remains pending/resumable; native dialog releases provider iframe | Browser tests and API cookie assertions |

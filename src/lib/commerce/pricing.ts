@@ -8,11 +8,9 @@ const tierPrices: Readonly<Record<number, number>> = {
   4: 699,
   5: 999,
 };
-export function quoteFor(
-  ids: readonly string[],
-  firstTime: boolean | null = null,
-  coupon?: string,
-): PricingQuote {
+// Every customer pays this for all five books; the ₹999 tier is only the reference price.
+const collectionPromotionalPrice = 499;
+export function quoteFor(ids: readonly string[], coupon?: string): PricingQuote {
   const unique = [...new Set(ids)];
   const products = unique.map((id) =>
     activeBooks.find((book) => book.id === id),
@@ -28,7 +26,7 @@ export function quoteFor(
   const regular =
     products.reduce((sum, book) => sum + book!.price_paise, 0) / 100;
   const automatic = tierPrices[count];
-  const discount = count === 5 && firstTime === true ? 500 : 0;
+  const discount = count === 5 ? automatic - collectionPromotionalPrice : 0;
   return {
     book_count: count,
     regular_total_inr: regular,
@@ -38,22 +36,8 @@ export function quoteFor(
     coupon_discount_inr: discount,
     total_inr: automatic - discount,
     total_savings_inr: regular - automatic + discount,
-    eligible_first_time: count === 5 ? firstTime : null,
-    eligibility_status:
-      count !== 5
-        ? "not_applicable"
-        : firstTime === null
-          ? "needs_verification"
-          : firstTime
-            ? "eligible"
-            : "returning_customer",
-    message:
-      count !== 5
-        ? "Your collection price is ready."
-        : firstTime === null
-          ? "First50 eligibility is confirmed at checkout."
-          : firstTime
-            ? "First50 applied for a first-time buyer."
-            : "The standard collection price applies to returning customers.",
+    message: discount
+      ? "Promotional collection price applied."
+      : "Your collection price is ready.",
   };
 }
