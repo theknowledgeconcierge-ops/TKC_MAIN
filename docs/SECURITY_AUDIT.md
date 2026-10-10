@@ -1,11 +1,11 @@
 # Production audit — 10 October 2026
 
-Scope: current Next.js application, HTTP boundaries, browser state, Supabase adapter and SQL transaction logic, Razorpay integration, private Storage delivery and deployment configuration. Includes an independent read-only security review of payment/download code and regression tests for its finding. The initial review used no external credentials or customer records; subsequent owner-authorized integration checks are recorded below. The cleanup additionally inspected every repository path, all 12 reachable pre-cleanup commits and their 222 unique tracked file versions, plus commit messages. No history was rewritten.
+Scope: current Next.js application, HTTP boundaries, browser state, Supabase adapter and SQL transaction logic, Razorpay integration, private Storage delivery and deployment configuration. Includes the subsequent purchase-session access-control fix and an independent read-only review of the changed authorization boundary. The initial review used no external credentials or customer records; subsequent owner-authorized integration checks are recorded below. The cleanup additionally inspected every repository path, all 12 reachable pre-cleanup commits and their 222 unique tracked file versions, plus commit messages. No history was rewritten.
 
 ## Certification
 
 - **CODE-CERTIFIED:** implementation, pricing, input validation, cryptography, authorization, idempotency and state transitions tested locally; actual PostgreSQL migration and transaction invariants tested on PostgreSQL 16; production build/browser flows tested with external API fixtures. This label is scoped evidence, not a guarantee against every vulnerability.
-- **CREDENTIAL-BLOCKED:** the webhook signing secret is not yet configured. Updated Razorpay test credentials now pass read-only authentication; real capture, refunds and webhook delivery/retry remain unverified. `npm run check:integrations` passes database, private Storage and Razorpay authentication checks.
+- **EXTERNAL-MIGRATION/VERIFICATION REQUIRED:** apply `202610100001_purchase_sessions.sql` with the new app while checkout is paused. Earlier credentials passed read-only authentication; real capture, callback cookies, refunds and webhook delivery/retry on the deployed application remain unverified. The new session-table/RPC contract has been exercised locally, not applied to the target Supabase project by this change.
 - **DEPLOYMENT-VERIFICATION REQUIRED:** canonical domain/Netlify environment configuration and hosted adapter behavior; no Netlify authentication is available locally, so no hosted preview is claimed. Offline production and preview adapter packaging is local code evidence only.
 - **PRODUCTION-VERIFICATION REQUIRED:** owner revocation of old public artifact files; vendor security patch applicability and upgrade; deployed paid Supabase commerce flow, real provider checkout/CSP behavior and production smoke test. Direct private Storage signing/retrieval/expiry has been checked with the configured project; the complete real-payment flow remains gated.
 
@@ -17,15 +17,26 @@ Test credentials may omit the webhook secret in local development, Netlify Deplo
 
 The earlier lifecycle audit passed **104** unit/API/adapter/domain tests, **57** PostgreSQL tests and **28** desktop/mobile browser tests. Coverage includes all 31 non-empty title combinations through real route handlers, commerce service, both HTTP adapters and PostgreSQL with external HTTP fixtures; returning-buyer pricing from actual database history; concurrent callbacks/webhooks; lost provider/bind/commit responses; and per-title delivery with storage failure/retry. The earlier key pair returned 401; after the owner updated it, the read-only integration check passed against six tables, five private PDFs and Razorpay Test Mode authentication. No real payment was attempted. Netlify-specific environment regressions add 14 tests without removing coverage. See the [customer lifecycle matrix](LIFECYCLE_AUDIT.md) and [Netlify deployment evidence](NETLIFY_DEPLOYMENT.md).
 
+## Critical purchase-session fix
+
+The previous pre-payment checkout token was also the eventual download credential. The UI exposed it via “Save your private purchase link”, the export/exchange endpoints accepted it, and the recovery script minted replacements. Payment checks blocked unpaid downloads, but anyone holding the pre-payment link could download after a subsequent webhook fulfilled the order. This was a **HIGH** access-control design flaw; hiding the button alone would leave the server vulnerability.
+
+Removed `/api/orders/access`, `/api/orders/recovery-link` and `scripts/recover-order.ts`. Old cookies/fragments are not accepted. Checkout keys authorize only idempotency/resume/limited status for seven days. Only `/api/payments/verify`, after stored-order HMAC and independently fetched matching captured payment/order evidence, can issue a new 256-bit random purchase session. An uncaptured/different attempt cannot borrow an already-paid order's status. SQL additionally binds session issuance to the exact fulfilled payment and complete active entitlements.
+
+The session is hash-only in `purchase_sessions` and raw only in a 30-day HttpOnly/SameSite=Strict cookie, Secure/`__Host-`/no Domain on HTTPS. The localhost HTTP exception is development-only. It is never returned in JSON or placed in URL, HTML, localStorage or client JS state. Webhooks and reconciliation fulfill durably but never issue sessions. Each download requires current exact captured/unrefunded provider evidence (contradictory or wrong-ID reads fail closed without downgrading durable history) and uses a SQL statement to recheck session expiry/order, paid status, matching captured/unrefunded payment, entitlement/customer/item/storage path before 60-second signing. Email is optional; no email authentication was introduced.
+
+The complete [lifecycle matrix](LIFECYCLE_AUDIT.md) documents failure and recovery boundaries. Apply the new migration and app together; existing data remains, legacy purchase authorization is invalidated. No production database was modified by this local fix.
+
 ## Findings fixed in code
 
 | Severity | Finding | Resolution and evidence |
 | --- | --- | --- |
-| CRITICAL | Legacy public paid-PDF paths bypass purchase authorization | Removed from all production source and public assets. Private bucket, server-only object paths, order capability plus entitlement, provider payment check and 60-second signed URLs. External copies require owner action below. |
+| CRITICAL | Legacy public paid-PDF paths bypass purchase authorization | Removed from all production source and public assets. Private bucket, server-only object paths, post-payment session plus entitlement, provider payment check and 60-second signed URLs. External copies require owner action below. |
 | HIGH | Browser/session success could be treated as a completed purchase | Session-order state removed. Cookie-authorized order reads and server reconciliation; forged browser-state browser regression grants no downloads. |
 | HIGH | Client-side totals/status could be manipulated | Server catalogue/tier pricing only; runtime schemas discard untrusted price/status fields. Provider order and payment amount/currency/relationship are checked before fulfillment. |
 | HIGH | Recording webhook receipt before fulfillment could swallow a failed delivery | Event, payment, state and entitlements now commit in one row-locked PostgreSQL transaction. Real SQL test forces a failure after event/payment writes and proves rollback and successful retry. |
-| HIGH | UUID alone is inadequate download authorization | 256-bit purchase capability, hash-only DB storage, expiry/rotation, HttpOnly cookie and per-order entitlement checks. Wrong owner/order/entitlement tests deny access. |
+| HIGH | UUID alone is inadequate download authorization | Independent post-payment 256-bit session, hash-only DB storage, expiry, HttpOnly cookie and SQL order/payment/entitlement checks. Wrong owner/order/entitlement tests deny access. |
+| MEDIUM | Contradictory provider reads could fall back to stale captured SQL state during download | Shared captured-evidence guard requires the exact fetched captured/unrefunded payment; wrong-ID reads reject before application. Five DB-backed download regressions deny signing; no duplicate provider fetch. |
 | MEDIUM | Provider order creation can succeed while its response/bind fails | Stable unique receipt lookup, persistent internal order, bounded API timeout and atomic creation claim. Lost response and failed bind tests reuse one provider order. |
 | MEDIUM | Delayed provider refund reads could acknowledge a refund webhook without revocation | Independent reviewer finding reproduced and fixed: return retryable error until fetched refund evidence exists; a later retry revokes entitlements. Every new download also fetches current provider state. |
 | MEDIUM | Switching test/live credentials could relabel existing purchases | Persist payment mode with each order; original mode remains visible and cross-environment payment operations fail safely. Regression test passes. |
@@ -40,7 +51,7 @@ The earlier lifecycle audit passed **104** unit/API/adapter/domain tests, **57**
 | Change ₹249 to ₹1 in DevTools/request | HTTP schema strips submitted totals; server sends 24900 paise from catalogue/pricing |
 | Supply inactive/unknown book or malformed IDs | Runtime validation rejects before order creation |
 | Forge callback/redirect/session paid flag | HMAC and current provider evidence required; session state is ignored |
-| Use another purchase UUID without its token | Uniform private-purchase 404; no customer details or signed URL |
+| Use another purchase UUID or copy its thank-you URL without its session | Uniform private-purchase 404; no customer details or signed URL |
 | Combine valid purchase cookie with another entitlement | Order-specific entitlement/customer/payment association rejects it |
 | Replay webhook, change unsigned event header, send repeated paid event | Signed-body-derived idempotency plus unique item entitlement and row-locked state machine; no duplicate fulfillment |
 | Concurrent callback and webhook with different keys | Real SQL test stores all eight event records and one entitlement |
@@ -49,7 +60,9 @@ The earlier lifecycle audit passed **104** unit/API/adapter/domain tests, **57**
 | Obtain a permanent public PDF URL | No paid PDFs under `public/`; bucket is private; new signed URL expires after 60 seconds |
 | Expose service-role/payment secrets through browser bundle | Server-only import boundaries, no public secret variables; compiled browser assets scanned; no secret environment names or legacy artifact hosts found |
 | Cross-origin POST, unsafe redirect, oversized/malformed input | Exact-origin enforcement, no arbitrary redirect target, streaming byte caps and runtime schemas |
-| Refresh/close checkout or lose callback | Persisted internal order, creation recovery, My purchases and server reconciliation; browser is never payment authority |
+| Refresh/close checkout or lose callback | Durable order/fulfillment; bounded in-memory callback retry. Checkout credentials never unlock PDFs; missing post-payment session needs separate recovery |
+| Save/copy a pre-payment checkout token then wait for webhook payment | No session is issued by webhook/reconciliation; no entitlements returned by checkout reads; download denied |
+| Present failed/authorized callback after a different attempt paid | Callback must establish the exact captured payment; no session issued |
 
 ## Historical credential incident
 
@@ -62,8 +75,8 @@ Gitleaks 8.30.1 (official binary, checksum verified) scanned all reachable Git d
 - One root npm lockfile and Next.js deployment; no legacy runtime configuration or duplicate catalogue API.
 - PDFs are ignored globally; staging PDFs remain outside public paths. Netlify publishes adapter-generated public assets, never the repository root. Build checks inspect both `public/` and generated browser assets and reject renamed PDFs, environment/credential files, root/nested symlinks, dumps/archives and source maps. Regression tests exercise the guard and every privileged module's `server-only` marker.
 - Production browser source maps are explicitly disabled. Service-role/Razorpay secret operations remain in guarded server modules; Vitest's `server-only` stub is confined to test configuration. No production test bypass or debug route exists.
-- Environment schema, template and operator instructions use the same six server variables; no anonymous client or `NEXT_PUBLIC_*` secret configuration exists. Operator recovery output intentionally contains a private link for secure handoff; application logs contain only error codes, request IDs or invalid configuration field names.
-- Public artwork and icons were traced before removing unused assets. Database migrations, transactional RPCs, entitlement checks and payment calculations retain the certified contract.
+- Environment schema, template and operator instructions use the same six server variables; no anonymous client or `NEXT_PUBLIC_*` secret configuration exists. No URL-token export/exchange or recovery-minting script remains. Application logs contain only error codes, request IDs or invalid configuration field names.
+- Public artwork and icons were traced before removing unused assets. The new migration changes only purchase-session authorization/checkout column names and optional email; pricing and the atomic payment-fulfillment function remain unchanged.
 
 ## Remaining findings / launch gates
 
@@ -73,13 +86,13 @@ Gitleaks 8.30.1 (official binary, checksum verified) scanned all reachable Git d
 
 **MEDIUM — legacy automation metadata.** Historical `Emergent-Commit-Key` trailers require former-platform owner review as described above; no such configuration is used by the application.
 
-**MEDIUM — operational availability and purchase recovery.** Downloads deliberately fail closed when Razorpay or Supabase cannot confirm access. Customers retry when service returns. There are no accounts or email recovery; loss of both browser cookie and saved private link requires an operator to verify ownership and rotate a link. This is documented in checkout/confirmation and the README. A webhook delivery outage requires dashboard retry/replay; no queue is needed for transaction durability, but provider retries are finite. Several slow sequential calls can hit Netlify's 60-second function limit; internal-order/receipt recovery and idempotent fulfillment handle retries safely. Use Netlify Function logs and Razorpay delivery status for failed integration requests. No sensitive payloads are logged.
+**MEDIUM — operational availability and purchase recovery.** Downloads deliberately fail closed when Razorpay or Supabase cannot confirm access. Customers retry when service returns. There are no accounts or email recovery. Clearing/expiring the purchase cookie, changing device, or losing the verified callback before cookie issuance requires separately verified recovery. That flow is not implemented by this change; the application intentionally cannot turn a pre-payment token or order URL into purchase access. This is documented in checkout/confirmation and the README. A webhook delivery outage requires dashboard retry/replay; no queue is needed for transaction durability, but provider retries are finite. Several slow sequential calls can hit Netlify's 60-second function limit; internal-order/receipt recovery and idempotent fulfillment handle retries safely. Use Netlify Function logs and Razorpay delivery status for failed integration requests. No sensitive payloads are logged.
 
-**LOW — expected bearer-access limitations.** A customer who deliberately shares their private purchase link shares access; a signed URL remains usable for up to 60 seconds even if a refund/rotation happens meanwhile. Downloaded PDFs can be copied. These are explicit digital-download boundaries, not permanent public hosting or an authorization bypass.
+**LOW — signed-download limitations.** Thank-you URLs cannot share access. An already-issued signed file URL remains usable for up to 60 seconds even if a refund happens meanwhile. Downloaded PDFs can be copied. These are explicit digital-download boundaries, not permanent public hosting or an authorization bypass.
 
 No unresolved application-code Critical/High issue was confirmed by the final review. Live launch is still gated on the external actions above and credential-backed verification; do not represent this audit as a real-payment certification.
 
-## Verification evidence
+## Prior Netlify migration evidence (historical baseline)
 
 Run from the repository root using Node 24.21.0 and the committed lockfile:
 
@@ -102,6 +115,74 @@ Run from the repository root using Node 24.21.0 and the committed lockfile:
 | `git diff --check` | Passed |
 
 Unit/API/provider fixtures use mocks. The added database lifecycle suite runs the real handlers, service and adapters, forwarding its Supabase HTTP fixture into actual PostgreSQL with the actual migration and a small test-only Supabase roles/Storage schema stub. Browser fixtures test the app's payment/download wiring and recovery, not Razorpay's hosted UI or a real card transaction. Direct application-adapter signing on the configured Supabase project retrieved all five complete PDFs (HTTP 200, byte counts matching Storage metadata, PDF header/end marker present), plus Range/attachment responses; anonymous public paths were denied, and a 60-second signed URL was rejected after expiry (HTTP 400). No capability URLs or secrets were logged. A deployed paid transaction, provider webhooks and customer-side PDF content review remain outstanding.
+
+## Current access-control regression verification
+
+Current commands/results are recorded here after the full rerun. Tests include actual PostgreSQL route/SDK/adapter execution with provider HTTP fixtures and desktop/mobile browser wiring. No real payment, hosted deployment or target-database migration is claimed.
+
+| Command/check | Result |
+| --- | --- |
+| `npm ci` | Passed; committed dependency versions/lockfile unchanged |
+| `npm run typecheck` | Passed |
+| `npm run lint` | Passed; warnings denied |
+| `npm test` | 130 passed across eight files |
+| `npm run test:db` | 71 passed across two files; both migrations applied to a fresh PostgreSQL 16 cluster, then cluster destroyed; independent reviewer rerun also 71/71 |
+| `npm run build` | Passed; Next.js 16.4.0, public and compiled asset guards passed; removed exchange/export routes absent from build |
+| `PLAYWRIGHT_CHANNEL=chrome npm run test:e2e` | 30 passed across desktop/mobile; verified sessions, callback retry, refresh, copied/legacy URL denial and every purchased PDF (external fixtures) |
+| `npm audit --json` | Zero advisories at all severities |
+| `npx --yes --package=knip@6.41.0 knip --reporter json` | No unused files, exports, dependencies or unresolved imports |
+| `npm run check:integrations` | **External migration gate:** fails safely at the missing current `orders` columns; target `tkc_authorize_download` also absent (`PGRST202`). No target DB migration was applied. The check now uses zero-row GET schema validation and a non-existent-order authorization probe; HEAD previously hid a schema error |
+| Read-only configured private Storage probe | Bucket private; ten anonymous public/direct object requests denied across all five titles |
+| Current compiled browser/public credential scan | 44 assets; zero configured privileged credential matches |
+| `git diff --check` | Passed |
+
+Root regressions were reproduced before fixes: five initial checkout/capability/email tests failed; a different/uncaptured callback on an already-paid order returned a session; three contradictory provider-state download cases returned signed URLs. These now pass. Added session-issuance failure/lost-commit retry, expired/invalid/foreign/legacy credential, refund, email-free purchase and copied-URL denial coverage. Prior link-exchange success expectations were replaced with rejection expectations for the intentionally removed feature. No tests were skipped or rules relaxed.
+
+A pre-existing concurrent SQL fixture reused one UUID for every request and intermittently hit the primary-key constraint; production generates a distinct internal UUID per request. The fixture now follows that real path and still asserts all eight concurrent calls return one order with one snapshot. Browser assertions wait for the retained route animation to leave one mounted page; removed URL exchange/export POSTs return 405 via the remaining GET-only dynamic route, with no token exchange.
+
+
+## Exact files in the purchase-session fix
+
+| Change | Repository path |
+| --- | --- |
+| Updated | `README.md` |
+| Updated | `docs/LIFECYCLE_AUDIT.md` |
+| Updated | `docs/MIGRATION.md` |
+| Updated | `docs/NETLIFY_DEPLOYMENT.md` |
+| Updated | `docs/SECURITY_AUDIT.md` |
+| Updated | `package.json` |
+| Updated | `scripts/check-integrations.ts` |
+| Removed | `scripts/recover-order.ts` |
+| Updated | `scripts/test-database.ts` |
+| Updated | `src/app/api/downloads/route.ts` |
+| Updated | `src/app/api/orders/[id]/route.ts` |
+| Removed | `src/app/api/orders/access/route.ts` |
+| Updated | `src/app/api/orders/reconcile/route.ts` |
+| Removed | `src/app/api/orders/recovery-link/route.ts` |
+| Updated | `src/app/api/orders/resume/route.ts` |
+| Updated | `src/app/api/orders/route.ts` |
+| Updated | `src/app/api/payments/verify/route.ts` |
+| Updated | `src/components/CheckoutModal.tsx` |
+| Updated | `src/components/ConciergeChatbot.tsx` |
+| Updated | `src/components/Storefront.tsx` |
+| Updated | `src/lib/commerce/types.ts` |
+| Updated | `src/lib/commerce/validation.ts` |
+| Updated | `src/lib/razorpay-checkout.ts` |
+| Updated | `src/lib/server/commerce.ts` |
+| Updated | `src/lib/server/contracts.ts` |
+| Updated | `src/lib/server/http.ts` |
+| Updated | `src/lib/server/security.ts` |
+| Updated | `src/lib/server/supabase.ts` |
+| Updated | `src/views/Faq.tsx` |
+| Updated | `src/views/ThankYou.tsx` |
+| Updated | `tests/api.test.ts` |
+| Updated | `tests/commerce.test.ts` |
+| Updated | `tests/database/lifecycle.test.ts` |
+| Updated | `tests/database/transactions.test.ts` |
+| Updated | `tests/domain.test.ts` |
+| Updated | `tests/e2e/storefront.spec.ts` |
+| Added | `supabase/migrations/202610100001_purchase_sessions.sql` |
+| Added | `tests/checkout-verification.test.ts` |
 
 ## Primary implementation references
 

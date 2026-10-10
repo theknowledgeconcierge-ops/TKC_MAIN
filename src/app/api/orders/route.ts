@@ -7,7 +7,7 @@ import {
   json,
   rateLimit,
   readJson,
-  setAccessCookie,
+  setCheckoutCookie,
 } from "@/lib/server/http";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,7 +20,7 @@ export async function POST(request: NextRequest) {
     await rateLimit(request, service.repo, "create-order", 30, 3600);
     const order = await service.create(input);
     const response = json(order, 201);
-    setAccessCookie(response, order.internal_order_id, input.checkout_token);
+    setCheckoutCookie(response, order.internal_order_id, input.checkout_token);
     return response;
   });
 }

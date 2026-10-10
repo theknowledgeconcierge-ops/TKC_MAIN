@@ -20,7 +20,6 @@
     "check:env": "tsx scripts/check-env.ts",
     "check:assets": "tsx scripts/check-public-assets.ts public",
     "storage:upload": "tsx scripts/upload-pdfs.ts",
-    "order:recover": "tsx scripts/recover-order.ts",
     "check:integrations": "tsx scripts/check-integrations.ts"
   },
   "dependencies": {

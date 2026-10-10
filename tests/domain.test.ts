@@ -6,12 +6,25 @@ import { createOrderSchema, verifySchema } from "@/lib/commerce/validation";
 import {
   verifySignature,
   assertPaymentMatches,
-  authorizeOrder,
+  authorizeCheckout,
   hashToken,
 } from "@/lib/server/security";
 
 const ids = catalogue.filter((book) => book.active).map((book) => book.id);
 describe("catalogue and authoritative pricing", () => {
+  it.each([undefined, ""])(
+    "permits a guest checkout without email (%s)",
+    (email) => {
+      const input = createOrderSchema.safeParse({
+        book_ids: [ids[0]],
+        full_name: "A Buyer",
+        email,
+        mobile: "9876543210",
+        checkout_token: "a".repeat(43),
+      });
+      expect(input.success).toBe(true);
+    },
+  );
   it("offers all five handbooks, including Empty Tables to Full House", () => {
     expect(ids).toHaveLength(5);
     expect(ids).toContain("empty-tables-to-full-house");
@@ -156,19 +169,19 @@ describe("cryptographic and purchase boundaries", () => {
   );
   const token = "a".repeat(43);
   const protectedOrder = {
-    access_token_hash: hashToken(token),
-    access_expires_at: new Date(Date.now() + 60000).toISOString(),
+    checkout_token_hash: hashToken(token),
+    checkout_expires_at: new Date(Date.now() + 60000).toISOString(),
   };
-  it("authorizes a valid unexpired recovery token", () =>
-    expect(() => authorizeOrder(protectedOrder, token)).not.toThrow());
+  it("authorizes only checkout continuation with a valid unexpired checkout token", () =>
+    expect(() => authorizeCheckout(protectedOrder, token)).not.toThrow());
   it.each([undefined, "b".repeat(43), "123"])(
     "denies missing/wrong tokens",
-    (value) => expect(() => authorizeOrder(protectedOrder, value)).toThrow(),
+    (value) => expect(() => authorizeCheckout(protectedOrder, value)).toThrow(),
   );
   it("denies expired tokens", () =>
     expect(() =>
-      authorizeOrder(
-        { ...protectedOrder, access_expires_at: "2020-01-01T00:00:00Z" },
+      authorizeCheckout(
+        { ...protectedOrder, checkout_expires_at: "2020-01-01T00:00:00Z" },
         token,
       ),
     ).toThrow());

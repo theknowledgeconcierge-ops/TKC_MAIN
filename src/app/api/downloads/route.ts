@@ -7,7 +7,7 @@ import {
   json,
   rateLimit,
   readJson,
-  tokenFrom,
+  purchaseSessionFrom,
 } from "@/lib/server/http";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -22,7 +22,7 @@ export async function POST(request: NextRequest) {
       await service.download(
         input.order_id,
         input.entitlement_id,
-        tokenFrom(request, input.order_id),
+        purchaseSessionFrom(request, input.order_id),
       ),
     );
   });

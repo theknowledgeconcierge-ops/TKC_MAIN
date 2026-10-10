@@ -14,7 +14,7 @@ const rpc = async (name: string, input: unknown) =>
   ).rows[0].result;
 const input = (token = randomUUID().replaceAll("-", "").repeat(2)) => ({
   id: randomUUID(),
-  access_token_hash: token,
+  checkout_token_hash: token,
   request_hash: "b".repeat(64),
   customer_name: "Buyer",
   customer_email: "buyer@example.com",
@@ -102,14 +102,17 @@ describe("real PostgreSQL transaction invariants", () => {
   it("atomically creates one order and snapshot for concurrent submissions", async () => {
     const data = input();
     const results = await Promise.all(
-      Array.from({ length: 8 }, () => rpc("tkc_create_order", data)),
+      // Each real HTTP request generates its own UUID before the shared-key upsert.
+      Array.from({ length: 8 }, () =>
+        rpc("tkc_create_order", { ...data, id: randomUUID() }),
+      ),
     );
     expect(new Set(results.map((row) => row.id)).size).toBe(1);
     expect(
       (
         await pool.query(
           "select count(*)::int as n from public.order_items where order_id=$1",
-          [data.id],
+          [results[0].id],
         )
       ).rows[0].n,
     ).toBe(1);
@@ -275,6 +278,23 @@ describe("real PostgreSQL transaction invariants", () => {
         await expect(
           client.query("select public.tkc_apply_payment('{}')"),
         ).rejects.toThrow("permission denied");
+        for (const table of [
+          "purchase_sessions",
+          "download_entitlements",
+          "storage.objects",
+        ]) {
+          const name = table.includes(".") ? table : `public.${table}`;
+          await expect(client.query(`select * from ${name}`)).rejects.toThrow(
+            "permission denied",
+          );
+        }
+        for (const name of [
+          "tkc_create_purchase_session",
+          "tkc_authorize_download",
+        ])
+          await expect(
+            client.query(`select public.${name}('{}')`),
+          ).rejects.toThrow("permission denied");
         await client.query("reset role");
       }
     } finally {
@@ -341,6 +361,131 @@ describe("real PostgreSQL transaction invariants", () => {
         )
       ).rows[0].n,
     ).toBe(1);
+  });
+  it.each(["created", "payment_pending", "failed"])(
+    "cannot mint a purchase session for an order in %s",
+    async (status) => {
+      const data = input();
+      await rpc("tkc_create_order", data);
+      await pool.query("update public.orders set status=$2 where id=$1", [
+        data.id,
+        status,
+      ]);
+      await expect(
+        rpc("tkc_create_purchase_session", {
+          order_id: data.id,
+          token_hash: "d".repeat(64),
+        }),
+      ).rejects.toThrow("purchase_not_fulfilled");
+      expect(
+        (
+          await pool.query(
+            "select count(*)::int n from public.purchase_sessions where order_id=$1",
+            [data.id],
+          )
+        ).rows[0].n,
+      ).toBe(0);
+    },
+  );
+  it("checks payment, session, item, customer and revocation relationships before authorizing storage", async () => {
+    const data = input();
+    const gateway = `order_${data.id.replaceAll("-", "")}`;
+    const paymentId = `pay_${data.id.replaceAll("-", "")}`;
+    await rpc("tkc_create_order", data);
+    await rpc("tkc_bind_gateway", {
+      order_id: data.id,
+      razorpay_order_id: gateway,
+    });
+    await rpc("tkc_apply_payment", {
+      order_id: data.id,
+      razorpay_order_id: gateway,
+      payment_id: paymentId,
+      amount: 24900,
+      currency: "INR",
+      status: "captured",
+      amount_refunded: 0,
+      event_key: data.id,
+      event_type: "callback.verified",
+    });
+    const entitlement = (
+      await pool.query(
+        "select id from public.download_entitlements where order_id=$1",
+        [data.id],
+      )
+    ).rows[0];
+    const hash = data.id.replaceAll("-", "").repeat(2);
+    const session = await rpc("tkc_create_purchase_session", {
+      order_id: data.id,
+      payment_id: paymentId,
+      token_hash: hash,
+    });
+    expect(session.token_hash).toBe(hash);
+    await expect(
+      rpc("tkc_create_purchase_session", {
+        order_id: data.id,
+        payment_id: "pay_foreign",
+        token_hash: "e".repeat(64),
+      }),
+    ).rejects.toThrow("purchase_not_fulfilled");
+    expect(
+      Date.parse(session.expires_at) - Date.parse(session.created_at),
+    ).toBe(30 * 86400000);
+    const authorization = {
+      order_id: data.id,
+      session_hash: hash,
+      entitlement_id: entitlement.id,
+    };
+    expect(await rpc("tkc_authorize_download", authorization)).toBe(
+      "handbooks/the-first-table.pdf",
+    );
+    for (const change of [
+      { order_id: randomUUID() },
+      { session_hash: "f".repeat(64) },
+      { entitlement_id: randomUUID() },
+    ])
+      expect(
+        await rpc("tkc_authorize_download", { ...authorization, ...change }),
+      ).toBeNull();
+    for (const [bad, restore] of [
+      [
+        "update public.payments set amount_refunded=100 where id=$1",
+        "update public.payments set amount_refunded=0 where id=$1",
+      ],
+      [
+        "update public.payments set status='failed' where id=$1",
+        "update public.payments set status='captured' where id=$1",
+      ],
+      [
+        "update public.payments set amount=100 where id=$1",
+        "update public.payments set amount=24900 where id=$1",
+      ],
+    ]) {
+      await pool.query(bad, [paymentId]);
+      expect(await rpc("tkc_authorize_download", authorization)).toBeNull();
+      await pool.query(restore, [paymentId]);
+    }
+    await pool.query(
+      "update public.download_entitlements set revoked_at=now() where id=$1",
+      [entitlement.id],
+    );
+    expect(await rpc("tkc_authorize_download", authorization)).toBeNull();
+    await expect(
+      rpc("tkc_create_purchase_session", {
+        order_id: data.id,
+        payment_id: paymentId,
+        token_hash: "e".repeat(64),
+      }),
+    ).rejects.toThrow("purchase_not_fulfilled");
+    await pool.query(
+      "update public.download_entitlements set revoked_at=null, customer_email='other@example.com' where id=$1",
+      [entitlement.id],
+    );
+    expect(await rpc("tkc_authorize_download", authorization)).toBeNull();
+    await pool.query(
+      "update public.download_entitlements set customer_email='buyer@example.com', storage_path='handbooks/the-full-table.pdf' where id=$1",
+      [entitlement.id],
+    );
+    expect(await rpc("tkc_authorize_download", authorization)).toBeNull();
   });
   it("creates a private PDF bucket and no public storage policies", async () => {
     expect(

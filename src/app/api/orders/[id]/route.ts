@@ -1,7 +1,13 @@
 import { NextRequest } from "next/server";
 import { orderIdSchema } from "@/lib/commerce/validation";
 import { commerce } from "@/lib/server/runtime";
-import { boundary, json, rateLimit, tokenFrom } from "@/lib/server/http";
+import {
+  boundary,
+  json,
+  rateLimit,
+  checkoutTokenFrom,
+  purchaseSessionFrom,
+} from "@/lib/server/http";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export async function GET(
@@ -12,6 +18,12 @@ export async function GET(
     const id = orderIdSchema.parse((await context.params).id);
     const service = commerce();
     await rateLimit(request, service.repo, "read-order", 120, 60);
-    return json(await service.read(id, tokenFrom(request, id)));
+    return json(
+      await service.read(
+        id,
+        checkoutTokenFrom(request, id),
+        purchaseSessionFrom(request, id),
+      ),
+    );
   });
 }

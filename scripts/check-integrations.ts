@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { randomUUID } from "node:crypto";
 import { activeBooks } from "../src/lib/catalog";
 import { environment } from "./environment";
 const env = environment();
@@ -10,24 +11,38 @@ const db = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
   },
 });
 try {
-  for (const table of [
-    "orders",
-    "order_items",
-    "payments",
-    "payment_events",
-    "download_entitlements",
-    "rate_limits",
+  for (const [table, columns] of [
+    ["orders", "id,checkout_token_hash,checkout_expires_at"],
+    ["order_items", "order_id,product_id"],
+    ["payments", "id,order_id"],
+    ["payment_events", "event_key"],
+    ["download_entitlements", "id,order_id,payment_id"],
+    ["rate_limits", "key"],
+    ["purchase_sessions", "token_hash,order_id,payment_id,expires_at"],
   ]) {
-    const { error } = await db
-      .from(table)
-      .select("*", { head: true, count: "exact" })
-      .limit(0);
+    // GET with zero rows validates the current schema without reading customer data.
+    // HEAD responses can lose the PostgREST error body in the SDK.
+    const { error } = await db.from(table).select(columns).limit(0);
     if (error)
       throw new Error(
         `Cannot access ${table}. Apply migrations and check server credentials.`,
       );
   }
-  console.log("Database: all six tables accessible with server credentials");
+  console.log("Database: all seven tables accessible with server credentials");
+  const { data: denied, error: authorizationError } = await db.rpc(
+    "tkc_authorize_download",
+    {
+      p: {
+        order_id: randomUUID(),
+        entitlement_id: randomUUID(),
+        session_hash: "0".repeat(64),
+      },
+    },
+  );
+  if (authorizationError || denied !== null)
+    throw new Error(
+      "Purchase authorization RPC is missing or unsafe. Apply the purchase-session migration.",
+    );
   const { data: bucket, error } = await db.storage.getBucket("handbooks");
   if (error || !bucket || bucket.public)
     throw new Error("Storage bucket must exist and be private.");

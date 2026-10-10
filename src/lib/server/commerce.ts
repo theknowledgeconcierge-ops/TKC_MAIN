@@ -1,5 +1,5 @@
 import "server-only";
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { activeBooks, type ProductId } from "@/lib/catalog";
 import { pdfPaths } from "@/lib/catalog/storage";
@@ -9,6 +9,7 @@ import {
   paymentId,
   providerOrderId,
   verifySchema,
+  tokenSchema,
   type CreateOrderInput,
 } from "@/lib/commerce/validation";
 import type {
@@ -22,8 +23,9 @@ import type {
 import type { Repository, PaymentProvider } from "./contracts";
 import { HttpError } from "./errors";
 import {
+  assertCapturedPayment,
   assertPaymentMatches,
-  authorizeOrder,
+  authorizeCheckout,
   hashToken,
   verifySignature,
 } from "./security";
@@ -74,7 +76,7 @@ export class CommerceService {
     if (!order) {
       const firstTime =
         ids.length === 5
-          ? !(await this.repo.hasPreviousPurchase(input.email))
+          ? !(await this.repo.hasPreviousPurchase(input.email, input.mobile))
           : null;
       let pricing;
       try {
@@ -88,7 +90,7 @@ export class CommerceService {
       }
       order = await this.repo.createOrder({
         id: randomUUID(),
-        access_token_hash: tokenHash,
+        checkout_token_hash: tokenHash,
         request_hash: requestHash,
         customer_name: input.full_name,
         customer_email: input.email,
@@ -109,7 +111,7 @@ export class CommerceService {
         }),
       });
     }
-    authorizeOrder(order, input.checkout_token);
+    authorizeCheckout(order, input.checkout_token);
     if (order.status === "paid" || order.status === "refunded")
       throw new HttpError(
         409,
@@ -192,14 +194,52 @@ export class CommerceService {
     return gateway.id;
   }
 
-  async authorized(id: string, token?: string): Promise<OrderRecord> {
+  async authorizedCheckout(id: string, token?: string): Promise<OrderRecord> {
     const order = await this.repo.getOrder(id);
-    authorizeOrder(order, token);
+    authorizeCheckout(order, token);
     return order!;
   }
-  async publicOrder(order: OrderRecord): Promise<PublicOrder> {
+  async sessionOrder(id: string, token?: string): Promise<OrderRecord> {
+    if (!token || !tokenSchema.safeParse(token).success)
+      throw new HttpError(
+        404,
+        "PURCHASE_SESSION_REQUIRED",
+        "Open this purchase in the browser used to complete payment.",
+      );
+    const session = await this.repo.getPurchaseSession(hashToken(token));
+    if (
+      !session ||
+      session.order_id !== id ||
+      Date.parse(session.expires_at) <= Date.now()
+    )
+      throw new HttpError(
+        404,
+        "PURCHASE_SESSION_REQUIRED",
+        "Your purchase session is invalid or expired.",
+      );
+    const order = await this.repo.getOrder(id);
+    if (!order || order.razorpay_payment_id !== session.payment_id)
+      throw new HttpError(
+        404,
+        "PURCHASE_SESSION_REQUIRED",
+        "This purchase session is unavailable.",
+      );
+    return order;
+  }
+  // Called only after the payment verification route has validated provider evidence.
+  async issuePurchaseSession(id: string, paymentId: string) {
+    const token = randomBytes(32).toString("base64url");
+    await this.repo.createPurchaseSession(id, paymentId, hashToken(token));
+    return token;
+  }
+  async publicOrder(
+    order: OrderRecord,
+    purchaseSession = false,
+  ): Promise<PublicOrder> {
     const entitlements =
-      order.status === "paid" ? await this.repo.getEntitlements(order.id) : [];
+      order.status === "paid" && purchaseSession
+        ? await this.repo.getEntitlements(order.id)
+        : [];
     return {
       id: order.id,
       order_number: order.order_number,
@@ -209,15 +249,19 @@ export class CommerceService {
       created_at: order.created_at,
       payment_mode: order.payment_mode,
       razorpay_payment_id: order.razorpay_payment_id,
-      access_expires_at: order.access_expires_at,
+      checkout_expires_at: order.checkout_expires_at,
+      download_authorized: order.status === "paid" && purchaseSession,
       entitlements: entitlements.map(({ id, product_id }) => ({
         id,
         product_id,
       })),
     };
   }
-  async read(id: string, token?: string) {
-    return this.publicOrder(await this.authorized(id, token));
+  async read(id: string, checkoutToken?: string, sessionToken?: string) {
+    const order = sessionToken
+      ? await this.sessionOrder(id, sessionToken)
+      : await this.authorizedCheckout(id, checkoutToken);
+    return this.publicOrder(order, !!sessionToken);
   }
 
   async resume(id: string, token?: string): Promise<CheckoutOrder> {
@@ -228,7 +272,7 @@ export class CommerceService {
         "ORDER_COMPLETED",
         "This order already has a payment. Open My purchases before paying again.",
       );
-    const order = await this.authorized(id, token);
+    const order = await this.authorizedCheckout(id, token);
     const gatewayId = await this.ensureGateway(order);
     return {
       key_id: this.config.keyId,
@@ -279,7 +323,7 @@ export class CommerceService {
     input: z.infer<typeof verifySchema>,
     token?: string,
   ): Promise<PublicOrder> {
-    const order = await this.authorized(input.internal_order_id, token);
+    const order = await this.authorizedCheckout(input.internal_order_id, token);
     this.assertMode(order);
     if (
       input.razorpay_order_id !== order.razorpay_order_id ||
@@ -310,10 +354,19 @@ export class CommerceService {
       key: `verify:${payment.id}`,
       type: "callback.verified",
     });
-    return this.read(order.id, token);
+    const current = await this.read(order.id, token);
+    if (current.status === "paid")
+      assertCapturedPayment(payment, current.razorpay_payment_id);
+    return current;
   }
-  async reconcile(id: string, token?: string): Promise<PublicOrder> {
-    let order = await this.authorized(id, token);
+  async reconcile(
+    id: string,
+    checkoutToken?: string,
+    sessionToken?: string,
+  ): Promise<PublicOrder> {
+    let order = sessionToken
+      ? await this.sessionOrder(id, sessionToken)
+      : await this.authorizedCheckout(id, checkoutToken);
     this.assertMode(order);
     if (!order.razorpay_order_id && order.gateway_started_at) {
       const matches = (
@@ -325,7 +378,8 @@ export class CommerceService {
         order = (await this.repo.getOrder(id))!;
       }
     }
-    if (!order.razorpay_order_id) return this.publicOrder(order);
+    if (!order.razorpay_order_id)
+      return this.publicOrder(order, !!sessionToken);
     this.assertProviderOrder(
       order,
       await this.provider.getOrder(order.razorpay_order_id),
@@ -333,6 +387,15 @@ export class CommerceService {
     const payments = order.razorpay_payment_id
       ? [await this.provider.getPayment(order.razorpay_payment_id)]
       : await this.provider.listPayments(order.razorpay_order_id);
+    if (
+      order.razorpay_payment_id &&
+      payments[0]?.id !== order.razorpay_payment_id
+    )
+      throw new HttpError(
+        409,
+        "PAYMENT_MISMATCH",
+        "Payment reference mismatch. No download access has been issued.",
+      );
     // Failed attempts cannot hide a later successful payment on the same provider order.
     payments.sort(
       (a, b) =>
@@ -346,36 +409,42 @@ export class CommerceService {
       });
       if (payment.captured || payment.amount_refunded > 0) break;
     }
-    return this.read(id, token);
+    const current = await this.read(id, checkoutToken, sessionToken);
+    // Preserve durable paid history, but fail closed on contradictory provider reads.
+    if (current.status === "paid")
+      assertCapturedPayment(
+        payments.find((payment) => payment.id === current.razorpay_payment_id),
+        current.razorpay_payment_id,
+      );
+    return current;
   }
-  async download(id: string, entitlementId: string, token?: string) {
-    const order = await this.reconcile(id, token);
+  async download(id: string, entitlementId: string, sessionToken?: string) {
+    // Checkout continuation credentials never enter this authorization path.
+    if (!sessionToken)
+      throw new HttpError(
+        404,
+        "PURCHASE_SESSION_REQUIRED",
+        "Open this purchase in the browser used to complete payment.",
+      );
+    const order = await this.reconcile(id, undefined, sessionToken);
     if (order.status !== "paid")
       throw new HttpError(
         403,
         "PAYMENT_REQUIRED",
-        "Downloads are available only after a captured payment, and are revoked on refund.",
+        "Downloads require a captured payment and are revoked on refund.",
       );
-    const entitlement = (await this.repo.getEntitlements(id)).find(
-      (e) => e.id === entitlementId,
+    const path = await this.repo.authorizeDownload(
+      id,
+      entitlementId,
+      hashToken(sessionToken),
     );
-    const record = await this.authorized(id, token);
-    if (
-      !entitlement ||
-      entitlement.customer_email !== record.customer_email ||
-      entitlement.payment_id !== record.razorpay_payment_id ||
-      record.status !== "paid"
-    ) {
+    if (!path)
       throw new HttpError(
         404,
         "DOWNLOAD_NOT_FOUND",
         "This download is unavailable for your purchase.",
       );
-    }
-    return {
-      url: await this.repo.signDownload(entitlement.storage_path, 60),
-      expires_in: 60,
-    };
+    return { url: await this.repo.signDownload(path, 60), expires_in: 60 };
   }
   async webhook(
     raw: Buffer,

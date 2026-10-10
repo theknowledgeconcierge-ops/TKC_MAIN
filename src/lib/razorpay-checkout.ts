@@ -1,4 +1,6 @@
 "use client";
+import { ApiError, apiPost } from "./api";
+import type { PublicOrder } from "./commerce/types";
 export interface RazorpaySuccess {
   razorpay_order_id: string;
   razorpay_payment_id: string;
@@ -13,7 +15,7 @@ interface RazorpayOptions {
   description: string;
   order_id: string;
   handler: (response: RazorpaySuccess) => void;
-  prefill: { name: string; email: string; contact: string };
+  prefill: { name: string; email?: string; contact: string };
   notes: { internal_order_id: string; order_number: string };
   theme: { color: string };
   modal: { ondismiss: () => void; confirm_close: boolean };
@@ -66,4 +68,29 @@ export function loadRazorpayCheckout(): Promise<void> {
     document.body.appendChild(script);
   });
   return checkoutScript;
+}
+
+// Keep the provider callback proof only in memory while retrying a transient failure.
+export async function verifyCheckoutPayment(
+  payload: { internal_order_id: string } & RazorpaySuccess,
+): Promise<PublicOrder> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const order = await apiPost<PublicOrder>("/payments/verify", payload);
+      if (order.status !== "paid" && order.status !== "refunded")
+        throw new ApiError(
+          409,
+          "PAYMENT_PROCESSING",
+          "Payment capture is processing. Check your purchase before paying again.",
+        );
+      return order;
+    } catch (error) {
+      const retryable =
+        !(error instanceof ApiError) ||
+        error.status >= 500 ||
+        error.code === "PAYMENT_PROCESSING";
+      if (attempt >= 3 || !retryable) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 1000 * (attempt + 1)));
+    }
+  }
 }

@@ -7,7 +7,8 @@ import {
   json,
   rateLimit,
   readJson,
-  tokenFrom,
+  checkoutTokenFrom,
+  purchaseSessionFrom,
 } from "@/lib/server/http";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,6 +19,12 @@ export async function POST(request: NextRequest) {
     const { order_id: id } = await readJson(request, reconcileSchema);
     const service = commerce();
     await rateLimit(request, service.repo, "reconcile-order", 20, 60, id);
-    return json(await service.reconcile(id, tokenFrom(request, id)));
+    return json(
+      await service.reconcile(
+        id,
+        checkoutTokenFrom(request, id),
+        purchaseSessionFrom(request, id),
+      ),
+    );
   });
 }

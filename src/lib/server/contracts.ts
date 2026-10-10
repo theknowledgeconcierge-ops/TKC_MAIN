@@ -7,13 +7,14 @@ import type {
   Entitlement,
   ProviderOrder,
   ProviderPayment,
+  PurchaseSession,
 } from "@/lib/commerce/types";
 export interface NewOrder {
   id: string;
-  access_token_hash: string;
+  checkout_token_hash: string;
   request_hash: string;
   customer_name: string;
-  customer_email: string;
+  customer_email: string | null;
   customer_mobile: string;
   subtotal: number;
   total: number;
@@ -26,11 +27,22 @@ export interface Repository {
   getOrder(id: string): Promise<OrderRecord | null>;
   findByToken(hash: string): Promise<OrderRecord | null>;
   findByProviderOrder(id: string): Promise<OrderRecord | null>;
-  hasPreviousPurchase(email: string): Promise<boolean>;
+  hasPreviousPurchase(email: string | null, mobile: string): Promise<boolean>;
   claimGateway(id: string): Promise<boolean>;
   bindGateway(id: string, providerId: string): Promise<void>;
   applyPayment(evidence: PaymentEvidence): Promise<{ duplicate: boolean }>;
   getEntitlements(orderId: string): Promise<Entitlement[]>;
+  createPurchaseSession(
+    orderId: string,
+    paymentId: string,
+    hash: string,
+  ): Promise<PurchaseSession>;
+  getPurchaseSession(hash: string): Promise<PurchaseSession | null>;
+  authorizeDownload(
+    orderId: string,
+    entitlementId: string,
+    sessionHash: string,
+  ): Promise<string | null>;
   signDownload(path: string, seconds: number): Promise<string>;
   rateLimit(key: string, limit: number, seconds: number): Promise<boolean>;
 }

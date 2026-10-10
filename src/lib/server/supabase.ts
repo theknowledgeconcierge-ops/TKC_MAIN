@@ -4,6 +4,7 @@ import type {
   Entitlement,
   OrderRecord,
   PaymentEvidence,
+  PurchaseSession,
 } from "@/lib/commerce/types";
 import { PDF_BUCKET } from "@/lib/catalog/storage";
 import type { Repository, NewOrder } from "./contracts";
@@ -63,7 +64,7 @@ export function createRepository(url: string, key: string): Repository {
   }
   return {
     getOrder: (id) => find("id", id),
-    findByToken: (hash) => find("access_token_hash", hash),
+    findByToken: (hash) => find("checkout_token_hash", hash),
     findByProviderOrder: (id) => find("razorpay_order_id", id),
     async createOrder(input: NewOrder) {
       const row = await rpc<{ id: string }>("tkc_create_order", input);
@@ -71,12 +72,12 @@ export function createRepository(url: string, key: string): Repository {
       if (!order) throw unavailable();
       return order;
     },
-    async hasPreviousPurchase(email) {
+    async hasPreviousPurchase(email, mobile) {
       const rows = checked(
         await db
           .from("orders")
           .select("id")
-          .eq("customer_email", email)
+          .eq(email ? "customer_email" : "customer_mobile", email ?? mobile)
           .in("status", ["paid", "refunded"])
           .limit(1),
       );
@@ -100,6 +101,27 @@ export function createRepository(url: string, key: string): Repository {
           .is("revoked_at", null),
       ) as Entitlement[];
     },
+    createPurchaseSession: (orderId, paymentId, hash) =>
+      rpc<PurchaseSession>("tkc_create_purchase_session", {
+        order_id: orderId,
+        payment_id: paymentId,
+        token_hash: hash,
+      }),
+    async getPurchaseSession(hash) {
+      return checked(
+        await db
+          .from("purchase_sessions")
+          .select("token_hash,order_id,payment_id,expires_at")
+          .eq("token_hash", hash)
+          .maybeSingle(),
+      ) as PurchaseSession | null;
+    },
+    authorizeDownload: (orderId, entitlementId, sessionHash) =>
+      rpc<string | null>("tkc_authorize_download", {
+        order_id: orderId,
+        entitlement_id: entitlementId,
+        session_hash: sessionHash,
+      }),
     async signDownload(path, seconds) {
       const result = checked(
         await db.storage

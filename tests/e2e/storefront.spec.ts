@@ -159,6 +159,9 @@ for (const eligible of [true, false]) {
     await page.getByTestId("razorpay-checkout-mobile-input").fill("9876543210");
     await page.getByTestId("razorpay-checkout-coupon-input").fill("First50");
     await page.getByTestId("razorpay-create-order-btn").click();
+    await expect(
+      page.getByText("Save your private purchase link", { exact: true }),
+    ).toHaveCount(0);
     await expect(page.getByTestId("razorpay-confirmed-total")).toHaveText(
       `₹${total}`,
     );
@@ -180,9 +183,9 @@ test("invalid browser persistence and forged success cannot unlock downloads", a
   await page.goto("/books");
   await expect(page.getByTestId("nav-bag-count")).toHaveText("0");
   await page.goto("/thank-you?order=123");
-  await expect(page.getByTestId("thank-you-heading")).toHaveText(
+  await expect(page.getByTestId("thank-you-heading")).toHaveText([
     "Return to your purchases.",
-  );
+  ]);
   await expect(page.locator('[data-testid^="download-"]')).toHaveCount(0);
 });
 test("checkout reviews server total and payment confirmation survives refresh (provider fixtures)", async ({
@@ -221,6 +224,7 @@ test("checkout reviews server total and payment confirmation survives refresh (p
     books: [ids[0]],
     pricing,
     payment_mode: "test",
+    download_authorized: true,
     entitlements: [{ id, product_id: ids[0] }],
   };
   await page.route("**/api/orders", async (route) => {
@@ -273,6 +277,11 @@ test("checkout reviews server total and payment confirmation survives refresh (p
   expect(await page.locator("dialog:modal").count()).toBe(0);
   await page.getByRole("button", { name: "Close fixture checkout" }).click();
   await expect(page.getByTestId("razorpay-confirmed-total")).toBeVisible();
+  expect(
+    (await page.context().cookies()).some((cookie) =>
+      cookie.name.includes("tkc_session_"),
+    ),
+  ).toBe(false);
   await page.getByTestId("razorpay-open-btn").click();
   await page.getByRole("button", { name: "Confirm fixture payment" }).click();
   await expect(page.getByTestId("thank-you-payment-status")).toHaveText("paid");
@@ -298,41 +307,78 @@ test("production CSP uses a fresh nonce and API rejects invalid input", async ({
   const pdf = await request.get("/handbooks/the-first-table.pdf");
   expect(pdf.status()).toBe(404);
 });
-test("private recovery fragment is exchanged before order reads and stripped from the URL", async ({
+test("legacy purchase links and a copied thank-you URL cannot unlock a clean browser", async ({
+  page,
+  request,
+}) => {
+  const id = "eeedc015-b764-4c98-8b40-f44955a71625";
+  let exchanged = false;
+  await page.route("**/api/orders/access", async (route) => {
+    exchanged = true;
+    await route.fulfill({ status: 404 });
+  });
+  await page.route(`**/api/orders/${id}`, (route) =>
+    route.fulfill({
+      status: 404,
+      json: {
+        error: { message: "Open this purchase in the original browser." },
+      },
+    }),
+  );
+  await page.route("**/api/orders/reconcile", (route) =>
+    route.fulfill({
+      status: 404,
+      json: { error: { message: "Purchase session required." } },
+    }),
+  );
+  await page.goto(`/thank-you?order=${id}#access=${"a".repeat(43)}`);
+  // Array form retries until the route transition leaves exactly one page.
+  await expect(page.getByTestId("thank-you-heading")).toHaveText([
+    "We couldn’t open this purchase.",
+  ]);
+  expect(new URL(page.url()).hash).toBe("");
+  expect(exchanged).toBe(false);
+  await expect(page.locator('[data-testid^="download-"]')).toHaveCount(0);
+  await expect(page.getByTestId("save-purchase-link")).toHaveCount(0);
+  expect(
+    (
+      await request.post("/api/orders/access", {
+        data: { order_id: id, token: "a".repeat(43) },
+      })
+    ).status(),
+  ).toBe(405);
+  expect(
+    (
+      await request.post("/api/orders/recovery-link", {
+        data: { order_id: id },
+      })
+    ).status(),
+  ).toBe(405);
+});
+test("a paid status without a purchase session never renders downloadable books", async ({
   page,
 }) => {
   const id = "eeedc015-b764-4c98-8b40-f44955a71625";
-  const token = "a".repeat(43);
-  let authorized = false;
-  let exchanges = 0;
   const order = {
     id,
-    order_number: "TKC-recovered",
+    order_number: "TKC-no-session",
     status: "paid",
+    download_authorized: false,
     books: [ids[0]],
     pricing: { total_inr: 249 },
     payment_mode: "test",
-    entitlements: [{ id, product_id: ids[0] }],
+    entitlements: [],
   };
-  await page.route("**/api/orders/access", async (route) => {
-    expect(route.request().postDataJSON()).toEqual({ order_id: id, token });
-    authorized = true;
-    exchanges++;
-    await route.fulfill({ json: order });
-  });
-  await page.route(`**/api/orders/${id}`, (route) => {
-    expect(authorized).toBe(true);
-    return route.fulfill({ json: order });
-  });
-  await page.route("**/api/orders/reconcile", (route) => {
-    expect(authorized).toBe(true);
-    return route.fulfill({ json: order });
-  });
-  await page.goto(`/thank-you?order=${id}#access=${token}`);
-  await expect(page.getByTestId("thank-you-payment-status")).toHaveText("paid");
-  expect(new URL(page.url()).hash).toBe("");
-  expect(exchanges).toBe(1);
-  await expect(page.getByTestId(`download-${ids[0]}`)).toBeEnabled();
+  for (const path of [`**/api/orders/${id}`, "**/api/orders/reconcile"])
+    await page.route(path, (route) => route.fulfill({ json: order }));
+  await page.goto(`/thank-you?order=${id}`);
+  await expect(page.getByTestId("thank-you-heading")).toHaveText([
+    "Payment confirmed. Purchase session unavailable.",
+  ]);
+  await expect(page.getByTestId("thank-you-copy")).toContainText(
+    "Do not pay again",
+  );
+  await expect(page.locator('[data-testid^="download-"]')).toHaveCount(0);
 });
 test("storefront still works when browser persistence is unavailable", async ({
   page,
@@ -357,7 +403,7 @@ test("storefront still works when browser persistence is unavailable", async ({
 });
 
 for (const count of [1, 2, 3, 4, 5]) {
-  test(`${count}-book purchase recovers a lost callback, refreshes and downloads every PDF (external fixtures)`, async ({
+  test(`${count}-book purchase retries callback verification, refreshes and downloads every PDF (external fixtures)`, async ({
     page,
   }) => {
     const selected = ids.slice(0, count);
@@ -365,6 +411,8 @@ for (const count of [1, 2, 3, 4, 5]) {
     const total = [0, 249, 399, 549, 699, 499][count];
     let settled = false;
     let callbackReceived = false;
+    let verificationAttempts = 0;
+    const session = "s".repeat(43);
     let failDownload = true;
     const pricing = {
       book_count: count,
@@ -388,6 +436,7 @@ for (const count of [1, 2, 3, 4, 5]) {
       books: selected,
       pricing,
       payment_mode: "test",
+      download_authorized: settled,
       entitlements: settled ? entitlements : [],
     });
     await page.route("**/api/orders", async (route) => {
@@ -419,15 +468,26 @@ for (const count of [1, 2, 3, 4, 5]) {
         razorpay_signature: "a".repeat(64),
       });
       callbackReceived = true;
-      await route.fulfill({
-        status: 503,
-        json: {
-          error: {
-            code: "SERVICE_UNAVAILABLE",
-            message: "Temporary verification outage. Check your purchase page.",
+      verificationAttempts++;
+      if (verificationAttempts === 1) {
+        await route.fulfill({
+          status: 503,
+          json: {
+            error: {
+              code: "SERVICE_UNAVAILABLE",
+              message: "Temporary verification outage.",
+            },
           },
-        },
-      });
+        });
+      } else {
+        settled = true;
+        await route.fulfill({
+          json: purchase(),
+          headers: {
+            "Set-Cookie": `tkc_session_${id}=${session}; HttpOnly; SameSite=Strict; Path=/; Max-Age=2592000`,
+          },
+        });
+      }
     });
     await page.route(`**/api/orders/${id}`, (route) =>
       route.fulfill({ json: purchase() }),
@@ -439,6 +499,10 @@ for (const count of [1, 2, 3, 4, 5]) {
       const body = route.request().postDataJSON();
       expect(body.order_id).toBe(id);
       expect(settled).toBe(true);
+      // The Strict session cookie still reaches same-origin download fetches.
+      expect(await route.request().headerValue("cookie")).toContain(
+        `tkc_session_${id}=${session}`,
+      );
       const entitlement = entitlements.find(
         (item) => item.id === body.entitlement_id,
       );
@@ -495,22 +559,43 @@ for (const count of [1, 2, 3, 4, 5]) {
     await page
       .getByTestId("razorpay-checkout-name-input")
       .fill("Lifecycle Buyer");
-    await page
-      .getByTestId("razorpay-checkout-email-input")
-      .fill("buyer@example.com");
+    if (count !== 1)
+      await page
+        .getByTestId("razorpay-checkout-email-input")
+        .fill("buyer@example.com");
     await page.getByTestId("razorpay-checkout-mobile-input").fill("9876543210");
     await page.getByTestId("razorpay-create-order-btn").click();
+    await expect(page.getByTestId("checkout-save-purchase-link")).toHaveCount(
+      0,
+    );
     await expect(page.getByTestId("razorpay-confirmed-total")).toHaveText(
       `₹${total}`,
     );
+    expect(
+      (await page.context().cookies()).some((cookie) =>
+        cookie.name.startsWith("tkc_session_"),
+      ),
+    ).toBe(false);
     await page.getByTestId("razorpay-open-btn").click();
-    await expect(page.getByTestId("thank-you-heading")).toHaveText(
-      "Processing payment…",
+    await expect(page.getByTestId("thank-you-payment-status")).toHaveText(
+      "paid",
     );
     expect(callbackReceived).toBe(true);
-    await expect(page.locator('[data-testid^="download-"]')).toHaveCount(0);
-    settled = true;
-    await page.getByTestId("check-payment-status").click();
+    expect(verificationAttempts).toBe(2);
+    const cookie = (await page.context().cookies()).find(
+      (cookie) => cookie.name === `tkc_session_${id}`,
+    )!;
+    expect(cookie.httpOnly).toBe(true);
+    expect(cookie.sameSite).toBe("Strict");
+    expect(await page.evaluate(() => document.cookie)).not.toContain(session);
+    expect(
+      await page.evaluate(() => JSON.stringify(localStorage)),
+    ).not.toContain(session);
+    expect(
+      await page.evaluate(() => JSON.stringify(sessionStorage)),
+    ).not.toContain(session);
+    expect(await page.content()).not.toContain(session);
+    expect(page.url()).not.toContain(session);
     await expect(page.getByTestId("thank-you-payment-status")).toHaveText(
       "paid",
     );

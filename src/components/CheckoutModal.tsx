@@ -22,8 +22,12 @@ import {
   randomCheckoutToken,
   rememberOrder,
 } from "@/lib/browser-storage";
-import { loadRazorpayCheckout, type RazorpaySuccess } from "@/lib/razorpay-checkout";
-import type { CheckoutOrder, PublicOrder } from "@/lib/commerce/types";
+import {
+  loadRazorpayCheckout,
+  verifyCheckoutPayment,
+  type RazorpaySuccess,
+} from "@/lib/razorpay-checkout";
+import type { CheckoutOrder } from "@/lib/commerce/types";
 import { useStore } from "@/lib/store";
 function errorMessage(error: unknown, fallback: string) {
   return error instanceof ApiError ? error.message : fallback;
@@ -64,7 +68,7 @@ export default function CheckoutModal({
   };
   const verifyMutation = useMutation({
     mutationFn: (payload: { internal_order_id: string } & RazorpaySuccess) =>
-      apiPost<PublicOrder>("/payments/verify", payload),
+      verifyCheckoutPayment(payload),
     onSuccess: (order) => {
       goToPurchase(order.id);
     },
@@ -116,7 +120,7 @@ export default function CheckoutModal({
         /^[A-Za-z0-9_-]{43}$/.test(attempt.token)
           ? attempt.token
           : randomCheckoutToken();
-      // Persist only the retry capability, not customer details. Discard it once the HttpOnly cookie is set.
+      // This idempotency key can only continue checkout; it never authorizes a download.
       writeStorage("tkc_checkout_attempt", { fingerprint, token });
       return apiPost<CheckoutOrder>("/orders", {
         ...payload,
@@ -142,31 +146,6 @@ export default function CheckoutModal({
         ),
       }),
   });
-  const saveLink = async () => {
-    if (!checkoutOrder) return;
-    try {
-      const { url } = await apiPost<{ url: string }>("/orders/recovery-link", {
-        order_id: checkoutOrder.internal_order_id,
-      });
-      const blob = new Blob(
-        [
-          url +
-            "\nKeep this private. This link grants access to your purchase.\n",
-        ],
-        { type: "text/plain" },
-      );
-      const href = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = href;
-      anchor.download = checkoutOrder.order_number + "-purchase-link.txt";
-      anchor.click();
-      URL.revokeObjectURL(href);
-    } catch (error) {
-      toast.error(
-        errorMessage(error, "Could not save the purchase link. Try again."),
-      );
-    }
-  };
   const openRazorpay = async () => {
     if (!checkoutOrder || busy.current) return;
     busy.current = true;
@@ -184,7 +163,9 @@ export default function CheckoutModal({
         order_id: checkoutOrder.razorpay_order_id,
         prefill: {
           name: checkoutOrder.customer_name,
-          email: checkoutOrder.customer_email,
+          ...(checkoutOrder.customer_email
+            ? { email: checkoutOrder.customer_email }
+            : {}),
           contact: checkoutOrder.customer_mobile,
         },
         notes: {
@@ -342,17 +323,9 @@ export default function CheckoutModal({
                   {checkoutOrder.order_number}.
                 </span>
               </div>
-              <button
-                type="button"
-                className="w-full text-sm text-[#8c6d46] underline"
-                onClick={saveLink}
-                data-testid="checkout-save-purchase-link"
-              >
-                Save your private purchase link
-              </button>
               <p className="text-xs text-[#6e655e]">
-                Keep this link to return on another device. It grants access to
-                your purchase; keep it private. No email is sent.
+                Downloads become available in this browser only after your
+                payment is verified. No email is required or sent.
               </p>
               <Button
                 className="w-full"
@@ -430,10 +403,9 @@ export default function CheckoutModal({
                 className="block text-sm text-[#6e655e]"
                 htmlFor="checkout-email"
               >
-                Email for your purchase record
+                Email for your purchase record (optional)
                 <Input
                   id="checkout-email"
-                  required
                   type="email"
                   value={email}
                   onChange={(event) => setEmail(event.target.value)}

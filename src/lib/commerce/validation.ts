@@ -11,16 +11,21 @@ const productIdSchema = z
 export const createOrderSchema = z.object({
   book_ids: z.array(productIdSchema).min(1).max(5),
   full_name: z.string().trim().min(2).max(120),
-  email: z
-    .email()
-    .max(254)
-    .transform((value) => value.toLowerCase()),
+  email: z.preprocess(
+    (value) => (value === undefined || value === "" ? null : value),
+    z
+      .email()
+      .max(254)
+      .transform((value) => value.toLowerCase())
+      .nullable(),
+  ),
   mobile: z
     .string()
     .trim()
     .min(7)
     .max(20)
-    .regex(/^[0-9+() -]+$/),
+    .regex(/^[0-9+() -]+$/)
+    .transform((value) => value.replace(/[() -]/g, "")),
   coupon_code: z.string().trim().max(32).optional(),
   checkout_token: tokenSchema,
 });
@@ -31,10 +36,6 @@ export const verifySchema = z.object({
   razorpay_order_id: providerOrderId,
   razorpay_payment_id: paymentId,
   razorpay_signature: z.string().regex(/^[a-fA-F0-9]{64}$/),
-});
-export const accessSchema = z.object({
-  order_id: orderIdSchema,
-  token: tokenSchema,
 });
 export const downloadSchema = z.object({
   order_id: orderIdSchema,

@@ -7,13 +7,15 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import BookCover from "@/components/BookCover";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { catalogue, formatInr } from "@/lib/catalog";
 import { ApiError, apiGet, apiPost } from "@/lib/api";
-import { readStorage, rememberOrder } from "@/lib/browser-storage";
-import { orderIdSchema, tokenSchema } from "@/lib/commerce/validation";
+import { readStorage } from "@/lib/browser-storage";
+import { orderIdSchema } from "@/lib/commerce/validation";
 import type { CheckoutOrder, PublicOrder } from "@/lib/commerce/types";
-import { loadRazorpayCheckout } from "@/lib/razorpay-checkout";
+import {
+  loadRazorpayCheckout,
+  verifyCheckoutPayment,
+} from "@/lib/razorpay-checkout";
 import { useStore } from "@/lib/store";
 
 export default function ThankYou() {
@@ -22,20 +24,12 @@ export default function ThankYou() {
   const candidate = params.get("order");
   const id = orderIdSchema.safeParse(candidate).success ? candidate! : null;
   const [ready, setReady] = useState(false);
-  const [accessError, setAccessError] = useState("");
   const [recent, setRecent] = useState<string[]>([]);
-  const [recovery, setRecovery] = useState("");
   const [downloading, setDownloading] = useState("");
   const [retrying, setRetrying] = useState(false);
   const { removePurchased } = useStore();
   const cleared = useRef<string | null>(null);
-  const accessExchange = useRef<{ id: string; promise: Promise<void> } | null>(
-    null,
-  );
   useEffect(() => {
-    let cancelled = false;
-    setReady(false);
-    setAccessError("");
     const saved = readStorage("tkc_purchase_ids");
     setRecent(
       Array.isArray(saved)
@@ -44,44 +38,14 @@ export default function ThankYou() {
           )
         : [],
     );
-    const token = new URLSearchParams(window.location.hash.slice(1)).get(
-      "access",
-    );
+    // Discard legacy bearer fragments without exchanging or accepting them.
     if (window.location.hash)
       window.history.replaceState(
         null,
         "",
         window.location.pathname + window.location.search,
       );
-    const authorize = async () => {
-      if (token && id) {
-        if (!tokenSchema.safeParse(token).success)
-          throw new Error("Invalid private purchase link.");
-        await apiPost("/orders/access", { order_id: id, token });
-        rememberOrder(id);
-      }
-    };
-    // Reuse an in-flight fragment exchange when React replays effects in development.
-    if (token && id) accessExchange.current = { id, promise: authorize() };
-    const exchange =
-      accessExchange.current?.id === id
-        ? accessExchange.current.promise
-        : Promise.resolve();
-    exchange
-      .then(() => {
-        if (!cancelled) setReady(true);
-      })
-      .catch((error) => {
-        if (!cancelled)
-          setAccessError(
-            error instanceof Error
-              ? error.message
-              : "Unable to open this private link.",
-          );
-      });
-    return () => {
-      cancelled = true;
-    };
+    setReady(true);
   }, [id]);
   const query = useQuery({
     queryKey: ["purchase", id],
@@ -120,7 +84,7 @@ export default function ThankYou() {
     return () => clearInterval(timer);
   }, [id, ready, cache]);
   const order = query.data;
-  const paid = order?.status === "paid";
+  const paid = order?.status === "paid" && order.download_authorized;
   useEffect(() => {
     if (order?.status === "paid" && cleared.current !== order.id) {
       cleared.current = order.id;
@@ -149,31 +113,6 @@ export default function ThankYou() {
       setDownloading("");
     }
   };
-  const saveLink = async () => {
-    try {
-      const { url } = await apiPost<{ url: string }>("/orders/recovery-link", {
-        order_id: id,
-      });
-      const href = URL.createObjectURL(
-        new Blob(
-          [
-            url +
-              "\nKeep this private. This link grants access to your purchase.\n",
-          ],
-          { type: "text/plain" },
-        ),
-      );
-      const anchor = document.createElement("a");
-      anchor.href = href;
-      anchor.download = `${order?.order_number}-purchase-link.txt`;
-      anchor.click();
-      URL.revokeObjectURL(href);
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Could not save your link.",
-      );
-    }
-  };
   const retryPayment = async () => {
     if (retrying) return;
     setRetrying(true);
@@ -192,7 +131,9 @@ export default function ThankYou() {
         order_id: checkout.razorpay_order_id,
         prefill: {
           name: checkout.customer_name,
-          email: checkout.customer_email,
+          ...(checkout.customer_email
+            ? { email: checkout.customer_email }
+            : {}),
           contact: checkout.customer_mobile,
         },
         notes: {
@@ -210,8 +151,8 @@ export default function ThankYou() {
         },
         handler: async (result) => {
           try {
-            await apiPost("/payments/verify", {
-              internal_order_id: id,
+            await verifyCheckoutPayment({
+              internal_order_id: checkout.internal_order_id,
               ...result,
             });
           } catch {
@@ -237,8 +178,7 @@ export default function ThankYou() {
       );
     }
   };
-  const error =
-    accessError || (query.error instanceof Error ? query.error.message : "");
+  const error = query.error instanceof Error ? query.error.message : "";
   const heading = !id
     ? "Return to your purchases."
     : error
@@ -247,16 +187,20 @@ export default function ThankYou() {
         ? "Loading your purchase…"
         : paid
           ? "Your business companions are ready."
-          : order.status === "failed"
-            ? "Payment was not completed."
-            : order.status === "refunded"
-              ? "This purchase has been refunded."
-              : "Processing payment…";
+          : order.status === "paid"
+            ? "Payment confirmed. Purchase session unavailable."
+            : order.status === "failed"
+              ? "Payment was not completed."
+              : order.status === "refunded"
+                ? "This purchase has been refunded."
+                : "Processing payment…";
   const copy = paid
-    ? "Your captured payment is confirmed. Download each handbook below and save your private purchase link for later."
-    : order?.status === "refunded"
-      ? "Download access has been revoked because this purchase was refunded."
-      : "Payment status comes from our server and Razorpay. If you were charged, check the status before paying again.";
+    ? "Your captured payment is confirmed. Download each handbook below from this browser."
+    : order?.status === "paid"
+      ? "Payment is confirmed, but this browser has no verified purchase session. Keep your Razorpay payment reference and contact the seller for recovery. Do not pay again."
+      : order?.status === "refunded"
+        ? "Download access has been revoked because this purchase was refunded."
+        : "Payment status comes from our server and Razorpay. If you were charged, check the status before paying again.";
   return (
     <div
       className="mx-auto max-w-5xl px-4 py-16 sm:px-6 sm:py-20 lg:px-8"
@@ -287,7 +231,7 @@ export default function ThankYou() {
           {error ||
             (id
               ? copy
-              : "Open a saved purchase from this browser, or paste your private purchase link. Order numbers alone cannot open a purchase.")}
+              : "Open a purchase saved on the browser used to complete payment. An order number or copied URL cannot authorize downloads.")}
         </p>
         {order && (
           <>
@@ -326,13 +270,6 @@ export default function ThankYou() {
               >
                 Check payment status
               </Button>
-              <Button
-                variant="outline"
-                onClick={saveLink}
-                data-testid="save-purchase-link"
-              >
-                Save private purchase link
-              </Button>
               {["created", "payment_pending", "failed"].includes(
                 order.status,
               ) && (
@@ -354,49 +291,11 @@ export default function ThankYou() {
               </p>
             )}
             <p className="mt-5 text-xs leading-relaxed text-[#8c6d46]">
-              No email is sent. Save your private link before clearing browser
-              cookies. Keep it private; it grants access to this purchase.
+              No email is sent. Download access uses a private session in this
+              browser. Keep your payment reference if you need help after
+              clearing cookies or changing devices.
             </p>
           </>
-        )}
-        {(!id || error) && (
-          <form
-            className="mx-auto mt-8 max-w-xl text-left"
-            onSubmit={(event) => {
-              event.preventDefault();
-              try {
-                const url = new URL(recovery);
-                const rid = url.searchParams.get("order");
-                const rt = new URLSearchParams(url.hash.slice(1)).get("access");
-                if (
-                  !orderIdSchema.safeParse(rid).success ||
-                  !tokenSchema.safeParse(rt).success
-                )
-                  throw new Error("Invalid link");
-                window.location.assign(`/thank-you?order=${rid}#access=${rt}`);
-              } catch {
-                toast.error(
-                  "Please paste your complete private purchase link.",
-                );
-              }
-            }}
-          >
-            <label className="text-sm" htmlFor="purchase-link">
-              Private purchase link
-              <Input
-                id="purchase-link"
-                value={recovery}
-                onChange={(event) => setRecovery(event.target.value)}
-                required
-                type="url"
-                className="mt-2"
-                autoComplete="off"
-              />
-            </label>
-            <Button className="mt-4" type="submit">
-              Open purchase
-            </Button>
-          </form>
         )}
         {!id && recent.length > 0 && (
           <div className="mx-auto mt-8 max-w-xl space-y-3 text-left">

@@ -8,6 +8,7 @@ import type {
   Entitlement,
   ProviderOrder,
   ProviderPayment,
+  PurchaseSession,
 } from "@/lib/commerce/types";
 import { createOrderSchema } from "@/lib/commerce/validation";
 import { catalogue } from "@/lib/catalog";
@@ -25,6 +26,7 @@ const input = () =>
 let orders: Map<string, OrderRecord>;
 let entitlements: Entitlement[];
 let events: Set<string>;
+let sessions: Map<string, PurchaseSession>;
 let payments: ProviderPayment[];
 let providerOrders: ProviderOrder[];
 let repo: Repository;
@@ -34,18 +36,19 @@ beforeEach(() => {
   orders = new Map();
   entitlements = [];
   events = new Set();
+  sessions = new Map();
   payments = [];
   providerOrders = [];
   repo = {
     getOrder: async (id) => orders.get(id) ?? null,
     findByToken: async (hash) =>
-      [...orders.values()].find((o) => o.access_token_hash === hash) ?? null,
+      [...orders.values()].find((o) => o.checkout_token_hash === hash) ?? null,
     findByProviderOrder: async (id) =>
       [...orders.values()].find((o) => o.razorpay_order_id === id) ?? null,
     hasPreviousPurchase: async () => false,
     createOrder: async (data) => {
       const existing = [...orders.values()].find(
-        (o) => o.access_token_hash === data.access_token_hash,
+        (o) => o.checkout_token_hash === data.checkout_token_hash,
       );
       if (existing) return existing;
       const order: OrderRecord = {
@@ -58,7 +61,7 @@ beforeEach(() => {
         gateway_started_at: null,
         paid_at: null,
         created_at: new Date().toISOString(),
-        access_expires_at: new Date(Date.now() + 86400000).toISOString(),
+        checkout_expires_at: new Date(Date.now() + 86400000).toISOString(),
         order_items: data.items,
       };
       orders.set(order.id, order);
@@ -110,6 +113,43 @@ beforeEach(() => {
     },
     getEntitlements: async (id) =>
       entitlements.filter((e) => e.order_id === id && !e.revoked_at),
+    createPurchaseSession: async (orderId, paymentId, hash) => {
+      const order = orders.get(orderId)!;
+      if (
+        order.status !== "paid" ||
+        order.razorpay_payment_id !== paymentId ||
+        entitlements.filter((e) => e.order_id === orderId && !e.revoked_at)
+          .length !== order.order_items.length
+      )
+        throw new Error("purchase_not_fulfilled");
+      const session = {
+        token_hash: hash,
+        order_id: orderId,
+        payment_id: order.razorpay_payment_id!,
+        expires_at: new Date(Date.now() + 30 * 86400000).toISOString(),
+      };
+      sessions.set(hash, session);
+      return session;
+    },
+    getPurchaseSession: async (hash) => sessions.get(hash) ?? null,
+    authorizeDownload: async (id, entitlementId, hash) => {
+      const session = sessions.get(hash);
+      const order = orders.get(id)!;
+      const entitlement = entitlements.find(
+        (e) =>
+          e.order_id === id &&
+          e.id === entitlementId &&
+          !e.revoked_at &&
+          e.payment_id === order.razorpay_payment_id &&
+          e.customer_email === order.customer_email,
+      );
+      return session?.order_id === id &&
+        Date.parse(session.expires_at) > Date.now() &&
+        order.status === "paid" &&
+        entitlement
+        ? entitlement.storage_path
+        : null;
+    },
     signDownload: vi.fn(
       async () =>
         "https://fixture.supabase.co/storage/v1/object/sign/handbooks/test.pdf?token=temporary",
@@ -182,7 +222,10 @@ describe("checkout and recovery", () => {
       });
       const checkout = await service.create(orderInput);
       expect(checkout.amount_paise).toBe(amount);
-      expect(repo.hasPreviousPurchase).toHaveBeenCalledWith(orderInput.email);
+      expect(repo.hasPreviousPurchase).toHaveBeenCalledWith(
+        orderInput.email,
+        orderInput.mobile,
+      );
       const order = orders.get(checkout.internal_order_id)!;
       expect(order.subtotal).toBe(124500);
       expect(order.total).toBe(amount);
@@ -250,6 +293,37 @@ describe("checkout and recovery", () => {
   });
 });
 describe("trusted verification and private downloads", () => {
+  it("a checkout credential cannot download after a webhook fulfills the order", async () => {
+    const { checkout, payment } = await captured();
+    const raw = JSON.stringify({
+      event: "payment.captured",
+      payload: { payment: { entity: { id: payment.id } } },
+    });
+    await service.webhook(
+      Buffer.from(raw),
+      createHmac("sha256", "webhook-secret").update(raw).digest("hex"),
+    );
+    await expect(
+      service.download(checkout.internal_order_id, entitlements[0].id, token),
+    ).rejects.toMatchObject({ status: 404 });
+    const getOrder = vi.spyOn(repo, "getOrder");
+    await expect(
+      service.download(checkout.internal_order_id, entitlements[0].id),
+    ).rejects.toMatchObject({
+      status: 404,
+      code: "PURCHASE_SESSION_REQUIRED",
+    });
+    // A missing session is rejected before any order or checkout lookup.
+    expect(getOrder).not.toHaveBeenCalled();
+    expect(repo.signDownload).not.toHaveBeenCalled();
+  });
+  it("checkout status reads never expose entitlements even after payment", async () => {
+    const { checkout } = await captured();
+    await service.reconcile(checkout.internal_order_id, token);
+    expect(
+      (await service.read(checkout.internal_order_id, token)).entitlements,
+    ).toEqual([]);
+  });
   it("fulfills all five titles once and signs the fifth PDF only for its owner", async () => {
     const orderInput = createOrderSchema.parse({
       ...input(),
@@ -272,7 +346,14 @@ describe("trusted verification and private downloads", () => {
       service.download(checkout.internal_order_id, fifth.id, "b".repeat(43)),
     ).rejects.toMatchObject({ status: 404 });
     expect(repo.signDownload).not.toHaveBeenCalled();
-    await service.download(checkout.internal_order_id, fifth.id, token);
+    await service.download(
+      checkout.internal_order_id,
+      fifth.id,
+      await service.issuePurchaseSession(
+        checkout.internal_order_id,
+        payment.id,
+      ),
+    );
     expect(repo.signDownload).toHaveBeenCalledWith(
       "handbooks/empty-tables-to-full-house.pdf",
       60,
@@ -300,7 +381,10 @@ describe("trusted verification and private downloads", () => {
     const result = await service.download(
       checkout.internal_order_id,
       entitlements[0].id,
-      token,
+      await service.issuePurchaseSession(
+        checkout.internal_order_id,
+        payment.id,
+      ),
     );
     expect(result.expires_in).toBe(60);
     expect(repo.signDownload).toHaveBeenCalledTimes(1);
@@ -399,7 +483,7 @@ describe("trusted verification and private downloads", () => {
     const o = await service.create(input());
     await expect(
       service.download(o.internal_order_id, randomUUID(), token),
-    ).rejects.toMatchObject({ status: 403 });
+    ).rejects.toMatchObject({ status: 404 });
     await expect(
       service.download(o.internal_order_id, randomUUID(), "b".repeat(43)),
     ).rejects.toMatchObject({ status: 404 });
@@ -414,7 +498,11 @@ describe("trusted verification and private downloads", () => {
     });
     await service.reconcile(o.internal_order_id, token);
     await expect(
-      service.download(o.internal_order_id, randomUUID(), token),
+      service.download(
+        o.internal_order_id,
+        randomUUID(),
+        await service.issuePurchaseSession(o.internal_order_id, "pay_abc"),
+      ),
     ).rejects.toMatchObject({ status: 404 });
     expect(repo.signDownload).not.toHaveBeenCalled();
   });
@@ -424,15 +512,22 @@ describe("trusted verification and private downloads", () => {
     await service.download(
       checkout.internal_order_id,
       entitlements[0].id,
-      token,
+      await service.issuePurchaseSession(
+        checkout.internal_order_id,
+        payment.id,
+      ),
     );
     expect(repo.signDownload).toHaveBeenCalledWith(
       "handbooks/the-first-table.pdf",
       60,
     );
+    const session = await service.issuePurchaseSession(
+      checkout.internal_order_id,
+      payment.id,
+    );
     payment.amount_refunded = 100;
     await expect(
-      service.download(checkout.internal_order_id, entitlements[0].id, token),
+      service.download(checkout.internal_order_id, entitlements[0].id, session),
     ).rejects.toMatchObject({ status: 403 });
   });
 });

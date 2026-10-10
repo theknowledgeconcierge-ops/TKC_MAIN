@@ -1,97 +1,59 @@
-# Customer purchase and delivery audit
+# Customer purchase and delivery audit — 10 October 2026
 
-Reviewed 10 October 2026 against the current working tree. No payment behavior, pricing, UI, database contract or dependencies were changed for this audit. Missing cross-layer regression coverage was added; the database runner now serializes files because fault-injection tests install temporary database triggers.
+The current catalogue contains **five active handbooks**. Pricing is unchanged: one through five unique titles cost ₹249 / ₹399 / ₹549 / ₹699 / ₹999; eligible first-time five-book purchases cost ₹499. This audit follows the actual frontend, handlers, server service, provider adapters and PostgreSQL functions, including the subsequent purchase-session security fix.
 
-**Verdict: the application-controlled lifecycle is implemented end to end. No missing application-code step or confirmed application-code Critical/High defect was found in the traced paths. This is not a successful real-payment certification.** Netlify deployment preparation subsequently preserved these code paths and revalidated them; current provider-specific evidence and hosted verification gates are in [Netlify deployment](NETLIFY_DEPLOYMENT.md).
+## Authorization boundary
 
-The current catalogue has **five active books**, including the four named in the original brief. All five were audited. Pricing remains ₹249 / ₹399 / ₹549 / ₹699 / ₹999 for one through five unique titles, with ₹499 for eligible first-time five-book purchases.
+Previously the browser's pre-payment checkout token also authorized downloads once a webhook paid the order. The UI exported that credential in a saveable URL fragment; an exchange endpoint and operator recovery script made possession sufficient. Checking `paid` at download time did not prevent this premature disclosure of a future credential.
 
-## What the evidence proves
+Checkout continuation and purchase authorization are now independent:
 
-- **CODE-CERTIFIED:** inspected frontend, route handlers, validation, commerce service, both HTTP adapters, authorization, SQL/RLS and Storage mapping. Tests execute all 31 non-empty book selections through real Next route handlers, the commerce service, Supabase SDK, Razorpay HTTP adapter and an actual PostgreSQL database initialized from the production migration. Only external HTTP transport is replaced: the Supabase REST fixture forwards queries/RPCs into PostgreSQL, and Razorpay/Storage responses are controlled fixtures. No production mock or test bypass was added.
-- **Connected Supabase verification:** the configured project's six tables are accessible, all five production object paths exist in the private bucket, and anonymous public object requests fail. The actual application `createRepository().signDownload(path, 60)` adapter retrieved each PDF's header using HTTP Range (206, `%PDF-`, attachment response), then streamed all five complete files (HTTP 200, byte counts matching Storage metadata, PDF header and end marker present). A signed URL was rejected with HTTP 400 after its 60-second validity window. No URL, capability, credential, PDF body or customer information was logged or committed. These checks do not create production orders/payments.
-- **Connected Razorpay verification:** the earlier key pair failed authentication (401). The owner subsequently updated it; `npm run check:integrations` now passes read-only Test Mode authentication as well as database/Storage checks. No captured payment is certified by authentication alone.
-- **CREDENTIAL-BLOCKED:** the webhook secret is not configured locally. Provider capture and signed provider webhook delivery remain unverified.
-- **DEPLOYMENT/PRODUCTION VERIFICATION REQUIRED:** a deployed transaction must verify the actual hosted Razorpay UI/CSP, payment capture, callback, webhook delivery/retries, clean-browser recovery and complete PDF contents/downloads. Local browser fixtures test our UI wiring; they do not certify Razorpay's hosted payment UI, bank processing or hosted Netlify routing.
+- Checkout key/hash/cookie: creation idempotency, resume and limited status only; expires after seven days. It cannot download, even after paid fulfillment.
+- Purchase session: new server-generated 256-bit random value, issued only after callback HMAC and independently fetched **captured** provider evidence match the exact order/payment/amount/currency. Its hash is stored in `purchase_sessions` after SQL rechecks complete fulfillment. Its raw value appears only in an HttpOnly/SameSite=Strict/Secure cookie on HTTPS (`__Host-`, no Domain); HTTP localhost has a development exception. Sessions expire after 30 days.
+- Order UUID, thank-you URL, local purchase history, entitlement ID and legacy fragments never authorize. URL exchange/export endpoints and the recovery script are removed. Webhooks and reconciliation never mint sessions.
+- Downloads require session/order/payment/entitlement checks on the server and in one SQL authorization statement. Private Storage signing still expires after 60 seconds.
 
 ## Lifecycle matrix
 
-Paths are relative to the repository root. “Code” means CODE-CERTIFIED; “external gate” is separate from passing application tests.
+All code evidence below uses production handlers/service/adapters and actual PostgreSQL with external HTTP fixtures. Browser tests use provider/API fixtures; no real payment certification is implied.
 
-| Step | Actual code path | Database change | Failure behavior | Verified? |
+| Step | Actual code path | Database change | Failure behavior | Verified scope |
 | --- | --- | --- | --- | --- |
-| Land and browse | `src/app/page.tsx` → `src/views/Home.tsx`; `app/books/page.tsx` → `Library`; `app/books/[slug]/page.tsx` → `Product`; shared `BookCard` | None | Unknown slug returns HTTP 404; covers are public marketing assets | Code: desktop/mobile routes and all five products |
-| Select titles and bag | `src/lib/store.tsx` → `sanitizeBag`, `addBook/addBooks`, `summaryFor`; `SmartBag.tsx` | None; localStorage stores the bag | Unknown IDs removed, titles deduplicated; unavailable browser storage does not crash UI; displayed estimate cannot authorize price/payment | Code: browser and domain tests |
-| Enter required details | `CheckoutModal.tsx` → `orderMutation`; `src/lib/commerce/validation.ts` → `createOrderSchema` | None until valid request | Name/email/mobile/IDs/token are runtime-validated; unknown price/quantity/status/eligibility fields are discarded | Code: real HTTP and domain tests |
-| Calculate trusted total | `POST /api/orders` → `CommerceService.create` → `quoteFor` and `repo.hasPreviousPurchase` | None during calculation | Invalid selection/coupon fails; first-time eligibility comes from paid/refunded purchase history, never a client flag | Code: all 31 selections and actual returning-buyer DB lookup |
-| Create internal order | `createRepository.createOrder` → `tkc_create_order` | `orders` + purchase-time `order_items` snapshots atomically | Unique hashed checkout capability and request fingerprint reuse the same order; different details conflict; invalid snapshots/subtotal roll back | Code: concurrent API and SQL tests |
-| Create Razorpay order | `ensureGateway` → `tkc_claim_gateway` → `createPaymentProvider.createOrder` → `tkc_bind_gateway` | Persistent gateway claim, provider ID, `created → payment_pending` | 12-second HTTP timeout; retry searches stable receipt, validates mapping, and reuses the provider order after lost response/bind failure; claim limits overlapping attempts | Code: actual HTTP adapter + DB; external gate: valid Razorpay credentials |
-| Review and open Checkout | `CheckoutModal.tsx` → verified total → `loadRazorpayCheckout` → `window.Razorpay` | None | Review precedes payment; double open guarded; script/open failure can retry; native review dialog closes before hosted iframe; dismissal preserves order | Code: desktop/mobile fixtures; external gate: real hosted UI/CSP |
-| Payment callback | Checkout handler → `POST /api/payments/verify` → `CommerceService.verify` | No paid write until independent provider evidence passes | Requires purchase capability and HMAC-SHA256 of **stored provider order ID** + `|` + payment ID; fetches payment/order and checks payment ID, order, amount, INR currency, receipt/internal notes and payment mode. Authorized-only payments grant nothing | Code: cryptography, HTTP, adapter, service and SQL integration; external gate: real capture |
-| Webhook | `POST /api/webhooks/razorpay` → bounded raw body → `CommerceService.webhook` | Same fulfillment RPC as callback | Separate raw-body HMAC; fetches current provider records; unknown references/spoofed events grant nothing. Missing secret returns 503. Failure/lag returns non-2xx so provider can retry. A webhook can recover an unbound order through validated internal notes | Code: real handler/service/SQL; external gate: dashboard delivery |
-| Commit payment and fulfill | `CommerceService.apply` → `tkc_apply_payment` | `payment_events`, `payments`, paid/refunded `orders` state and one `download_entitlements` row per item commit together | Row lock + event primary key + unique `(order_id, product_id)` prevent duplicate fulfillment. Failed-after-paid cannot downgrade; refunded cannot resurrect. Transaction failure rolls back everything; lost commit response retries safely | Code: concurrent callbacks/webhooks, forced rollback and lost-response tests |
-| Confirmation/refresh | `/thank-you?order=UUID` → `ThankYou.tsx` → cookie-authorized `GET /api/orders/[id]`, `POST /orders/reconcile` | Reconciliation may apply trusted captured/refunded evidence through the same atomic RPC | Database state drives processing/paid/failed/refunded UI. Mount checks, bounded automatic reconciliation and manual check recover a lost callback/delayed webhook. Session/localStorage success cannot unlock downloads | Code: DB-backed APIs and desktop/mobile refresh/processing tests |
-| Resume or recover | `/orders/resume`; `/orders/recovery-link`; `/orders/access`; `rememberOrder`; `scripts/recover-order.ts` | Resume reconciles existing payment; cookie exchange changes no DB rows; operator recovery rotates hash/expiry | Same provider/internal order reused; completed purchases refuse another checkout. Saved fragment capability exchanges into HttpOnly cookie and is removed from URL. UUID alone, wrong/expired capability deny access | Code: DB-backed API and browser recovery tests |
-| Authorize each download | `POST /api/downloads` → `CommerceService.download` → reconciliation + order/entitlement/payment/customer checks | Reconciliation may add an event; no new entitlement duplication | Unpaid/failed/refunded orders, foreign/unpurchased entitlement, missing/wrong/expired token and provider/DB failure return no URL | Code: actual routes + PostgreSQL, all titles/combinations |
-| Sign and retrieve PDF | `createRepository.signDownload` → private bucket `handbooks`, snapshotted `storage_path`, TTL 60; `ThankYou.download` navigates to attachment | No payment/order mutation when signing fails | Storage failure leaves paid purchase/entitlements intact and retry can sign again. Private origin enforced; no permanent public PDF URL is issued | Code + connected Supabase complete-transfer/expiry checks; browser downloads each fixture; external gate: deployed content review |
+| Land/browse/product | `src/app` → Storefront/views → canonical `lib/catalog` | None | Invalid slug gives 404; retained responsive navigation/design | Production browser tests |
+| Select one/multiple books | `lib/store.tsx`, SmartBag, CheckoutModal | None | Local storage failure preserves usable in-memory shopping; unknown/duplicate IDs cannot control price | Domain/browser tests |
+| Enter details | CheckoutModal → `createOrderSchema` | None until validation passes | Name/mobile required; email optional; submitted totals/status/quantity ignored | Domain/API/email-free DB/browser tests |
+| Authoritative price | `/api/orders` → `CommerceService.create` → `quoteFor`, purchase history | None during calculation | Unknown books/coupons fail; returning-buyer eligibility is server-controlled | All 31 non-empty selections and real DB history |
+| Create internal order | Repository → `tkc_create_order` | `orders`, snapshot `order_items` atomically | Unique checkout hash/fingerprint deduplicates; mismatched retry conflicts; bad snapshot rolls back | Concurrent API/SQL tests |
+| Create Razorpay order | `ensureGateway` → `claimGateway`, provider adapter, `tkc_bind_gateway` | Creation claim/provider order binding | Stable receipt recovers lost response/bind; same provider/internal order reused | Adapter and DB-backed API tests |
+| Review/open Checkout | CheckoutModal → `razorpay-checkout.ts` | None | Only checkout cookie issued; no purchase session/link/entitlements. Dismissal remains pending/resumable; native dialog releases provider iframe | Browser tests and API cookie assertions |
+| Provider success callback | `/payments/verify` → `CommerceService.verify` | None until independent evidence passes | Stored-order HMAC plus fetched payment/order IDs, amount, INR, mode, receipt/internal notes required; authorized/failed/fabricated/different attempt cannot unlock | Cryptography/service/DB-backed API tests; real provider is external gate |
+| Atomic fulfillment | `tkc_apply_payment` | Payment + event + order paid + one entitlement per item in one transaction | Row locks/idempotency; forced failure rolls everything back; repeated callbacks/webhooks do not duplicate fulfillment | Real PostgreSQL rollback/concurrency tests |
+| Issue purchase session | Verification route → `issuePurchaseSession` → `tkc_create_purchase_session` | Only session hash/order/exact-payment/expiry | SQL refuses unpaid, revoked, mismatched or incomplete fulfillment. Failure after fulfillment returns no cookie; same callback proof retries safely | HTTP cookie and DB fault-injection tests |
+| Provider webhook | `/webhooks/razorpay` → raw-body HMAC → fetched provider evidence → same fulfillment RPC | Payment/event/state/entitlements | Spoofed/unknown input rejected; body-derived idempotency; refund evidence lag retries. **No session is issued** | Handler/service/DB-backed API tests; delivery is external gate |
+| Callback retry/closed browser | `verifyCheckoutPayment`; `/orders/reconcile`; webhook | Repair durable payment state as appropriate | Up to four callback attempts, proof only in memory. Lost callback/browser closure can fulfill but cannot upgrade checkout credentials; separate recovery needed if no session reached browser | Unit retries + real DB failure/closed-browser tests |
+| Confirmation/refresh/revisit | `/thank-you?order=UUID` → GET order + reconcile | Reconciliation may add idempotent event | Valid session shows books; checkout-only status returns zero entitlements; clean browser/legacy link denies. Paid without session says do not pay again | DB isolation + desktop/mobile browser tests |
+| Download authorization | `/downloads` → session validation/reconcile → `tkc_authorize_download` | May reconcile current payment; no new session | Session must belong to order, unexpired; current provider evidence must be the exact captured/unrefunded payment (contradictory reads fail closed without erasing paid history); order paid; matching payment captured/unrefunded; matching active entitlement/customer/item/path. Foreign IDs and failure deny URL | Real SQL and DB-backed API tests |
+| Sign/download PDF | Repository `signDownload(path, 60)` → ThankYou download navigation | None | Signing failure preserves purchase, allows retry; signing origin restricted. PDF bytes come directly from private Supabase | All selection/title DB mappings and browser fixture downloads; connected private-storage check separately |
+| Refund | Webhook/reconcile → `tkc_apply_payment` | Refunded payment/order; revoke all purchase entitlements | Late captured event cannot resurrect; even a partial refund prevents new downloads | Real SQL/API tests; actual provider refund external gate |
 
-## Book mapping
+## Production title mappings
 
-`Book.id` is submitted in `book_ids`, copied to `order_items.product_id`, then copied by SQL to `download_entitlements.product_id`. The title, unit price, quantity one and `pdfPaths[id]` are snapshotted in the order item. Fulfillment copies that stored path; downloading signs the entitlement path rather than reconstructing an order from current prices.
+Order items snapshot the server-only path; fulfillment copies it to entitlements. Signing uses the validated snapshot, never a browser path.
 
-All objects below are inside bucket **`handbooks`**, with a **`handbooks/` folder inside the bucket**. None belong under `public/`.
+| Catalogue / checkout / order item / entitlement product ID | Bucket | Object path inside bucket |
+| --- | --- | --- |
+| `the-first-table` | `handbooks` | `handbooks/the-first-table.pdf` |
+| `the-full-table` | `handbooks` | `handbooks/the-full-table.pdf` |
+| `behind-the-kitchen-door` | `handbooks` | `handbooks/behind-the-kitchen-door.pdf` |
+| `the-math-behind-the-menu` | `handbooks` | `handbooks/the-math-behind-the-menu.pdf` |
+| `empty-tables-to-full-house` | `handbooks` | `handbooks/empty-tables-to-full-house.pdf` |
 
-| Title | Catalogue ID = checkout ID = item ID = entitlement product ID | Private bucket object path | Evidence |
-| --- | --- | --- | --- |
-| The First Table | `the-first-table` | `handbooks/the-first-table.pdf` | Individual/combination tests; real signed download HTTP 200, 1,298,425 bytes |
-| The Full Table | `the-full-table` | `handbooks/the-full-table.pdf` | Individual/combination tests; real signed download HTTP 200, 1,346,169 bytes |
-| Behind the Kitchen Door | `behind-the-kitchen-door` | `handbooks/behind-the-kitchen-door.pdf` | Individual/combination tests; real signed download HTTP 200, 1,253,237 bytes |
-| The Math Behind the Menu | `the-math-behind-the-menu` | `handbooks/the-math-behind-the-menu.pdf` | Individual/combination tests; real signed download HTTP 200, 1,497,072 bytes |
-| Empty Tables to Full House | `empty-tables-to-full-house` | `handbooks/empty-tables-to-full-house.pdf` | Individual/combination tests; real signed download HTTP 200, 1,055,352 bytes |
+## Regression evidence and external gates
 
-Source: `src/lib/catalog/index.ts`, server-only `src/lib/catalog/storage.ts`, `CommerceService.create`, `tkc_apply_payment`, `CommerceService.download`. No broken or missing object mapping was found.
+See SECURITY_AUDIT.md for current commands/results. Security regressions deny pending/failed/cancelled-popup orders, checkout credentials after webhook payment, fabricated callbacks, uncaptured/different callback attempts on an already-paid order, clean-browser/copied URLs, legacy tokens, foreign orders/entitlements, refunded payments and invalid/expired sessions. SQL tests also deny anonymous/authenticated table/RPC/object access and reject mismatched payment/customer/path/revocation state. Session failures before or after commit safely retry without duplicate fulfillment; browser tests check session absence from document.cookie, storage, HTML and URLs.
 
-## Failure and recovery evidence
+**CODE-CERTIFIED** applies to the implemented same-browser verified-payment lifecycle. Deploy the new code **and** apply `202610100001_purchase_sessions.sql` together with checkout paused; the old app expects the previous column names. Existing paid records/entitlements remain, but legacy access credentials are intentionally invalidated.
 
-- All 31 non-empty title combinations: trusted totals, one provider order, duplicate submission reuse, no unpaid download, concurrent callback/webhook/repeated-event convergence, every correct entitlement/path and 60-second signing request.
-- Actual database purchase history selects ₹999 for a returning five-book customer even when browser payload claims eligibility/₹1.
-- Eight simultaneous API creates: one internal order and one gateway order; overlapping requests either succeed with that order or return a retryable conflict.
-- Provider accepts creation but response is lost; subsequent bind fails: receipt lookup recovers without creating another provider order.
-- Webhook arrives before provider ID binding: validated receipt/internal notes bind and fulfill the correct internal order.
-- Browser closes without callback: webhook fulfills without cookies; alternatively an authorized revisit reconciles provider evidence and fulfills. Resume after payment refuses a new payment.
-- Database write fails before apply: no paid state/event/payment/entitlement. A response lost after commit leaves one complete paid purchase; callback/webhook retries do not duplicate delivery.
-- SQL fault injection raises during entitlement insertion after earlier writes: the whole transaction rolls back, then the same event succeeds on retry.
-- Checkout cancelled, payment failed, payment merely authorized, then capture delayed: no access until captured; the same order can recover.
-- Invalid signature, wrong amount/currency/order, spoofed webhook, another order's capability/entitlement and expired access: no download/fulfillment.
-- Storage unavailable after payment: order stays paid, entitlements remain, UI shows a retryable error, and a later click downloads the correct file.
-- Partial refund revokes every entitlement; stale captured evidence cannot revive the refunded order. Previously issued signed URLs may survive for their remaining ≤60-second lifetime; already downloaded PDFs cannot be recalled.
+**EXTERNAL VERIFICATION REQUIRED:** apply the new migration to the target Supabase project, deploy, exercise real Razorpay capture/callback/webhook/refund and download the actual purchased files. Local fixtures cannot certify hosted provider behavior. Keep the historical credential, public-artifact revocation and upstream vendor launch gates in SECURITY_AUDIT.md.
 
-## Commands executed
-
-Node 24 and the existing lockfile/dependency versions were used.
-
-| Command/check | Exact result |
-| --- | --- |
-| `npm run check:env` | Exit 0 for local test-mode configuration; format/presence validation does not prove provider authentication |
-| `npm run typecheck` | Exit 0 |
-| `npm run lint` | Exit 0; warnings denied |
-| `npm test` | 104 passed, 6 files |
-| `npm run test:db` | 57 passed, 2 files; fresh PostgreSQL 16 + actual migration, cluster destroyed afterward |
-| `npm run build` | Exit 0; Next.js 16.4.0; all routes compile; public and compiled asset guards pass |
-| `PLAYWRIGHT_CHANNEL=chrome npm run test:e2e` | 28 passed; desktop/mobile; real production Next server, external API/gateway/PDF fixtures |
-| `npm audit --json` | Exit 0; 0 vulnerabilities at every severity |
-| Compiled asset secret comparison | 25 browser assets checked; 0 configured privileged secret matches |
-| `npm run check:integrations` | Initially exit 1 at Razorpay authentication; now exit 0 after key update. Six tables, five private PDFs/public denial checks and Test Mode authentication pass |
-| Actual application Storage signing adapter | Five complete HTTP 200 transfers matching metadata byte counts; five 206 PDF Range/attachment responses; public access denied; expired URL HTTP 400 |
-| `git diff --check` | Exit 0 |
-
-## Remaining external gates and limits
-
-1. The updated matching Razorpay test key pair passes read-only authentication. Complete a deployed test transaction before configuring live credentials. No real payment was attempted during this audit or Netlify preparation.
-2. Configure **automatic capture** in Razorpay (already required by README), and a fresh ≥20-character webhook secret. Subscribe to `payment.captured`, `order.paid`, `payment.failed`, `refund.processed` at `https://YOUR_DOMAIN/api/webhooks/razorpay`. Our code deliberately does not deliver on authorization alone. [Razorpay capture requirements](https://razorpay.com/docs/payments/payment-gateway/web-integration/standard/integration-steps/).
-3. Configure the exact canonical `APP_URL`, HTTPS, matching Netlify context variables and production credentials. Keep staging/test data and keys isolated from production. Validate the deployed health/integration checks and hosted gateway CSP on desktop/mobile. Netlify previews automatically use their own primary HTTPS origin.
-4. Complete README's deployed test payment, lost-callback/revisit, webhook replay/retry, clean-browser private-link, complete PDF content and refund smoke tests. Webhook retries are finite; operationally replay failed deliveries if an outage outlasts provider retries. Provider/DB unavailability intentionally prevents new downloads until retry succeeds.
-5. Resolve the pre-existing external security gates in `SECURITY_AUDIT.md`: revoke legacy public PDF copies and rotate the historically exposed webhook secret. Their closure was not verified here. Review and apply the announced Next.js upstream security fixes when published before accepting live payments; affected versions are not disclosed yet. [Official 14 October update announcement](https://nextjs.org/blog/upcoming-nextjs-security-update-october-2026).
-6. Guest purchases have no accounts or email delivery. Cookies last 30 days; saved capabilities expire after one year. Loss of both requires operator ownership verification and link rotation. Sharing a private purchase link deliberately shares access; customers can copy PDFs after downloading. These are documented product boundaries, not authorization by order ID.
-
-**Answer to the launch question:** yes, the landing → selection → checkout → trusted payment verification → atomic fulfillment → confirmation/recovery → private expiring PDF download chain has no missing application-code step in the audited implementation. Supplying credentials/deploying alone does not prove provider capture or delivery: complete the external gates and transaction smoke tests above before accepting real customer payments.
+**Recovery limitation:** clearing cookies, changing device, session expiry or closing the browser before the verified callback issues its cookie needs separately verified recovery. Webhook fulfillment remains durable, but possession of a pre-payment checkout key or thank-you URL cannot provide recovery authorization. No mandatory email authentication or alternative bearer link is introduced. The complete same-browser application path is implemented; automatic cross-device/lost-callback recovery is deliberately not claimed.

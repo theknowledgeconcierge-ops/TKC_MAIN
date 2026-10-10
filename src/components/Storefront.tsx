@@ -201,8 +201,8 @@ function Footer() {
             className="mt-4 text-sm leading-relaxed text-[#c5b7a8]"
             data-testid="footer-support-note"
           >
-            Keep your private purchase link to return to your handbooks on any
-            device.
+            Return to My purchases in the browser used to complete payment. Keep
+            your payment reference if you need help.
           </p>
           <Link
             href="/faq"

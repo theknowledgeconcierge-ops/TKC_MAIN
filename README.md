@@ -35,13 +35,15 @@ No Supabase anonymous key, `NEXT_PUBLIC_*` variables or duplicate Razorpay keys 
 
 Test checkout needs the first five variables above and matched `rzp_test_...` credentials. `RAZORPAY_WEBHOOK_SECRET` can remain unset: callback HMAC verification uses the Razorpay key secret, and the server fetches provider evidence before fulfillment. Confirmation/download requests also reconcile provider state. Webhook requests return 503 until their separate signing secret is configured; they never fall back to the API key secret or an empty key.
 
-Configure Deploy Preview/branch context variables in Netlify with **Builds and Functions** scope (or all scopes). Use isolated Supabase test data and Razorpay test keys; keep production secrets out of untrusted previews. Netlify supplies `CONTEXT` and `DEPLOY_PRIME_URL` during the build. The application embeds only the non-secret context and preview origin, so checkout, secure cookies and recovery links use the preview's own primary URL even when these platform variables are absent at function runtime. Do not override platform metadata or set `NODE_ENV`. Open the primary preview URL; other deployment aliases deliberately fail the exact-origin check. Production deployments and any use of live keys still require the webhook secret.
+Configure Deploy Preview/branch context variables in Netlify with **Builds and Functions** scope (or all scopes). Use isolated Supabase test data and Razorpay test keys; keep production secrets out of untrusted previews. Netlify supplies `CONTEXT` and `DEPLOY_PRIME_URL` during the build. The application embeds only the non-secret context and preview origin, so checkout and secure cookies use the preview's own primary URL even when these platform variables are absent at function runtime. Do not override platform metadata or set `NODE_ENV`. Open the primary preview URL; other deployment aliases deliberately fail the exact-origin check. Production deployments and any use of live keys still require the webhook secret.
 
 Upload all five PDFs before accepting live purchases. A preview with incomplete storage can test checkout/downloads for the uploaded titles; `check:integrations` intentionally continues to fail until all five files exist. Configure and exercise webhook delivery separately before launch.
 
 ## Supabase setup: one migration path
 
-Create a **fresh Supabase project**. In its SQL Editor, run the entire contents of [`supabase/migrations/202610090001_storefront.sql`](supabase/migrations/202610090001_storefront.sql) once. This is one transaction that creates all tables, constraints, indexes, functions, permissions and the private `handbooks` bucket. No table design or dashboard policy editing is needed.
+For a **fresh Supabase project**, run every file in `supabase/migrations/` once in filename order: `202610090001_storefront.sql`, then `202610100001_purchase_sessions.sql`. Each file is transactional; together they create the tables, constraints, indexes, functions, permissions and private `handbooks` bucket. No dashboard policy editing is needed.
+
+**Existing deployments:** apply only the new `202610100001_purchase_sessions.sql` migration. It renames the old authorization columns to checkout-only names, adds hash-only purchase sessions and permits purchases without email. Coordinate this migration with the new application deployment while checkout is paused: the older application expects the old column names. Existing orders, payments and entitlements remain; old purchase links/cookies no longer authorize downloads. Never rerun the initial migration against an initialized project.
 
 For repeatable CLI deployment, the same migration is compatible with:
 
@@ -84,20 +86,21 @@ Three original PDFs remain in the ignored local `private-pdfs/` staging director
 
 | Table | Purpose and important constraints |
 | --- | --- |
-| `orders` | Random UUID and unique public reference; unique hashed access token, request fingerprint, explicit status/payment mode, INR integer-paise totals, unique provider order/payment IDs, paid timestamp and composite payment relationship |
+| `orders` | Random UUID and unique public reference; unique hashed checkout-only continuation key (7 days), request fingerprint, explicit status/payment mode, INR integer-paise totals, unique provider order/payment IDs, paid timestamp and composite payment relationship |
 | `order_items` | Composite `(order_id, product_id)` key; snapshots title, unit price, quantity=1 and private storage path; subtotal checked on creation |
 | `payments` | Provider payment ID primary key; order FK; amount/currency, captured/failed/refunded status and bounded refund amount |
 | `payment_events` | Unique idempotency key, provider event reference, event type and order/payment FKs; no raw customer/card payload |
 | `download_entitlements` | Random UUID; unique `(order_id, product_id)`; item and payment/order FKs; customer, path and revocation timestamp |
+| `purchase_sessions` | SHA-256 session hash primary key; order/payment foreign keys, 30-day expiry; issued only after verified fulfillment |
 | `rate_limits` | Expiring hashed counters shared by serverless instances; no extra infrastructure |
 
-Provider IDs, token hashes, order items and entitlements have unique indexes. Additional indexes cover paid customer lookup, order/event dates, order payment/event lookup and counter expiry. All six tables have RLS enabled, no browser policies, and privileges revoked from anonymous/authenticated roles. Only the service role can use commerce tables/RPCs. Storage grants no customer object policies. All privileged code imports `server-only`; the browser never initializes Supabase.
+Provider IDs, token hashes, order items and entitlements have unique indexes. Additional indexes cover paid customer lookup, order/event dates, order payment/event lookup and counter expiry. All seven tables have RLS enabled, no browser policies, and privileges revoked from anonymous/authenticated roles. Only the service role can use commerce tables/RPCs. Storage grants no customer object policies. All privileged code imports `server-only`; the browser never initializes Supabase.
 
 Atomic PostgreSQL RPCs create orders/items, claim gateway creation, bind provider orders and apply payments/events/entitlements. Row locks serialize callbacks and webhooks. Failure rolls back the entire fulfillment transaction, including event insertion, so a webhook retry can fulfill it. Only server-computed prices reach these RPCs.
 
 ```text
 src/app/                 App Router pages and Node API handlers
-  api/orders/            creation, private reads, access, resume, reconciliation, recovery link
+  api/orders/            creation, checkout/session reads, resume and reconciliation
   api/payments/verify/   callback signature plus provider verification
   api/webhooks/razorpay/ raw-body webhook verification
   api/downloads/         authorized short-lived PDF access
@@ -107,7 +110,7 @@ src/lib/catalog/         typed canonical catalogue and server-only PDF mapping
 src/lib/commerce/        pricing, schemas and shared types
 src/lib/server/          commerce service, Supabase/Razorpay adapters, authorization, HTTP errors
 supabase/migrations/     deterministic PostgreSQL and Storage setup
-scripts/                 asset guard, environment, upload, recovery, integration and SQL test tools
+scripts/                 asset guard, environment, upload, integration and SQL test tools
 tests/                   domain, service, HTTP, adapters, PostgreSQL and browser coverage
 public/                  local covers, favicons; no paid PDFs
 docs/                    migration decisions and security/verification evidence
@@ -115,25 +118,19 @@ docs/                    migration decisions and security/verification evidence
 
 ## Payment and download lifecycle
 
-1. Browser submits active product IDs, contact details and a random 256-bit checkout capability. Unknown products/invalid input are rejected; browser amounts/status fields are ignored. Digital products are unique, quantity one.
-2. Server calculates canonical tier pricing, saves purchase snapshots and an internal order before contacting Razorpay. Repeated submissions reuse the same order. An atomic creation claim prevents parallel provider calls; the stable receipt recovers provider orders after a lost response or failed database bind.
-3. Authorized browser receives only the public key ID, locked provider order and safe checkout information. Pay opens Razorpay's hosted checkout. Closing checkout leaves the order resumable.
-4. Callback verification uses HMAC-SHA256 over the **stored** Razorpay order ID plus payment ID. Server then fetches Razorpay payment and order, validates IDs/relationship, internal notes/receipt, amount and currency. `authorized` alone grants nothing; only a captured payment can fulfill.
-5. Webhook verification uses HMAC-SHA256 over the unmodified raw body. Signed payload identifies provider records; fetched provider evidence is checked again. Body-derived event keys prevent an unsigned event header controlling idempotency. Duplicate and out-of-order events converge through one SQL transaction.
-6. Confirmation reads cookie-authorized server state. On mount, periodic checks and explicit “Check payment status” reconcile against Razorpay when a browser callback/webhook was lost. Failed attempts may later become paid; failed events cannot downgrade paid; any processed partial/full refund revokes the whole purchase. Refunded orders never resurrect on late capture events.
-7. Downloads recheck authorization, current provider payment, server status, entitlement, customer and payment relationship. Only then does Supabase create a **60-second** signed URL. Provider/DB failure denies a new download and permits a later retry.
+1. Browser submits active product IDs, name/mobile, optional email and a random checkout idempotency key. Runtime validation rejects invalid input and ignores browser prices/status. Products are unique, quantity one. This key/cookie can only continue checkout and read limited order status; it never authorizes downloads, even after a webhook marks the order paid.
+2. Server calculates canonical pricing and saves purchase snapshots before creating the Razorpay order. Duplicate requests reuse the same internal/provider order. A row-locked creation claim and stable receipt recover lost provider responses.
+3. The review receives safe Razorpay checkout information and a checkout-only HttpOnly cookie. Closing checkout leaves it resumable. No purchase link, download session or entitlement is returned before verification.
+4. Callback verification checks HMAC-SHA256 using the **stored** provider order ID, then fetches payment/order evidence and verifies IDs, internal association, amount, currency and captured status. One PostgreSQL transaction writes payment/event/order-paid/entitlements. The callback must prove the exact captured payment associated with this purchase; an authorized or failed attempt cannot borrow another attempt's paid status.
+5. Only the successful verification route issues a **new independent 256-bit purchase session**. PostgreSQL rechecks paid/captured/unrefunded payment and complete fulfillment before storing its hash. Its value is returned solely in a 30-day HttpOnly, SameSite=Strict cookie with Secure and `__Host-` on HTTPS (localhost HTTP uses a development cookie). It never enters JSON, URLs, localStorage, HTML or client JavaScript state. Transient callback failures retry the same provider proof in memory, at most four attempts.
+6. Webhooks verify the unmodified raw body and independently fetch provider evidence; they use the same atomic fulfillment transaction. Reconciliation can also repair payment state. Neither path issues a purchase session or upgrades checkout credentials. Duplicate/out-of-order events cannot duplicate fulfillment or resurrect refunded access.
+7. Confirmation URLs contain only an order UUID. Checkout-only reads can show status, but return no entitlements. Only a valid purchase session reveals purchased download controls. Every download validates that session/order, reconciles provider state, then uses one SQL authorization statement to recheck session expiry, paid status, captured/unrefunded payment, entitlement, customer and snapshotted storage path. Only then is a **60-second** Supabase signed URL generated. DB/provider/storage failure fails closed and permits retry.
 
-States: `created → payment_pending → paid`; failed attempts can produce `failed → paid`; captured payments can produce `paid → refunded`. A closed popup stays pending because it does not prove failure. No client redirect, session flag, order number or guessed entitlement grants access.
+States: `created → payment_pending → paid`; failed attempts can produce `failed → paid`; any processed partial/full refund produces `paid → refunded` and revokes entitlements. A dismissed popup stays pending because dismissal is not payment evidence.
 
-Purchase capability tokens are stored only as SHA-256 hashes in PostgreSQL. HttpOnly, SameSite=Lax cookies last 30 days and are Secure on HTTPS. The checkout retry token may temporarily live in browser storage until creation is confirmed; cart state and purchase UUIDs are never authorization. Recovery links put the token in a **URL fragment**, exchanged for a cookie and removed before order queries. No token is included in server access-log URLs; pages/API use no-store and no-referrer policies. A purchase link is deliberately a bearer secret; customers must keep it private.
+No accounts or email provider are required; **email is optional**. My purchases stores only non-authorizing order UUIDs and works in the browser that received the verified purchase session. Clearing cookies, changing devices or losing the callback before session issuance requires separately verified recovery. The application deliberately has no URL-token exchange, exported purchase link or token-minting recovery script. A webhook still fulfills a closed-browser payment durably, but its checkout cookie cannot unlock those PDFs. Keep the Razorpay payment reference and contact the seller; do not pay again. Automated cross-device recovery is outside this change and is not claimed implemented.
 
-No transactional email implementation existed, so none was added. Customers can save a private link **before payment** and on confirmation, and return through My purchases. Entitlements do not expire automatically; purchase access tokens expire after one year. For a lost/expired link, an operator must verify ownership against Razorpay records, then rotate it:
-
-```sh
-npm run order:recover -- ORDER_UUID --ownership-verified
-```
-
-This invalidates all old links/cookies and prints one replacement secret link for secure handoff. Email knowledge alone is insufficient. Do not paste private links into public tickets/logs. A signed URL can be shared during its short validity, and a buyer can copy a downloaded PDF; the system protects access, not DRM.
+Already-issued signed URLs remain usable for their 60-second lifetime; downloaded PDFs can be copied. Access control protects private hosting, not DRM.
 
 ## Tests and build
 
@@ -150,18 +147,18 @@ npm audit
 
 `test:db` creates, migrates, tests and destroys a temporary PostgreSQL 16 cluster. On macOS/Homebrew it defaults to `/opt/homebrew/opt/postgresql@16/bin`; set `PG_BIN` to your PostgreSQL binaries elsewhere. Do not run it as root. Alternatively set `TEST_DATABASE_URL` to a **fresh isolated database with Supabase roles and Storage schema already installed**, with `psql` on PATH. **Never point tests at production.** Tests create deliberate failure triggers and sample payments.
 
-Browser tests start the production build on port 3100, cover desktop/mobile routes, storage, checkout, recovery and confirmation, and use provider/API fixtures. To use installed Google Chrome instead of bundled Chromium: `PLAYWRIGHT_CHANNEL=chrome npm run test:e2e`. Tests do not certify live Supabase/Razorpay behavior. See [verification and production audit](docs/SECURITY_AUDIT.md).
+Browser tests start the production build on port 3100, cover desktop/mobile routes, storage, checkout, session isolation and confirmation, and use provider/API fixtures. To use installed Google Chrome instead of bundled Chromium: `PLAYWRIGHT_CHANNEL=chrome npm run test:e2e`. Tests do not certify live Supabase/Razorpay behavior. See [verification and production audit](docs/SECURITY_AUDIT.md).
 
 ## Production: exact setup sequence
 
 1. Create a fresh Supabase project; keep staging/test purchases separate.
 2. Set the six environment values above in `.env.local` for setup tools. Keep actual secrets out of Git.
-3. Apply the versioned SQL migration using the chosen setup path.
+3. Apply all unapplied versioned SQL migrations in filename order using the chosen setup path; coordinate the purchase-session migration with deployment as described above.
 4. Confirm the migration-created `handbooks` bucket is private; do not add public policies.
 5. Supply/upload all five PDFs with the exact paths above. Run `npm run check:integrations` after Razorpay credentials are ready. Revoke old public artifact files.
 6. Create matching Razorpay credentials and enable **automatic capture** in Razorpay payment settings. This application deliberately never fulfills merely authorized payments.
 7. Choose a **new** webhook secret; never reuse the legacy secret exposed in commit `da62819` (see the [security incident](docs/SECURITY_AUDIT.md#historical-credential-incident)). Register `https://YOUR_DOMAIN/api/webhooks/razorpay` with the configured webhook secret. Subscribe to **`payment.captured`, `order.paid`, `payment.failed`, `refund.processed`**. Test and live dashboards need their own webhook configuration. Keep the secret stable while older deliveries are retrying.
-8. Import the repository into Netlify, base directory **`.`**, build **`npm run build`**, publish **`.next`**. `netlify.toml` supplies the build/publish settings; `.nvmrc` selects Node **24**. Allow Netlify to manage the current Next.js/OpenNext adapter automatically; do not install or pin a legacy plugin. Add all six values to Production with **Builds and Functions** scope. Set `APP_URL` to the exact canonical HTTPS origin used by checkout and recovery links. Initial hosted testing must use test credentials; use context-specific test credentials for Deploy Previews as described above.
+8. Import the repository into Netlify, base directory **`.`**, build **`npm run build`**, publish **`.next`**. `netlify.toml` supplies the build/publish settings; `.nvmrc` selects Node **24**. Allow Netlify to manage the current Next.js/OpenNext adapter automatically; do not install or pin a legacy plugin. Add all six values to Production with **Builds and Functions** scope. Set `APP_URL` to the exact canonical HTTPS origin used by checkout and secure cookies. Initial hosted testing must use test credentials; use context-specific test credentials for Deploy Previews as described above.
 9. Review vendor security advisories, then deploy a test-context preview first. No backend process, SPA fallback, persistent disk or worker is required. Sensitive routes use Node, bounded provider timeouts and no-store responses. Public assets are local. Configure Netlify's primary custom domain and HTTPS, update production `APP_URL`, and redeploy after environment changes. See [Netlify deployment and compatibility](docs/NETLIFY_DEPLOYMENT.md) for the preview, runtime limits and domain sequence.
 10. Complete the smoke test below in Razorpay test mode, then a small live transaction/refund after configuring live credentials. Verify webhook delivery/retry status in the dashboard. Only then accept customer payments.
 
@@ -171,9 +168,9 @@ Browser tests start the production build on port 3100, cover desktop/mobile rout
 
 - `GET /api/health` returns 200/`status: ready`; `npm run check:integrations` passes with actual credentials/files.
 - Purchase one book, four books and all five; confirm Razorpay receives 24900, 69900 and either 49900 (eligible first-time buyer) or 99900 (returning buyer) paise regardless of edited browser fields.
-- Close/reopen checkout and refresh; confirm the same internal/provider order is reused. Temporarily lose the callback or close the browser after paying; webhook/reconciliation must still mark paid.
+- Close/reopen checkout and refresh; confirm the same internal/provider order is reused. Temporarily lose a verification response and verify callback retry. Close the browser before verification: webhook/reconciliation must still mark paid, but must not turn the checkout cookie into download access; separate recovery is required.
 - Replay a signed event using Razorpay dashboard replay; verify one entitlement per item and no duplicate payment/fulfillment. Failed delivery must retry after the underlying issue is restored.
-- Open a saved private link in a clean browser; verify access. UUID alone, wrong token, another purchase's entitlement, forged callback and spoofed webhook must fail.
+- Complete verified payment and download in that browser, then refresh and repeat. Copy its thank-you URL into a clean browser: no purchase/session/download access. Checkout cookies, legacy fragments, wrong/expired sessions, another purchase's entitlement, forged callbacks and spoofed webhooks must fail.
 - Download each real PDF; verify correct contents. A copied signed URL expires after 60 seconds, anonymous public bucket paths fail, and no service key appears in browser scripts/network responses.
 - Refund a test purchase; confirmation must show refunded and new download requests must fail. Check failure/loading messages and real Razorpay iframe/CSP behavior on mobile and desktop (browser fixtures cannot verify the provider's live assets).
 

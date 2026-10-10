@@ -9,7 +9,7 @@ const fixture = vi.hoisted(() => ({
     reconcile: vi.fn(),
     download: vi.fn(),
     webhook: vi.fn(),
-    authorized: vi.fn(),
+    issuePurchaseSession: vi.fn(),
     repo: { rateLimit: vi.fn() },
   },
 }));
@@ -19,7 +19,6 @@ import { GET as read } from "@/app/api/orders/[id]/route";
 import { POST as verify } from "@/app/api/payments/verify/route";
 import { POST as webhook } from "@/app/api/webhooks/razorpay/route";
 import { POST as download } from "@/app/api/downloads/route";
-import { POST as access } from "@/app/api/orders/access/route";
 const id = "99a3cb9b-6ef1-4fb7-a60e-87a758e9f612";
 const token = "a".repeat(43);
 const request = (
@@ -54,7 +53,18 @@ describe("Next.js HTTP boundaries", () => {
     mobile: "9876543210",
     checkout_token: token,
   };
-  it("creates a checkout and sets a private HttpOnly cookie", async () => {
+  it("never issues a purchase session before verified payment", async () => {
+    fixture.service.create.mockResolvedValue({ internal_order_id: id });
+    const response = await create(request("orders", orderInput));
+    expect(response.status).toBe(201);
+    expect(response.cookies.get(`tkc_purchase_${id}`)).toBeUndefined();
+    expect(response.cookies.getAll().map((cookie) => cookie.name)).toEqual([
+      `tkc_checkout_${id}`,
+    ]);
+    expect(fixture.service.issuePurchaseSession).not.toHaveBeenCalled();
+    expect(await response.json()).not.toHaveProperty("token");
+  });
+  it("creates a checkout with a separate HttpOnly continuation cookie", async () => {
     fixture.service.create.mockResolvedValue({
       internal_order_id: id,
       amount_paise: 24900,
@@ -127,7 +137,7 @@ describe("Next.js HTTP boundaries", () => {
       { params: Promise.resolve({ id }) },
     );
     expect(response.status).toBe(404);
-    expect(fixture.service.read).toHaveBeenCalledWith(id, undefined);
+    expect(fixture.service.read).toHaveBeenCalledWith(id, undefined, undefined);
   });
   it("rejects fake payment signatures through the API", async () => {
     fixture.service.verify.mockRejectedValue(
@@ -192,19 +202,55 @@ describe("Next.js HTTP boundaries", () => {
       ).json(),
     ).toEqual({ url: "https://fixture.supabase.co/temporary", expires_in: 60 });
   });
-  it("exchanges a recovery token into an HttpOnly cookie without redirecting externally", async () => {
-    fixture.service.authorized.mockResolvedValue({ id });
-    const response = await access(
-      request("orders/access", {
-        order_id: id,
-        token,
-        redirect: "https://attacker.example",
-      }),
+  it("issues a random HttpOnly purchase session only after verified fulfillment", async () => {
+    process.env.APP_URL = "https://store.example";
+    const session = "b".repeat(43);
+    fixture.service.verify.mockResolvedValue({ id, status: "paid" });
+    fixture.service.issuePurchaseSession.mockResolvedValue(session);
+    fixture.service.read.mockResolvedValue({
+      id,
+      status: "paid",
+      download_authorized: true,
+      entitlements: [],
+    });
+    const response = await verify(
+      request(
+        "payments/verify",
+        {
+          internal_order_id: id,
+          razorpay_order_id: "order_abc",
+          razorpay_payment_id: "pay_abc",
+          razorpay_signature: "0".repeat(64),
+        },
+        { Origin: "https://store.example" },
+      ),
     );
     expect(response.status).toBe(200);
-    expect(response.headers.get("set-cookie")).toContain("HttpOnly");
-    expect(response.headers.get("location")).toBeNull();
+    const cookie = response.cookies.get(`__Host-tkc_session_${id}`)!;
+    expect(cookie.value).toBe(session);
+    expect(cookie.httpOnly).toBe(true);
+    expect(cookie.secure).toBe(true);
+    expect(cookie.sameSite).toBe("strict");
+    expect(cookie.domain).toBeUndefined();
+    expect(JSON.stringify(await response.json())).not.toContain(session);
+    expect(fixture.service.read).toHaveBeenCalledWith(id, undefined, session);
   });
+  it.each(["created", "payment_pending", "failed", "refunded"])(
+    "never issues a purchase session for %s",
+    async (status) => {
+      fixture.service.verify.mockResolvedValue({ id, status });
+      const response = await verify(
+        request("payments/verify", {
+          internal_order_id: id,
+          razorpay_order_id: "order_abc",
+          razorpay_payment_id: "pay_abc",
+          razorpay_signature: "0".repeat(64),
+        }),
+      );
+      expect(response.headers.get("set-cookie")).toBeNull();
+      expect(fixture.service.issuePurchaseSession).not.toHaveBeenCalled();
+    },
+  );
   it("uses shared rate limits and safe errors", async () => {
     fixture.service.repo.rateLimit.mockResolvedValue(false);
     const response = await create(request("orders", orderInput));

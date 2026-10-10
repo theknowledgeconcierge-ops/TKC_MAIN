@@ -8,7 +8,7 @@ const faqs = [
   ],
   [
     "How will I receive my purchase?",
-    "After a captured payment, open My purchases to download your PDFs. Save your private purchase link for another device or future visits. No email is sent.",
+    "After a captured payment, open My purchases to download your PDFs. Use the same browser to return to your purchase; copied URLs do not grant access. No email is sent.",
   ],
   [
     "Can I buy books separately?",
@@ -29,7 +29,7 @@ const faqs = [
   ["Can I read these on my phone?", "Yes, using a compatible PDF reader."],
   [
     "Can I request a refund?",
-    "Keep your Razorpay payment reference and purchase link when asking the seller about a refund. A processed refund revokes download access.",
+    "Keep your Razorpay payment reference and order number when asking the seller about a refund. A processed refund revokes download access.",
   ],
 ];
 export default function Faq() {

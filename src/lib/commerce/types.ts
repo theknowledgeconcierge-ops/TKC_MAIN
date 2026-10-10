@@ -27,11 +27,11 @@ export interface OrderItem {
 export interface OrderRecord {
   id: string;
   order_number: string;
-  access_token_hash: string;
-  access_expires_at: string;
+  checkout_token_hash: string;
+  checkout_expires_at: string;
   request_hash: string;
   customer_name: string;
-  customer_email: string;
+  customer_email: string | null;
   customer_mobile: string;
   status: OrderStatus;
   payment_mode: "test" | "live";
@@ -51,7 +51,7 @@ export interface Entitlement {
   order_id: string;
   product_id: string;
   payment_id: string;
-  customer_email: string;
+  customer_email: string | null;
   revoked_at: string | null;
   storage_path: string;
 }
@@ -93,7 +93,8 @@ export interface PublicOrder {
   created_at: string;
   payment_mode: "test" | "live";
   razorpay_payment_id: string | null;
-  access_expires_at: string;
+  checkout_expires_at: string;
+  download_authorized: boolean;
   entitlements: { id: string; product_id: string }[];
 }
 export interface CheckoutOrder {
@@ -106,7 +107,14 @@ export interface CheckoutOrder {
   currency: string;
   pricing: PricingQuote;
   customer_name: string;
-  customer_email: string;
+  customer_email: string | null;
   customer_mobile: string;
   description: string;
+}
+
+export interface PurchaseSession {
+  token_hash: string;
+  order_id: string;
+  payment_id: string;
+  expires_at: string;
 }

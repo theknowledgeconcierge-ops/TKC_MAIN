@@ -6,22 +6,44 @@ import { HttpError } from "./errors";
 import { serverEnv } from "./env";
 import type { Repository } from "./contracts";
 
-const cookieName = (orderId: string) => `tkc_purchase_${orderId}`;
-export const tokenFrom = (request: NextRequest, orderId: string) =>
-  request.cookies.get(cookieName(orderId))?.value;
-export function setAccessCookie(
+const secureCookies = () =>
+  new URL(process.env.APP_URL ?? "http://localhost").protocol === "https:";
+const cookieName = (kind: "checkout" | "session", orderId: string) =>
+  `${secureCookies() ? "__Host-" : ""}tkc_${kind}_${orderId}`;
+export const checkoutTokenFrom = (request: NextRequest, orderId: string) =>
+  request.cookies.get(cookieName("checkout", orderId))?.value;
+export const purchaseSessionFrom = (request: NextRequest, orderId: string) =>
+  request.cookies.get(cookieName("session", orderId))?.value;
+function setCookie(
+  response: NextResponse,
+  kind: "checkout" | "session",
+  orderId: string,
+  token: string,
+  maxAge: number,
+  sameSite: "lax" | "strict",
+) {
+  response.cookies.set(cookieName(kind, orderId), token, {
+    httpOnly: true,
+    secure: secureCookies(),
+    sameSite,
+    path: "/",
+    maxAge,
+  });
+}
+export function setCheckoutCookie(
   response: NextResponse,
   orderId: string,
   token: string,
 ) {
-  response.cookies.set(cookieName(orderId), token, {
-    httpOnly: true,
-    secure:
-      new URL(process.env.APP_URL ?? "http://localhost").protocol === "https:",
-    sameSite: "lax",
-    path: "/",
-    maxAge: 60 * 60 * 24 * 30,
-  });
+  setCookie(response, "checkout", orderId, token, 60 * 60 * 24 * 7, "lax");
+}
+export function setPurchaseSessionCookie(
+  response: NextResponse,
+  orderId: string,
+  token: string,
+) {
+  // Only same-origin API fetches need the download credential; no navigation ever does.
+  setCookie(response, "session", orderId, token, 60 * 60 * 24 * 30, "strict");
 }
 export function json(data: unknown, status = 200) {
   return NextResponse.json(data, {

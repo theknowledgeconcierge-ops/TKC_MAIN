@@ -7,7 +7,8 @@ import {
   json,
   rateLimit,
   readJson,
-  tokenFrom,
+  checkoutTokenFrom,
+  setPurchaseSessionCookie,
 } from "@/lib/server/http";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -25,8 +26,17 @@ export async function POST(request: NextRequest) {
       60,
       input.internal_order_id,
     );
-    return json(
-      await service.verify(input, tokenFrom(request, input.internal_order_id)),
+    const order = await service.verify(
+      input,
+      checkoutTokenFrom(request, input.internal_order_id),
     );
+    if (order.status !== "paid") return json(order);
+    const session = await service.issuePurchaseSession(
+      order.id,
+      input.razorpay_payment_id,
+    );
+    const response = json(await service.read(order.id, undefined, session));
+    setPurchaseSessionCookie(response, order.id, session);
+    return response;
   });
 }

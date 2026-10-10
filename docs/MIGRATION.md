@@ -26,7 +26,7 @@ The original brief described four books; the owner subsequently confirmed that a
 | Mongo orders and webhook collection | Replace | SQL migrations; constraints, row locks, RLS and service-only RPCs |
 | Public paid-PDF URLs | Delete | Private bucket, entitlements, 60-second signed downloads |
 | Emergent covers | Replace | Same cover artwork, served locally |
-| Future email/auth placeholders | Delete | Guest private cookie and saveable per-order recovery link |
+| Future email/auth placeholders | Delete | Guest checkout and post-payment HttpOnly purchase session; email optional |
 | Vite/proxy/overlays, Python/Uvicorn/Motor/PyMongo | Delete after parity | One root Next.js production application |
 | Old scaffold/docs/test reports | Replace | Current README, security audit, TypeScript/API/SQL/browser tests |
 
@@ -38,11 +38,17 @@ Removed the unreferenced Emergent Git identity, conflicting mock design brief, u
 
 Removed unused `tw-animate-css` and chart/sidebar CSS tokens. Motion and Tailwind's used spinner animation remain. Unused exports became private; no payment algorithm, price, migration or database contract changed. The fifth title/cover and original five-book pricing rules were retained and activated after the owner's catalogue correction.
 
-The build now rejects unsafe public assets before/after compilation. Ignore files protect local secrets, all PDFs, test/build output, archives and tooling caches. Existing setup/recovery/upload scripts remain necessary and documented. Vite exists only as Vitest's development dependency, with no SPA build or deployment role.
+The build now rejects unsafe public assets before/after compilation. Ignore files protect local secrets, all PDFs, test/build output, archives and tooling caches. Environment/setup/upload scripts remain necessary and documented; the URL-token recovery script was removed in the access-control fix below. Vite exists only as Vitest's development dependency, with no SPA build or deployment role.
 
 ## Deliberate boundaries
 
-No accounts, CMS, email provider, queue, worker, Redis or additional deployment. PostgreSQL transactions fulfill payments synchronously and durably; Razorpay retries webhooks after transient failures. Confirmation can reconcile provider state when callbacks are lost. Recovery links are bearer secrets in URL fragments, exchanged for HttpOnly cookies; UUID/order number alone never authorizes access. Download entitlements persist; signed file URLs expire after 60 seconds. Recovery tokens expire after one year and can be rotated by a server-only operator script after ownership verification.
+No accounts, CMS, email provider, queue, worker, Redis or additional deployment. PostgreSQL transactions fulfill payments synchronously and durably; Razorpay retries webhooks after transient failures. Confirmation can reconcile provider state, but checkout-only credentials never authorize downloads. Entitlements persist; signed file URLs expire after 60 seconds. Purchase sessions expire after 30 days. Cross-device/lost-session recovery requires a separately designed ownership verification flow; no bearer URL provides it.
+
+## Purchase authorization fix — 10 October 2026
+
+The former checkout token was also a future download capability, exposed through saveable purchase links before payment. Removed both URL exchange/export endpoints and the operator link-rotation script. Checkout continuation remains separate (7-day expiry). Only a fully verified captured callback can issue an independent 256-bit purchase session in an HttpOnly/Secure/SameSite cookie. Hash-only sessions and authorization RPCs recheck payment/order/entitlement relationships; webhook/status reconciliation never issues a session. Old links/cookies cannot authorize downloads, including purchases fulfilled later by webhook.
+
+Apply `202610100001_purchase_sessions.sql` with the new application while checkout is paused. Existing commerce data is retained, but older deployments are incompatible with the renamed checkout columns. Email is nullable; name/mobile remain required. Original pricing and the payment-fulfillment transaction are unchanged.
 
 ## Deployment provider change — 10 October 2026
 

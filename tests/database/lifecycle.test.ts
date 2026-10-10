@@ -32,8 +32,6 @@ import { POST as webhook } from "@/app/api/webhooks/razorpay/route";
 import { POST as reconcile } from "@/app/api/orders/reconcile/route";
 import { POST as resume } from "@/app/api/orders/resume/route";
 import { POST as download } from "@/app/api/downloads/route";
-import { POST as access } from "@/app/api/orders/access/route";
-import { POST as recoveryLink } from "@/app/api/orders/recovery-link/route";
 
 const pool = new pg.Pool({
   connectionString: process.env.TEST_DATABASE_URL,
@@ -54,6 +52,9 @@ let faults: {
   lostCommit: number;
   storage: number;
   lostCreate: number;
+  session: number;
+  lostSessionCommit: number;
+  wrongPaymentReference: number;
 };
 let signedPaths: string[];
 let clientIp: string;
@@ -72,9 +73,10 @@ function request(path: string, body: unknown, cookie = "") {
     body: JSON.stringify(body),
   });
 }
-const cookieFor = (id: string, token: string) => `tkc_purchase_${id}=${token}`;
-const cookieFrom = (response: NextResponse, id: string) =>
-  cookieFor(id, response.cookies.get(`tkc_purchase_${id}`)!.value);
+const cookieFor = (id: string, token: string, kind = "checkout") =>
+  `tkc_${kind}_${id}=${token}`;
+const cookieFrom = (response: NextResponse, id: string, kind = "checkout") =>
+  cookieFor(id, response.cookies.get(`tkc_${kind}_${id}`)!.value, kind);
 const input = (ids = [allIds[0]]) => ({
   book_ids: ids,
   full_name: "Lifecycle Buyer",
@@ -162,7 +164,16 @@ beforeEach(() => {
   payments = [];
   signedPaths = [];
   clientIp = `fixture-${randomUUID()}`;
-  faults = { bind: 0, apply: 0, lostCommit: 0, storage: 0, lostCreate: 0 };
+  faults = {
+    bind: 0,
+    apply: 0,
+    lostCommit: 0,
+    storage: 0,
+    lostCreate: 0,
+    session: 0,
+    lostSessionCommit: 0,
+    wrongPaymentReference: 0,
+  };
   vi.stubEnv("APP_URL", origin);
   vi.stubEnv("SUPABASE_URL", supabase);
   vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", serviceKey);
@@ -217,6 +228,12 @@ beforeEach(() => {
           parts[2] === "orders"
             ? gateways.find((g) => g.id === parts[3])
             : payments.find((p) => p.id === parts[3]);
+        if (
+          record &&
+          parts[2] === "payments" &&
+          faults.wrongPaymentReference-- > 0
+        )
+          return Response.json({ ...record, id: "pay_wrongreference" });
         return Response.json(
           record ?? { error: "fixture_unknown_provider_record" },
           { status: record ? 200 : 404 },
@@ -232,10 +249,13 @@ beforeEach(() => {
           "tkc_bind_gateway",
           "tkc_apply_payment",
           "tkc_rate_limit",
+          "tkc_create_purchase_session",
+          "tkc_authorize_download",
         ]).toContain(rpc);
         if (
           (rpc === "tkc_bind_gateway" && faults.bind-- > 0) ||
-          (rpc === "tkc_apply_payment" && faults.apply-- > 0)
+          (rpc === "tkc_apply_payment" && faults.apply-- > 0) ||
+          (rpc === "tkc_create_purchase_session" && faults.session-- > 0)
         )
           return Response.json(
             { code: "fixture_failure", message: "temporary database failure" },
@@ -247,7 +267,11 @@ beforeEach(() => {
               JSON.stringify(body.p),
             ])
           ).rows[0].result;
-          if (rpc === "tkc_apply_payment" && faults.lostCommit-- > 0)
+          if (
+            (rpc === "tkc_apply_payment" && faults.lostCommit-- > 0) ||
+            (rpc === "tkc_create_purchase_session" &&
+              faults.lostSessionCommit-- > 0)
+          )
             return Response.json(
               {
                 code: "fixture_lost_response",
@@ -269,9 +293,10 @@ beforeEach(() => {
       if (url.pathname === "/rest/v1/orders") {
         const field = [
           "id",
-          "access_token_hash",
+          "checkout_token_hash",
           "razorpay_order_id",
           "customer_email",
+          "customer_mobile",
         ].find((f) => url.searchParams.has(f))!;
         expect(field).toBeDefined();
         const value = url.searchParams.get(field)!.replace(/^eq\./, "");
@@ -285,6 +310,17 @@ beforeEach(() => {
           )
         ).rows;
         return Response.json(rows);
+      }
+      if (url.pathname === "/rest/v1/purchase_sessions") {
+        const hash = url.searchParams.get("token_hash")!.replace(/^eq\./, "");
+        return Response.json(
+          (
+            await pool.query(
+              "select * from public.purchase_sessions where token_hash=$1",
+              [hash],
+            )
+          ).rows,
+        );
       }
       if (url.pathname === "/rest/v1/download_entitlements") {
         const id = url.searchParams.get("order_id")!.replace(/^eq\./, "");
@@ -369,7 +405,13 @@ describe("real routes → SDK/adapters → PostgreSQL purchase lifecycle (extern
             ),
           )
         ).status,
-      ).toBe(403);
+      ).toBe(404);
+      expect(
+        await pool.query(
+          "select 1 from public.purchase_sessions where order_id=$1",
+          [checkout.internal_order_id],
+        ),
+      ).toMatchObject({ rowCount: 0 });
       const payment = capture(checkout);
       const callback = verification(checkout, payment);
       const responses = await Promise.all([
@@ -379,6 +421,11 @@ describe("real routes → SDK/adapters → PostgreSQL purchase lifecycle (extern
         notify(payment, "order.paid"),
       ]);
       for (const response of responses) expect(response.status).toBe(200);
+      const purchaseCookie = cookieFrom(
+        responses[0],
+        checkout.internal_order_id,
+        "session",
+      );
       expect(await snapshot(checkout.internal_order_id)).toMatchObject({
         status: "paid",
         payments: 1,
@@ -387,7 +434,7 @@ describe("real routes → SDK/adapters → PostgreSQL purchase lifecycle (extern
       });
       const purchaseResponse = await read(
         new NextRequest(`${origin}/api/orders/${checkout.internal_order_id}`, {
-          headers: { Cookie: cookie },
+          headers: { Cookie: purchaseCookie },
         }),
         { params: Promise.resolve({ id: checkout.internal_order_id }) },
       );
@@ -403,7 +450,7 @@ describe("real routes → SDK/adapters → PostgreSQL purchase lifecycle (extern
           request(
             "downloads",
             { order_id: purchase.id, entitlement_id: entitlement.id },
-            cookie,
+            purchaseCookie,
           ),
         );
         expect(response.status).toBe(200);
@@ -554,7 +601,12 @@ describe("real routes → SDK/adapters → PostgreSQL purchase lifecycle (extern
         ),
       );
       expect(response.status).toBe(200);
-      expect((await response.json()).status).toBe("paid");
+      expect(await response.json()).toMatchObject({
+        status: "paid",
+        download_authorized: false,
+        entitlements: [],
+      });
+      expect(response.headers.get("set-cookie")).toBeNull();
       expect(await snapshot(checkout.internal_order_id)).toMatchObject({
         payments: 1,
         entitlements: 4,
@@ -619,6 +671,14 @@ describe("real routes → SDK/adapters → PostgreSQL purchase lifecycle (extern
     const { checkout, cookie } = await start();
     const payment = capture(checkout);
     expect((await notify(payment)).status).toBe(200);
+    const confirmed = await verify(
+      request("payments/verify", verification(checkout, payment), cookie),
+    );
+    const purchaseCookie = cookieFrom(
+      confirmed,
+      checkout.internal_order_id,
+      "session",
+    );
     const entitlement = (
       await pool.query(
         "select id from public.download_entitlements where order_id=$1",
@@ -630,7 +690,7 @@ describe("real routes → SDK/adapters → PostgreSQL purchase lifecycle (extern
       order_id: checkout.internal_order_id,
       entitlement_id: entitlement.id,
     };
-    const failed = await download(request("downloads", body, cookie));
+    const failed = await download(request("downloads", body, purchaseCookie));
     expect(failed.status).toBe(503);
     expect(await failed.json()).not.toHaveProperty("url");
     expect(await snapshot(checkout.internal_order_id)).toMatchObject({
@@ -638,9 +698,9 @@ describe("real routes → SDK/adapters → PostgreSQL purchase lifecycle (extern
       payments: 1,
       entitlements: 1,
     });
-    expect((await download(request("downloads", body, cookie))).status).toBe(
-      200,
-    );
+    expect(
+      (await download(request("downloads", body, purchaseCookie))).status,
+    ).toBe(200);
   });
 
   it("recovers a webhook that arrives before the provider order was bound in the database", async () => {
@@ -667,6 +727,14 @@ describe("real routes → SDK/adapters → PostgreSQL purchase lifecycle (extern
     const { checkout, cookie } = await start(allIds);
     const payment = capture(checkout);
     expect((await notify(payment)).status).toBe(200);
+    const confirmed = await verify(
+      request("payments/verify", verification(checkout, payment), cookie),
+    );
+    const purchaseCookie = cookieFrom(
+      confirmed,
+      checkout.internal_order_id,
+      "session",
+    );
     const entitlement = (
       await pool.query(
         "select id from public.download_entitlements where order_id=$1 limit 1",
@@ -696,7 +764,7 @@ describe("real routes → SDK/adapters → PostgreSQL purchase lifecycle (extern
               order_id: checkout.internal_order_id,
               entitlement_id: entitlement.id,
             },
-            cookie,
+            purchaseCookie,
           ),
         )
       ).status,
@@ -741,7 +809,7 @@ describe("real routes → SDK/adapters → PostgreSQL purchase lifecycle (extern
           ),
         )
       ).status,
-    ).toBe(403);
+    ).toBe(404);
     payment.status = "captured";
     payment.captured = true;
     expect((await notify(payment)).status).toBe(200);
@@ -753,58 +821,347 @@ describe("real routes → SDK/adapters → PostgreSQL purchase lifecycle (extern
     expect(gateways).toHaveLength(1);
   });
 
-  it("exchanges a saved recovery link, denies foreign entitlements and rejects expired access", async () => {
+  it("requires a post-payment session, denies copied URLs, legacy tokens, foreign orders and expired sessions", async () => {
     const owner = await start();
     const other = await start([allIds[1]]);
-    for (const purchase of [owner, other])
-      expect((await notify(capture(purchase.checkout))).status).toBe(200);
+    const ownerPayment = capture(owner.checkout);
+    const otherPayment = capture(other.checkout);
+    for (const payment of [ownerPayment, otherPayment])
+      expect((await notify(payment)).status).toBe(200);
     const id = owner.checkout.internal_order_id;
+    const otherId = other.checkout.internal_order_id;
     const body = { order_id: id };
-    const link = await recoveryLink(
-      request("orders/recovery-link", body, owner.cookie),
+    const ownerConfirmation = await verify(
+      request(
+        "payments/verify",
+        verification(owner.checkout, ownerPayment),
+        owner.cookie,
+      ),
     );
-    expect(link.status).toBe(200);
-    const url = new URL((await link.json()).url);
-    expect(url.origin).toBe(origin);
-    expect(url.searchParams.has("access")).toBe(false);
-    const token = new URLSearchParams(url.hash.slice(1)).get("access")!;
-    const recovered = await access(
-      request("orders/access", { ...body, token }),
+    const otherConfirmation = await verify(
+      request(
+        "payments/verify",
+        verification(other.checkout, otherPayment),
+        other.cookie,
+      ),
     );
-    expect(recovered.status).toBe(200);
-    expect(recovered.headers.get("set-cookie")).toContain("HttpOnly");
-    const entitlement = (
+    expect(ownerConfirmation.status).toBe(200);
+    const ownerCookie = cookieFrom(ownerConfirmation, id, "session");
+    const otherCookie = cookieFrom(otherConfirmation, otherId, "session");
+    const ownerToken = ownerConfirmation.cookies.get(
+      `tkc_session_${id}`,
+    )!.value;
+    expect(ownerToken).not.toBe(owner.payload.checkout_token);
+    expect(JSON.stringify(await ownerConfirmation.json())).not.toContain(
+      ownerToken,
+    );
+    expect(
+      (
+        await pool.query(
+          "select token_hash from public.purchase_sessions where order_id=$1",
+          [id],
+        )
+      ).rows[0].token_hash,
+    ).not.toBe(ownerToken);
+    const entitlements = (
       await pool.query(
-        "select id from public.download_entitlements where order_id=$1",
-        [other.checkout.internal_order_id],
+        "select id,order_id from public.download_entitlements where order_id=any($1::uuid[])",
+        [[id, otherId]],
       )
-    ).rows[0];
+    ).rows;
+    const own = entitlements.find((e) => e.order_id === id)!;
+    const foreign = entitlements.find((e) => e.order_id === otherId)!;
+    const checkoutRead = await read(
+      new NextRequest(`${origin}/api/orders/${id}`, {
+        headers: { Cookie: owner.cookie },
+      }),
+      { params: Promise.resolve({ id }) },
+    );
+    expect(await checkoutRead.json()).toMatchObject({
+      status: "paid",
+      download_authorized: false,
+      entitlements: [],
+    });
+    const refresh = await reconcile(
+      request("orders/reconcile", body, owner.cookie),
+    );
+    expect(refresh.headers.get("set-cookie")).toBeNull();
+    expect(await refresh.json()).toMatchObject({
+      download_authorized: false,
+      entitlements: [],
+    });
+    const copied = await read(new NextRequest(`${origin}/api/orders/${id}`), {
+      params: Promise.resolve({ id }),
+    });
+    expect(copied.status).toBe(404);
     for (const cookie of [
       "",
-      other.cookie,
-      cookieFor(id, other.payload.checkout_token),
-      cookieFrom(recovered, id),
+      owner.cookie,
+      otherCookie,
+      `tkc_purchase_${id}=${owner.payload.checkout_token}`,
+      cookieFor(id, owner.payload.checkout_token, "session"),
+      cookieFor(id, "b".repeat(43), "session"),
     ]) {
       const denied = await download(
-        request(
-          "downloads",
-          { ...body, entitlement_id: entitlement.id },
-          cookie,
-        ),
+        request("downloads", { ...body, entitlement_id: own.id }, cookie),
       );
       expect(denied.status).toBe(404);
       expect(await denied.json()).not.toHaveProperty("url");
     }
+    expect(
+      (
+        await download(
+          request(
+            "downloads",
+            { ...body, entitlement_id: foreign.id },
+            ownerCookie,
+          ),
+        )
+      ).status,
+    ).toBe(404);
+    expect(
+      (
+        await download(
+          request(
+            "downloads",
+            { order_id: otherId, entitlement_id: foreign.id },
+            cookieFor(otherId, ownerToken, "session"),
+          ),
+        )
+      ).status,
+    ).toBe(404);
     expect(signedPaths).toHaveLength(0);
+    expect(
+      (
+        await download(
+          request(
+            "downloads",
+            { ...body, entitlement_id: own.id },
+            ownerCookie,
+          ),
+        )
+      ).status,
+    ).toBe(200);
     await pool.query(
-      "update public.orders set access_expires_at=now()-interval '1 second' where id=$1",
+      "update public.purchase_sessions set created_at=now()-interval '31 days', expires_at=now()-interval '1 second' where order_id=$1",
       [id],
     );
     expect(
-      (await access(request("orders/access", { ...body, token }))).status,
+      (
+        await download(
+          request(
+            "downloads",
+            { ...body, entitlement_id: own.id },
+            ownerCookie,
+          ),
+        )
+      ).status,
     ).toBe(404);
+  });
+
+  it("does not issue a session when callback verification is fabricated or a payment is not captured", async () => {
+    const { checkout, cookie } = await start();
+    const payment = capture(checkout, {
+      status: "authorized",
+      captured: false,
+    });
+    const callback = verification(checkout, payment);
+    for (const response of [
+      await verify(
+        request(
+          "payments/verify",
+          { ...callback, razorpay_signature: "0".repeat(64) },
+          cookie,
+        ),
+      ),
+      await verify(request("payments/verify", callback, cookie)),
+    ])
+      expect(response.headers.get("set-cookie")).toBeNull();
     expect(
-      (await reconcile(request("orders/reconcile", body, owner.cookie))).status,
-    ).toBe(404);
+      (
+        await pool.query(
+          "select count(*)::int n from public.purchase_sessions where order_id=$1",
+          [checkout.internal_order_id],
+        )
+      ).rows[0].n,
+    ).toBe(0);
+    await expect(
+      pool.query("select public.tkc_create_purchase_session($1::jsonb)", [
+        JSON.stringify({
+          order_id: checkout.internal_order_id,
+          token_hash: "c".repeat(64),
+        }),
+      ]),
+    ).rejects.toThrow("purchase_not_fulfilled");
+  });
+
+  it("fulfills and downloads an email-free purchase with an HttpOnly session", async () => {
+    const payload = { ...input(), email: undefined };
+    const response = await create(request("orders", payload));
+    expect(response.status).toBe(201);
+    const checkout = (await response.json()) as CheckoutOrder;
+    expect(checkout.customer_email).toBeNull();
+    const payment = capture(checkout);
+    const confirmed = await verify(
+      request(
+        "payments/verify",
+        verification(checkout, payment),
+        cookieFrom(response, checkout.internal_order_id),
+      ),
+    );
+    expect(confirmed.status).toBe(200);
+    const purchase = (await confirmed.json()) as PublicOrder;
+    expect(purchase.download_authorized).toBe(true);
+    expect(
+      (
+        await download(
+          request(
+            "downloads",
+            {
+              order_id: purchase.id,
+              entitlement_id: purchase.entitlements[0].id,
+            },
+            cookieFrom(confirmed, purchase.id, "session"),
+          ),
+        )
+      ).status,
+    ).toBe(200);
+  });
+
+  it("cannot exchange a different or uncaptured attempt for a session on an already-paid order", async () => {
+    const { checkout, cookie } = await start();
+    const paidPayment = capture(checkout);
+    expect((await notify(paidPayment)).status).toBe(200);
+    for (const status of ["authorized", "failed"]) {
+      const otherAttempt = capture(checkout, { status, captured: false });
+      const response = await verify(
+        request(
+          "payments/verify",
+          verification(checkout, otherAttempt),
+          cookie,
+        ),
+      );
+      expect(response.status).toBe(409);
+      expect(response.headers.get("set-cookie")).toBeNull();
+    }
+    expect(
+      (
+        await pool.query(
+          "select count(*)::int n from public.purchase_sessions where order_id=$1",
+          [checkout.internal_order_id],
+        )
+      ).rows[0].n,
+    ).toBe(0);
+    expect(
+      (
+        await verify(
+          request(
+            "payments/verify",
+            verification(checkout, paidPayment),
+            cookie,
+          ),
+        )
+      ).status,
+    ).toBe(200);
+  });
+
+  it.each(["session", "lostSessionCommit"] as const)(
+    "retries %s failure after durable fulfillment without granting checkout-only access",
+    async (fault) => {
+      const { checkout, cookie } = await start();
+      const payment = capture(checkout);
+      const payload = verification(checkout, payment);
+      faults[fault] = 1;
+      const failed = await verify(request("payments/verify", payload, cookie));
+      expect(failed.status).toBe(503);
+      expect(failed.headers.get("set-cookie")).toBeNull();
+      expect(await snapshot(checkout.internal_order_id)).toMatchObject({
+        status: "paid",
+        payments: 1,
+        entitlements: 1,
+      });
+      const entitlement = (
+        await pool.query(
+          "select id from public.download_entitlements where order_id=$1",
+          [checkout.internal_order_id],
+        )
+      ).rows[0];
+      const downloadBody = {
+        order_id: checkout.internal_order_id,
+        entitlement_id: entitlement.id,
+      };
+      expect(
+        (await download(request("downloads", downloadBody, cookie))).status,
+      ).toBe(404);
+      const retried = await verify(request("payments/verify", payload, cookie));
+      expect(retried.status).toBe(200);
+      expect(
+        (
+          await download(
+            request(
+              "downloads",
+              downloadBody,
+              cookieFrom(retried, checkout.internal_order_id, "session"),
+            ),
+          )
+        ).status,
+      ).toBe(200);
+      expect(await snapshot(checkout.internal_order_id)).toMatchObject({
+        status: "paid",
+        payments: 1,
+        entitlements: 1,
+      });
+    },
+  );
+
+  it.each(["authorized", "failed", "created", "captured"])(
+    "fails closed if current provider payment evidence is %s with captured=false",
+    async (status) => {
+      const { checkout, cookie } = await start();
+      const payment = capture(checkout);
+      const confirmed = await verify(
+        request("payments/verify", verification(checkout, payment), cookie),
+      );
+      const purchase = (await confirmed.json()) as PublicOrder;
+      payment.status = status;
+      payment.captured = false;
+      const response = await download(
+        request(
+          "downloads",
+          {
+            order_id: purchase.id,
+            entitlement_id: purchase.entitlements[0].id,
+          },
+          cookieFrom(confirmed, purchase.id, "session"),
+        ),
+      );
+      expect(response.status).toBe(409);
+      expect(await response.json()).not.toHaveProperty("url");
+      expect(signedPaths).toHaveLength(0);
+      // Do not corrupt durable paid history in response to inconsistent provider reads.
+      expect((await snapshot(purchase.id)).status).toBe("paid");
+    },
+  );
+
+  it("rejects a provider payment reference that differs from the paid session's payment", async () => {
+    const { checkout, cookie } = await start();
+    const payment = capture(checkout);
+    const confirmed = await verify(
+      request("payments/verify", verification(checkout, payment), cookie),
+    );
+    const purchase = (await confirmed.json()) as PublicOrder;
+    payment.status = "authorized";
+    payment.captured = false;
+    faults.wrongPaymentReference = 1;
+    const response = await download(
+      request(
+        "downloads",
+        { order_id: purchase.id, entitlement_id: purchase.entitlements[0].id },
+        cookieFrom(confirmed, purchase.id, "session"),
+      ),
+    );
+    expect(response.status).toBe(409);
+    expect(await response.json()).not.toHaveProperty("url");
+    expect(signedPaths).toHaveLength(0);
   });
 });

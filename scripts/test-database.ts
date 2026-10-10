@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 const provided = process.env.TEST_DATABASE_URL;
@@ -45,13 +45,16 @@ try {
     run(join(bin, "psql"), [url, "-v", "ON_ERROR_STOP=1", "-f", bootstrap]);
   }
   // Only use TEST_DATABASE_URL with an isolated test database, never production.
-  run(provided ? "psql" : join(bin, "psql"), [
-    url,
-    "-v",
-    "ON_ERROR_STOP=1",
-    "-f",
-    "supabase/migrations/202610090001_storefront.sql",
-  ]);
+  for (const migration of readdirSync("supabase/migrations")
+    .filter((name) => name.endsWith(".sql"))
+    .sort())
+    run(provided ? "psql" : join(bin, "psql"), [
+      url,
+      "-v",
+      "ON_ERROR_STOP=1",
+      "-f",
+      join("supabase/migrations", migration),
+    ]);
   // Fault-injection tests share the migrated database and install temporary triggers.
   run(
     "node",
