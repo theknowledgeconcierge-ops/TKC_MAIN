@@ -21,6 +21,7 @@ import { CommerceService } from "@/lib/server/commerce";
 import { createRepository } from "@/lib/server/supabase";
 import { createPaymentProvider } from "@/lib/server/razorpay";
 import { DEFAULT_EMAIL_FROM, createResendProvider } from "@/lib/server/email";
+import { boundary, json, rateLimit } from "@/lib/server/http";
 
 const runtime = vi.hoisted(() => ({
   service: null as unknown as CommerceService,
@@ -63,6 +64,9 @@ let faults: {
   emailStatus: number;
   emailTimeout: number;
   emailLost: number;
+  emailRejected: number;
+  emailFinishLost: number;
+  emailFinishFailure: number;
 };
 let signedPaths: string[];
 // Every Resend request, and the messages Resend accepted (keyed like its idempotency store).
@@ -190,6 +194,9 @@ beforeEach(() => {
     emailStatus: 0,
     emailTimeout: 0,
     emailLost: 0,
+    emailRejected: 0,
+    emailFinishLost: 0,
+    emailFinishFailure: 0,
   };
   vi.stubEnv("APP_URL", origin);
   vi.stubEnv("SUPABASE_URL", supabase);
@@ -214,6 +221,8 @@ beforeEach(() => {
         if (faults.emailTimeout-- > 0) throw new Error("fixture_email_timeout");
         if (faults.emailStatus-- > 0)
           return Response.json({ name: "application_error" }, { status: 500 });
+        if (faults.emailRejected-- > 0)
+          return Response.json({ name: "validation_error" }, { status: 422 });
         // Mirrors Resend: a repeated key returns the original email instead of sending again.
         const previous = acceptedEmails.get(key);
         if (previous)
@@ -297,7 +306,8 @@ beforeEach(() => {
         if (
           (rpc === "tkc_bind_gateway" && faults.bind-- > 0) ||
           (rpc === "tkc_apply_payment" && faults.apply-- > 0) ||
-          (rpc === "tkc_create_purchase_session" && faults.session-- > 0)
+          (rpc === "tkc_create_purchase_session" && faults.session-- > 0) ||
+          (rpc === "tkc_finish_email_delivery" && faults.emailFinishFailure-- > 0)
         )
           return Response.json(
             { code: "fixture_failure", message: "temporary database failure" },
@@ -312,7 +322,8 @@ beforeEach(() => {
           if (
             (rpc === "tkc_apply_payment" && faults.lostCommit-- > 0) ||
             (rpc === "tkc_create_purchase_session" &&
-              faults.lostSessionCommit-- > 0)
+              faults.lostSessionCommit-- > 0) ||
+            (rpc === "tkc_finish_email_delivery" && faults.emailFinishLost-- > 0)
           )
             return Response.json(
               {
@@ -429,6 +440,51 @@ afterEach(() => {
 afterAll(() => pool.end());
 
 describe("real routes → SDK/adapters → PostgreSQL purchase lifecycle (external HTTP fixtures)", () => {
+  it("keeps five first callback sessions valid, then reuses an existing session on repeated verification", async () => {
+    const started = await start();
+    const payment = capture(started.checkout);
+    const payload = verification(started.checkout, payment);
+    const responses = await Promise.all(Array.from({ length: 5 }, () => verify(request("payments/verify", payload, started.cookie))));
+    const id = started.checkout.internal_order_id;
+    for (const response of responses) {
+      expect(response.status).toBe(200);
+      const session = cookieFrom(response, id, "session");
+      expect((await runtime.service.read(id, undefined, session.split("=")[1])).download_authorized).toBe(true);
+    }
+    const session = cookieFrom(responses[0], id, "session");
+    for (let i = 0; i < 5; i++) {
+      const repeated = await verify(request("payments/verify", payload, `${started.cookie}; ${session}`));
+      expect(repeated.status).toBe(200);
+      expect(cookieFrom(repeated, id, "session")).toBe(session);
+    }
+    expect((await pool.query("select count(*)::int n from public.purchase_sessions where order_id=$1", [id])).rows[0].n).toBe(5);
+    expect(await snapshot(id)).toMatchObject({ status: "paid", payments: 1, entitlements: 1, events: 1 });
+  });
+
+  it("enforces concurrent durable limits even when untrusted forwarded addresses change", async () => {
+    vi.stubEnv("APP_URL", "https://pixelnpalm.com");
+    const scope = `chaos-${randomUUID()}`;
+    const responses = await Promise.all(Array.from({ length: 35 }, (_, i) => boundary(async () => {
+      const req = new NextRequest("https://pixelnpalm.com/api/orders", { headers: { "x-nf-client-connection-ip": "203.0.113.1", "x-forwarded-for": `198.51.100.${i}` } });
+      await rateLimit(req, runtime.service.repo, scope, 30, 3600);
+      return json({ ok: true });
+    })));
+    expect(responses.filter(r => r.status === 200)).toHaveLength(30);
+    const limited = responses.filter(r => r.status === 429);
+    expect(limited).toHaveLength(5);
+    for (const response of limited) expect(response.headers.get("retry-after")).toBe("3600");
+  });
+
+  it("bounds expensive calls across rotating order IDs with a shared client bucket", async () => {
+    vi.stubEnv("APP_URL", "https://pixelnpalm.com");
+    const responses = await Promise.all(Array.from({ length: 185 }, () => boundary(async () => {
+      const req = new NextRequest("https://pixelnpalm.com/api/orders/resume", { headers: { "x-nf-client-connection-ip": "203.0.113.2" } });
+      await rateLimit(req, runtime.service.repo, "resume-order", 20, 60, randomUUID());
+      return json({ ok: true });
+    })));
+    expect(responses.filter(r => r.status === 200)).toHaveLength(180);
+    expect(responses.filter(r => r.status === 429)).toHaveLength(5);
+  });
   it.each(
     Array.from({ length: (1 << allIds.length) - 1 }, (_, index) => {
       const ids = allIds.filter((_, bit) => (index + 1) & (1 << bit));
@@ -666,6 +722,29 @@ describe("real routes → SDK/adapters → PostgreSQL purchase lifecycle (extern
       [payload.email],
     );
     expect(rows[0].n).toBe(1);
+  });
+
+  it("converges through ten concurrent resumes, duplicate webhooks and repeated downloads", async () => {
+    const started = await start(allIds);
+    const body = { order_id: started.checkout.internal_order_id };
+    const resumed = await Promise.all(Array.from({ length: 10 }, () => resume(request("orders/resume", body, started.cookie))));
+    for (const response of resumed) {
+      expect(response.status).toBe(200);
+      expect((await response.json()).razorpay_order_id).toBe(started.checkout.razorpay_order_id);
+    }
+    expect(gateways).toHaveLength(1);
+    const payment = capture(started.checkout);
+    const notifications = await Promise.all(Array.from({ length: 10 }, () => notify(payment)));
+    for (const response of notifications) expect(response.status).toBe(200);
+    expect(await snapshot(body.order_id)).toMatchObject({ status: "paid", payments: 1, events: 1, entitlements: 5 });
+    const confirmed = await verify(request("payments/verify", verification(started.checkout, payment), started.cookie));
+    const session = cookieFrom(confirmed, body.order_id, "session");
+    const purchase = await confirmed.json() as PublicOrder;
+    const downloads = await Promise.all(Array.from({ length: 10 }, () => download(request("downloads", { ...body, entitlement_id: purchase.entitlements[0].id }, session))));
+    for (const response of downloads) expect(response.status).toBe(200);
+    expect(signedPaths).toHaveLength(10);
+    expect(await snapshot(body.order_id)).toMatchObject({ status: "paid", payments: 1, events: 3, entitlements: 5 });
+    expect((await pool.query("select count(*)::int n from public.purchase_sessions where order_id=$1", [body.order_id])).rows[0].n).toBe(1);
   });
 
   it.each(["signature", "amount", "currency", "order"])(
@@ -1499,7 +1578,7 @@ describe("post-purchase email delivery through real routes and PostgreSQL", () =
   it("sends exactly one email for double clicks, concurrent requests and repeats after SENT", async () => {
     const paid = await paidPurchase(allIds);
     const responses = await Promise.all(
-      Array.from({ length: 4 }, () => send(paid.id, paid.session)),
+      Array.from({ length: 5 }, () => send(paid.id, paid.session)),
     );
     for (const response of responses) expect(response.status).toBe(200);
     expect(emailRequests).toHaveLength(1);
@@ -1555,7 +1634,7 @@ describe("post-purchase email delivery through real routes and PostgreSQL", () =
 
   it("lets a failed delivery be redirected to a corrected address with a new idempotency key", async () => {
     const paid = await paidPurchase();
-    faults.emailStatus = 1;
+    faults.emailRejected = 1;
     await send(paid.id, paid.session);
     const redirected = await send(paid.id, paid.session, { email: "fixed@example.com" });
     expect(((await redirected.json()) as PublicOrder).delivery).toMatchObject({
@@ -1567,6 +1646,98 @@ describe("post-purchase email delivery through real routes and PostgreSQL", () =
       [`pnp-delivery-${row.id}-v1`, paid.payload.email],
       [`pnp-delivery-${row.id}-v2`, "fixed@example.com"],
     ]);
+  });
+
+  it("refuses an address change after Resend accepted a send whose response was lost", async () => {
+    const paid = await paidPurchase();
+    faults.emailLost = 1;
+    await send(paid.id, paid.session);
+    const changed = await send(paid.id, paid.session, { email: "different@example.com" });
+    expect(changed.status).toBe(409);
+    expect((await changed.json()).error.code).toBe("DELIVERY_OUTCOME_UNKNOWN");
+    expect(emailRequests).toHaveLength(1);
+    expect(acceptedEmails.size).toBe(1);
+    expect((await deliveryRow(paid.id)).email_version).toBe(1);
+    expect(((await (await send(paid.id, paid.session)).json()) as PublicOrder).delivery?.status).toBe("sent");
+    expect(acceptedEmails.size).toBe(1);
+  });
+
+  it("never resubmits an uncertain send after the provider idempotency window", async () => {
+    const paid = await paidPurchase();
+    faults.emailLost = 1;
+    await send(paid.id, paid.session);
+    // Simulate a browser reopening the order after Resend forgot its 24-hour key.
+    await pool.query("update public.email_deliveries set created_at=now()-interval '25 hours', updated_at=now()-interval '25 hours' where order_id=$1", [paid.id]);
+    // New migration records the first attempt separately from later lease updates.
+    const column = await pool.query("select 1 from information_schema.columns where table_name='email_deliveries' and column_name='send_window_started_at'");
+    if (column.rowCount) await pool.query("update public.email_deliveries set send_window_started_at=now()-interval '25 hours' where order_id=$1", [paid.id]);
+    acceptedEmails.clear();
+    const response = await send(paid.id, paid.session);
+    expect(response.status).toBe(200);
+    expect(emailRequests).toHaveLength(1);
+    expect(((await response.json()) as PublicOrder).delivery).toMatchObject({ can_retry: false, error: "delivery_needs_reconciliation" });
+    expect((await snapshot(paid.id)).status).toBe("paid");
+  });
+
+  it("preserves an earlier unknown outcome even if the next attempt is definitively rejected", async () => {
+    const paid = await paidPurchase();
+    faults.emailLost = 1;
+    await send(paid.id, paid.session);
+    faults.emailRejected = 1;
+    await send(paid.id, paid.session);
+    expect((await send(paid.id, paid.session, { email: "different@example.com" })).status).toBe(409);
+    expect(acceptedEmails.size).toBe(1);
+    expect(emailRequests).toHaveLength(2);
+  });
+
+  it("converges after ten sends and a lost committed delivery response without another provider call", async () => {
+    const paid = await paidPurchase();
+    faults.emailFinishLost = 1;
+    expect((await send(paid.id, paid.session)).status).toBe(503);
+    for (let i = 0; i < 9; i++) expect((await send(paid.id, paid.session)).status).toBe(200);
+    expect(emailRequests).toHaveLength(1);
+    expect((await deliveryRow(paid.id)).status).toBe("sent");
+    expect((await send(paid.id, paid.session)).status).toBe(429);
+  });
+
+  it("serializes manual send, retry and two fallback executions for the same order", async () => {
+    const paid = await paidPurchase();
+    await backdate([paid.id], "6 minutes");
+    const results = await Promise.all([runFallback(), runFallback(), send(paid.id, paid.session), send(paid.id, paid.session)]);
+    for (const response of results) expect(response.status).toBe(200);
+    expect(emailRequests).toHaveLength(1);
+    expect(acceptedEmails.size).toBe(1);
+    expect(await deliveryRow(paid.id)).toMatchObject({ status: "sent", attempt_count: 1 });
+  });
+
+  it("recovers an interrupted worker with the same key and rejects stale claim completion", async () => {
+    const paid = await paidPurchase();
+    faults.emailFinishFailure = 1;
+    expect((await send(paid.id, paid.session)).status).toBe(503);
+    const abandoned = await deliveryRow(paid.id);
+    expect(abandoned.status).toBe("sending");
+    expect(((await (await orderRead(paid.id, paid.session)).json()) as PublicOrder).delivery?.status).toBe("sending");
+    await send(paid.id, paid.session);
+    expect(emailRequests).toHaveLength(1);
+    await pool.query("update public.email_deliveries set lease_expires_at=now()-interval '1 second' where order_id=$1", [paid.id]);
+    await send(paid.id, paid.session);
+    expect(acceptedEmails.size).toBe(1);
+    expect(new Set(emailRequests.map(r => r.key)).size).toBe(1);
+    const stale = await pool.query("select public.tkc_finish_email_delivery($1::jsonb) as recorded", [JSON.stringify({ delivery_id: abandoned.id, claim_token: abandoned.claim_token, outcome: "failed", error: "provider_timeout" })]);
+    expect(stale.rows[0].recorded).toBe(false);
+    expect((await deliveryRow(paid.id)).status).toBe("sent");
+  });
+
+  it("never lets scheduled fallback resubmit an expired uncertain send", async () => {
+    const paid = await paidByWebhook();
+    await backdate([paid.id], "6 minutes");
+    faults.emailLost = 1;
+    expect((await runFallback()).status).toBe(200);
+    await pool.query("update public.email_deliveries set send_window_started_at=now()-interval '25 hours', failed_at=now()-interval '16 minutes' where order_id=$1", [paid.id]);
+    acceptedEmails.clear();
+    await Promise.all([runFallback(), runFallback()]);
+    expect(emailRequests).toHaveLength(1);
+    expect((await deliveryRow(paid.id)).status).toBe("failed");
   });
 
   it("blocks delivery after a refund, as downloads already are", async () => {

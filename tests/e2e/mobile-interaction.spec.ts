@@ -70,14 +70,14 @@ for (const cpuRate of [1, 4]) test(`first tap reaches Add, badge and feedback wi
   expect(requests).toBe(0);
 });
 
-test("five rapid Add taps preserve one book and five Remove taps preserve the next book", async ({ page }, info) => {
+test("ten rapid Add taps preserve one book and ten Remove taps preserve the next book", async ({ page }, info) => {
   test.skip(info.project.name !== "mobile", "Physical touch coordinates");
   await ready(page);
-  await tapAtCenter(page, `book-card-add-btn-${first}`, 5);
+  await tapAtCenter(page, `book-card-add-btn-${first}`, 10);
   await expect(page.getByTestId("nav-bag-count")).toHaveText("1");
   await tapAtCenter(page, `book-card-add-btn-${second}`);
   await page.getByTestId("nav-bag-toggle-btn").click();
-  await tapAtCenter(page, `smart-bag-remove-${first}`, 5);
+  await tapAtCenter(page, `smart-bag-remove-${first}`, 10);
   await expect(page.getByTestId(`smart-bag-item-${first}`)).toHaveCount(0);
   await expect(page.getByTestId(`smart-bag-item-${second}`)).toBeVisible();
   await expect(page.getByTestId("nav-bag-count")).toHaveText("1");
@@ -105,14 +105,14 @@ test("bag controls respond on the next frame after opening and focus returns", a
   }
 });
 
-test("five rapid recommendation Add taps add only the intended book", async ({ page }, info) => {
+test("ten rapid recommendation Add taps add only the intended book", async ({ page }, info) => {
   test.skip(info.project.name !== "mobile", "Physical touch coordinates");
   await ready(page);
   await page.getByTestId(`book-card-add-btn-${first}`).click();
   await page.getByTestId(`book-card-add-btn-${second}`).click();
   await page.getByTestId("nav-bag-toggle-btn").click();
   await page.getByTestId(`smart-bag-remove-${second}`).click();
-  await tapAtCenter(page, `smart-bag-recommend-add-${second}`, 5);
+  await tapAtCenter(page, `smart-bag-recommend-add-${second}`, 10);
   await expect(page.getByTestId("nav-bag-count")).toHaveText("2");
   await expect(page.getByTestId(`smart-bag-item-${second}`)).toBeVisible();
 });

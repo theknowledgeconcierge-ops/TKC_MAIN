@@ -8,8 +8,10 @@ import {
   rateLimit,
   readJson,
   checkoutTokenFrom,
+  purchaseSessionFrom,
   setPurchaseSessionCookie,
 } from "@/lib/server/http";
+import { HttpError } from "@/lib/server/errors";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -31,10 +33,16 @@ export async function POST(request: NextRequest) {
       checkoutTokenFrom(request, input.internal_order_id),
     );
     if (order.status !== "paid") return json(order);
-    const session = await service.issuePurchaseSession(
-      order.id,
-      input.razorpay_payment_id,
-    );
+    let session = purchaseSessionFrom(request, order.id);
+    if (session) {
+      try {
+        await service.sessionOrder(order.id, session);
+      } catch (error) {
+        if (!(error instanceof HttpError && error.code === "PURCHASE_SESSION_REQUIRED")) throw error;
+        session = undefined;
+      }
+    }
+    session ??= await service.issuePurchaseSession(order.id, input.razorpay_payment_id);
     const response = json(await service.read(order.id, undefined, session));
     setPurchaseSessionCookie(response, order.id, session);
     return response;

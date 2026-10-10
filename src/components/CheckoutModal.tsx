@@ -117,58 +117,64 @@ export default function CheckoutModal({
       )
         .map((byte) => byte.toString(16).padStart(2, "0"))
         .join("");
-      const stored = readStorage("tkc_checkout_attempt");
-      const attempt =
-        stored && typeof stored === "object"
-          ? (stored as {
-              fingerprint?: string;
-              token?: string;
-              order_id?: string;
-            })
-          : null;
-      const start = (token: string) => {
-        // This idempotency key can only continue checkout; it never authorizes a download.
-        writeStorage("tkc_checkout_attempt", { fingerprint, token });
-        return apiPost<CheckoutOrder>("/orders", {
-          ...payload,
-          checkout_token: token,
-        });
-      };
-      try {
-        if (attempt?.fingerprint === fingerprint && attempt.order_id)
-          return await apiPost<CheckoutOrder>("/orders/resume", {
-            order_id: attempt.order_id,
-            book_ids: payload.book_ids,
+      const continueCheckout = async () => {
+        const stored = readStorage("tkc_checkout_attempt");
+        const attempt =
+          stored && typeof stored === "object"
+            ? (stored as {
+                fingerprint?: string;
+                token?: string;
+                order_id?: string;
+              })
+            : null;
+        const start = (token: string) => {
+          // This idempotency key can only continue checkout; it never authorizes a download.
+          writeStorage("tkc_checkout_attempt", { fingerprint, token });
+          return apiPost<CheckoutOrder>("/orders", {
+            ...payload,
+            checkout_token: token,
           });
-        return await start(
-          attempt?.fingerprint === fingerprint &&
-            typeof attempt.token === "string" &&
-            /^[A-Za-z0-9_-]{43}$/.test(attempt.token)
-            ? attempt.token
-            : randomCheckoutToken(),
-        );
-      } catch (error) {
-        if (!(error instanceof ApiError && error.code === "CHECKOUT_PRICE_CHANGED"))
-          throw error;
-        // The server refused a remembered order priced before a change: start afresh once.
-        const order = await start(randomCheckoutToken());
-        setNotice({
-          tone: "info",
-          title: "Your order has been refreshed with the latest price.",
+        };
+        let order: CheckoutOrder;
+        try {
+          if (attempt?.fingerprint === fingerprint && attempt.order_id)
+            order = await apiPost<CheckoutOrder>("/orders/resume", {
+              order_id: attempt.order_id,
+              book_ids: payload.book_ids,
+            });
+          else order = await start(
+            attempt?.fingerprint === fingerprint &&
+              typeof attempt.token === "string" &&
+              /^[A-Za-z0-9_-]{43}$/.test(attempt.token)
+              ? attempt.token
+              : randomCheckoutToken(),
+          );
+        } catch (error) {
+          if (!(error instanceof ApiError && error.code === "CHECKOUT_PRICE_CHANGED"))
+            throw error;
+          // The server refused a remembered order priced before a change: start afresh once.
+          order = await start(randomCheckoutToken());
+          setNotice({
+            tone: "info",
+            title: "Your order has been refreshed with the latest price.",
+          });
+        }
+        const latest = readStorage("tkc_checkout_attempt") as { fingerprint?: string; token?: string } | null;
+        writeStorage("tkc_checkout_attempt", {
+          fingerprint,
+          ...(latest?.fingerprint === fingerprint ? { token: latest.token } : {}),
+          order_id: order.internal_order_id,
         });
         return order;
-      }
+      };
+      // Serialize shared checkout attempts across tabs, including stale-price replacement.
+      return navigator.locks
+        ? navigator.locks.request("tkc-checkout", continueCheckout)
+        : continueCheckout();
     },
     onSuccess: (order) => {
       setCheckoutOrder(order);
       rememberOrder(order.internal_order_id);
-      const previous = readStorage("tkc_checkout_attempt") as {
-        fingerprint?: string;
-      } | null;
-      writeStorage("tkc_checkout_attempt", {
-        fingerprint: previous?.fingerprint,
-        order_id: order.internal_order_id,
-      });
     },
     onError: (error) =>
       setNotice({

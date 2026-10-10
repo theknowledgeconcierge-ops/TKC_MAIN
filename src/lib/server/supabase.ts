@@ -16,6 +16,11 @@ import { HttpError, unavailable } from "./errors";
 
 // Expected delivery refusals raised inside the locked SQL transition.
 const deliveryErrors: Record<string, HttpError> = {
+  delivery_outcome_unknown: new HttpError(
+    409,
+    "DELIVERY_OUTCOME_UNKNOWN",
+    "The previous send may have succeeded. Retry the same address before changing it; your books remain available to download.",
+  ),
   delivery_not_authorized: new HttpError(
     404,
     "PURCHASE_SESSION_REQUIRED",
