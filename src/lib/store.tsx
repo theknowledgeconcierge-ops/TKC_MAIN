@@ -10,8 +10,8 @@ import {
 import { activeBooks } from "./catalog";
 import { quoteFor } from "./commerce/pricing";
 import { readStorage, writeStorage } from "./browser-storage";
-const KEY = "knowledge_concierge_bag_v1";
-export interface BagSummary {
+const BAG_STORAGE_KEY = "knowledge_concierge_bag_v1";
+interface BagSummary {
   count: number;
   regularTotal: number;
   automaticPrice: number;
@@ -20,7 +20,7 @@ export interface BagSummary {
   total: number;
   totalSavings: number;
 }
-export function sanitizeBag(value: unknown): string[] {
+function sanitizeBag(value: unknown): string[] {
   return Array.isArray(value)
     ? [
         ...new Set(
@@ -75,16 +75,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [hydrated, setHydrated] = useState(false);
   const [bagOpen, setBagOpen] = useState(false);
   useEffect(() => {
-    setSelectedIds(sanitizeBag(readStorage(KEY)));
+    setSelectedIds(sanitizeBag(readStorage(BAG_STORAGE_KEY)));
     setHydrated(true);
     const sync = (event: StorageEvent) => {
-      if (event.key === KEY) setSelectedIds(sanitizeBag(readStorage(KEY)));
+      if (event.key === BAG_STORAGE_KEY)
+        setSelectedIds(sanitizeBag(readStorage(BAG_STORAGE_KEY)));
     };
     window.addEventListener("storage", sync);
     return () => window.removeEventListener("storage", sync);
   }, []);
   useEffect(() => {
-    if (hydrated) writeStorage(KEY, selectedIds);
+    if (hydrated) writeStorage(BAG_STORAGE_KEY, selectedIds);
   }, [selectedIds, hydrated]);
   const value = useMemo<Store>(
     () => ({

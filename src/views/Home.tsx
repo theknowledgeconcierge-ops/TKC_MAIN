@@ -12,7 +12,7 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import BookCard from "@/components/BookCard";
 import BookCover from "@/components/BookCover";
-import { useCatalogue, formatInr } from "@/lib/catalogue";
+import { activeBooks as books, formatInr } from "@/lib/catalog";
 import { useStore } from "@/lib/store";
 
 const trustItems = [
@@ -23,7 +23,6 @@ const trustItems = [
 ];
 
 export default function Home() {
-  const { books } = useCatalogue();
   const { addBooks, setBagOpen } = useStore();
   return (
     <div data-testid="home-page">

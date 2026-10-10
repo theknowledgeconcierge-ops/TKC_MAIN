@@ -4,7 +4,7 @@
 
 Read all seven page modules, the shell/router, six storefront components, UI primitives, CSS/fonts, browser store and payment client, all Python models/routes/database helpers, existing pytest and Playwright scaffolding, reports, and deployment/template configuration. No `.codegraph/` exists, so CodeGraph was not used.
 
-The repository actually has five books. The requested four-book scope and the existing five-book First50 offer were raised with the owner. Preserve existing pricing (owner confirmed): 1/2/3/4 = ₹249/399/549/699; five-book standard ₹999, eligible first-time ₹499. The first four titles are active under the requested four-book scope. The fifth title, “Empty Tables to Full House”, remains inactive metadata. The five-book First50 logic is dormant and cannot be selected through the active catalogue. No new commercial terms are invented; the four-title choice is an explicit assumption pending any owner correction.
+The repository actually has five books. The requested four-book scope and the existing five-book First50 offer were raised with the owner. Preserve existing pricing (owner confirmed): 1/2/3/4 = ₹249/399/549/699; five-book standard ₹999, eligible first-time ₹499. The first four titles are active under the requested four-book scope. The fifth title, “Empty Tables to Full House”, remains inactive metadata. The five-book First50 logic is dormant and cannot be selected through the active catalogue. No commercial terms changed during cleanup.
 
 ## Migration map
 
@@ -19,7 +19,7 @@ The repository actually has five books. The requested four-book scope and the ex
 | sessionStorage full order/success | Delete | Cookie-authorized order API; server status polling/reconciliation |
 | Python and TS duplicate catalogues | Replace | One typed catalogue; private object mapping in server-only module |
 | Python tier pricing and First50 lookup | Rewrite | Server pricing and purchase-time snapshots |
-| `/catalogue`, `/pricing/quote` | Replace | Local canonical metadata and server quote route |
+| `/catalogue`, `/pricing/quote` | Replace | Local canonical metadata; authoritative quote computed inside order creation |
 | `/payments/razorpay/order`, `/verify` | Replace | `/api/orders`, `/api/payments/verify` |
 | `/payments/razorpay/webhook` | Replace | `/api/webhooks/razorpay`; atomic event/payment/entitlement transaction |
 | Public `/status` writes/reads and Hello World | Delete | Read-only health endpoint |
@@ -30,16 +30,15 @@ The repository actually has five books. The requested four-book scope and the ex
 | Vite/proxy/overlays, Python/Uvicorn/Motor/PyMongo | Delete after parity | One root Next.js production application |
 | Old scaffold/docs/test reports | Replace | Current README, security audit, TypeScript/API/SQL/browser tests |
 
-## Completed implementation sequence
+## Repository cleanup — 10 October 2026
 
-1. Establish one root Next.js/TypeScript/Tailwind project; keep existing storefront components.
-2. Write tests for pricing, runtime validation, signatures, authorization and payment evidence before their implementation.
-3. Add SQL orders/items/payments/events/entitlements and atomic creation/fulfillment RPCs; test against temporary PostgreSQL.
-4. Implement bounded HTTP APIs, Supabase adapter, Razorpay adapter, idempotent checkout, callback/webhook verification and recovery.
-5. Wire checkout/confirmation/downloads to authoritative APIs; preserve styling and native Next.js links.
-6. Remove legacy services and dead code once replacement tests work.
-7. Run typecheck, lint, unit/API/SQL/browser tests and production build; independently audit payment and download loopholes.
-8. Document exact setup, private PDF paths, credentials, smoke tests and credential-blocked checks.
+The conventional `src/` layout is retained. The recursive inventory classified application, development, test and operational documentation separately from generated artifacts and ignored private staging inputs. Imports, asset URLs and API callers were traced before deletion.
+
+Removed the unreferenced Emergent Git identity, conflicting mock design brief, unused SVG sprite and standalone 16/32px PNG favicons (the SVG/ICO/Apple icons remain). Removed unused catalogue/pricing HTTP routes and their quote-only schema. Views now import the canonical catalogue directly instead of a static hook facade. The browser gateway loader is explicitly named `razorpay-checkout.ts`; privileged operations remain under `lib/server/`.
+
+Removed unused `tw-animate-css` and chart/sidebar CSS tokens. Motion and Tailwind's used spinner animation remain. Unused exports became private; no payment algorithm, price, migration or database contract changed. The inactive fifth title/cover and five-book pricing rules remain for the documented historical purpose.
+
+The build now rejects unsafe public assets before/after compilation. Ignore files protect local secrets, all PDFs, test/build output, archives and tooling caches. Existing setup/recovery/upload scripts remain necessary and documented. Vite exists only as Vitest's development dependency, with no SPA build or deployment role.
 
 ## Deliberate boundaries
 

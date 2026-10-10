@@ -1,7 +1,7 @@
 import { activeBooks } from "@/lib/catalog";
 import type { PricingQuote } from "./types";
 
-export const tierPrices: Readonly<Record<number, number>> = {
+const tierPrices: Readonly<Record<number, number>> = {
   1: 249,
   2: 399,
   3: 549,

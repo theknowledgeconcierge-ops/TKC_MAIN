@@ -3,11 +3,10 @@ import { ArrowRight } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import BookCard from "@/components/BookCard";
-import { useCatalogue, formatInr } from "@/lib/catalogue";
+import { activeBooks as books, formatInr } from "@/lib/catalog";
 import { useStore } from "@/lib/store";
 
 export default function Library() {
-  const { books } = useCatalogue();
   const { summary, setBagOpen } = useStore();
   return (
     <div

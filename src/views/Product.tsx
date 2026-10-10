@@ -12,7 +12,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { Button } from "@/components/ui/button";
 import BookCard from "@/components/BookCard";
 import BookCover from "@/components/BookCover";
-import { useCatalogue, formatInr } from "@/lib/catalogue";
+import { activeBooks as books, formatInr } from "@/lib/catalog";
 import { useStore, summaryFor } from "@/lib/store";
 
 const partnerCopy: Record<string, string> = {
@@ -29,7 +29,6 @@ const partnerCopy: Record<string, string> = {
 };
 
 export default function Product({ slug }: { slug: string }) {
-  const { books } = useCatalogue();
   const book = books.find((item) => item.slug === slug)!;
   const { addBook, selectedIds, setBagOpen } = useStore();
   const [openToc, setOpenToc] = useState(false);

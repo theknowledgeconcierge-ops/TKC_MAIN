@@ -3,8 +3,8 @@ import Link from "next/link";
 import { Check, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import BookCover from "@/components/BookCover";
-import type { Book } from "@/lib/catalogue";
-import { formatInr } from "@/lib/catalogue";
+import type { Book } from "@/lib/catalog";
+import { formatInr } from "@/lib/catalog";
 import { useStore } from "@/lib/store";
 import { toast } from "sonner";
 

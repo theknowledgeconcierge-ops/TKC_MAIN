@@ -1,3 +1,4 @@
+"use client";
 export interface RazorpaySuccess {
   razorpay_order_id: string;
   razorpay_payment_id: string;

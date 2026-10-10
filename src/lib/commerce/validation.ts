@@ -2,17 +2,12 @@ import { z } from "zod";
 import { activeBooks } from "@/lib/catalog";
 export const orderIdSchema = z.uuid();
 export const tokenSchema = z.string().regex(/^[A-Za-z0-9_-]{43}$/);
-export const productIdSchema = z
+const productIdSchema = z
   .string()
   .refine(
     (id) => activeBooks.some((book) => book.id === id),
     "Unknown product",
   );
-export const quoteSchema = z.object({
-  book_ids: z.array(productIdSchema).min(1).max(5),
-  customer_email: z.email().max(254).optional(),
-  coupon_code: z.string().max(32).optional(),
-});
 export const createOrderSchema = z.object({
   book_ids: z.array(productIdSchema).min(1).max(5),
   full_name: z.string().trim().min(2).max(120),

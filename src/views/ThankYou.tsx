@@ -13,7 +13,7 @@ import { ApiError, apiGet, apiPost } from "@/lib/api";
 import { readStorage, rememberOrder } from "@/lib/browser-storage";
 import { orderIdSchema, tokenSchema } from "@/lib/commerce/validation";
 import type { CheckoutOrder, PublicOrder } from "@/lib/commerce/types";
-import { loadRazorpayCheckout } from "@/lib/payments";
+import { loadRazorpayCheckout } from "@/lib/razorpay-checkout";
 import { useStore } from "@/lib/store";
 
 export default function ThankYou() {

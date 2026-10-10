@@ -6,7 +6,7 @@ import { HttpError } from "./errors";
 import { serverEnv } from "./env";
 import type { Repository } from "./contracts";
 
-export const cookieName = (orderId: string) => `tkc_purchase_${orderId}`;
+const cookieName = (orderId: string) => `tkc_purchase_${orderId}`;
 export const tokenFrom = (request: NextRequest, orderId: string) =>
   request.cookies.get(cookieName(orderId))?.value;
 export function setAccessCookie(

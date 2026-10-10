@@ -1,6 +1,6 @@
-# Production audit — 9 October 2026
+# Production audit — 10 October 2026
 
-Scope: current Next.js application, HTTP boundaries, browser state, Supabase adapter and SQL transaction logic, Razorpay integration, private Storage delivery and deployment configuration. Includes an independent read-only security review of payment/download code and regression tests for its finding. No production credentials or customer records were used.
+Scope: current Next.js application, HTTP boundaries, browser state, Supabase adapter and SQL transaction logic, Razorpay integration, private Storage delivery and deployment configuration. Includes an independent read-only security review of payment/download code and regression tests for its finding. No external credentials or customer records were used. The cleanup additionally inspected every repository path, all 12 reachable pre-cleanup commits and their 222 unique tracked file versions, plus commit messages. No history was rewritten.
 
 ## Certification
 
@@ -42,11 +42,27 @@ Scope: current Next.js application, HTTP boundaries, browser state, Supabase ada
 | Cross-origin POST, unsafe redirect, oversized/malformed input | Exact-origin enforcement, no arbitrary redirect target, streaming byte caps and runtime schemas |
 | Refresh/close checkout or lose callback | Persisted internal order, creation recovery, My purchases and server reconciliation; browser is never payment authority |
 
+## Historical credential incident
+
+**HIGH — Razorpay webhook secret committed in history.** Commit `da62819` contains a literal webhook secret in its message. Treat it as compromised: rotate it in the relevant Razorpay dashboard and matching deployment environment, verify webhook delivery with the replacement, and never reuse it for this deployment. The value is deliberately omitted here. History remains unchanged; removing current files cannot revoke a credential. Rotation and provider verification require the account owner. Any later coordinated history sanitation is a separate explicit operation, after rotation.
+
+Gitleaks 8.30.1 (official binary, checksum verified) scanned all reachable Git diffs and a separate snapshot of current files; commit messages and historical blobs were also inspected with redacted, credential-focused checks. Its file-content findings were the public shopping-bag storage key, a non-secret constant. Historical `Emergent-Commit-Key` message trailers were also flagged; their authorization significance is unknown. Have the former platform owner confirm/revoke any associated automation access. No additional Supabase/service-role, Razorpay API credential, database password, private purchase token or actual customer export was found. Only `.env.example` is tracked in history. These scans cannot establish that credentials were never shared elsewhere.
+
+## Repository safeguards
+
+- One root npm lockfile and Next.js deployment; no legacy runtime configuration or duplicate catalogue API.
+- PDFs are ignored globally; staging PDFs remain outside public paths and are excluded from Vercel CLI uploads. Build checks inspect both `public/` and generated browser assets and reject renamed PDFs, environment/credential files, root/nested symlinks, dumps/archives and source maps. Regression tests exercise the guard and every privileged module's `server-only` marker.
+- Production browser source maps are explicitly disabled. Service-role/Razorpay secret operations remain in guarded server modules; Vitest's `server-only` stub is confined to test configuration. No production test bypass or debug route exists.
+- Environment schema, template and operator instructions use the same six server variables; no anonymous client or `NEXT_PUBLIC_*` secret configuration exists. Operator recovery output intentionally contains a private link for secure handoff; application logs contain only error codes, request IDs or invalid configuration field names.
+- Public artwork and icons were traced before removing unused assets. Database migrations, transactional RPCs, entitlement checks and payment calculations retain the certified contract.
+
 ## Remaining findings / launch gates
 
-**CRITICAL — external legacy PDFs remain publicly retrievable.** Three original PDF sources were accessible during the audit and were staged in ignored local files; the first source returned 403. The new app has no links to the old paid objects, but cannot revoke their hosting. The owner must delete/restrict all previously published paid PDF artifacts and verify their old URLs no longer serve the files before launch. Repository history may still contain those URLs; changing current source is not revocation.
+**CRITICAL — external legacy PDFs remain publicly retrievable.** Three original PDF sources were accessible during the 9 October migration audit and were staged in ignored local files; the first source returned 403. The new app has no links to the old paid objects, but cannot revoke their hosting. The owner must delete/restrict all previously published paid PDF artifacts and verify their old URLs no longer serve the files before launch. Repository history may still contain those URLs; changing current source is not revocation.
 
 **CRITICAL/HIGH — upstream advisory requires release review, applicability not yet published.** On 8 October Next.js announced a planned 14 October update for two Critical and one High vulnerability in upstream dependencies. The current stable pin is Next.js 16.4.0. No affected range or fix is published in the announcement, so we cannot establish whether this application is affected or claim it is patched. Check the [official announcement](https://nextjs.org/blog/upcoming-nextjs-security-update-october-2026), apply the applicable stable fixes and repeat validation before live payments. `npm audit` reporting zero vulnerabilities is not evidence that these unpublished issues are resolved.
+
+**MEDIUM — legacy automation metadata.** Historical `Emergent-Commit-Key` trailers require former-platform owner review as described above; no such configuration is used by the application.
 
 **MEDIUM — operational availability and purchase recovery.** Downloads deliberately fail closed when Razorpay or Supabase cannot confirm access. Customers retry when service returns. There are no accounts or email recovery; loss of both browser cookie and saved private link requires an operator to verify ownership and rotate a link. This is documented in checkout/confirmation and the README. A webhook delivery outage requires dashboard retry/replay; no queue is needed for transaction durability, but provider retries are finite. Use Vercel error logs and Razorpay delivery status for failed integration requests. No sensitive payloads are logged.
 
@@ -60,13 +76,16 @@ Run from the repository root using Node 24.21.0 and the committed lockfile:
 
 | Command | Result |
 | --- | --- |
+| `npm ci` | Passed from the committed lockfile; no package upgrades |
+| `npm run check:assets` | Passed; no unsafe public assets |
 | `npm run typecheck` | Passed; no TypeScript errors |
 | `npm run lint` | Passed; warnings denied |
-| `npm test` | 64 passed across four domain/service/HTTP/adapter suites |
+| `npm test` | 79 passed across five domain/service/HTTP/adapter/repository suites |
 | `npm run test:db` | 8 passed; actual versioned migration applied to fresh temporary PostgreSQL 16, then cluster destroyed |
 | `npm run build` | Passed; Next.js 16.4.0 production build, all app/API routes compiled |
 | `PLAYWRIGHT_CHANNEL=chrome npm run test:e2e` | 14 passed across desktop/mobile projects (including gateway failure/retry/dismissal) |
 | `npm audit --json` | 0 critical / high / moderate / low / info advisories |
+| `npx --yes --package=knip@6.41.0 knip --reporter json` | Passed; no unused dependencies, files, exports or unresolved imports |
 | `git diff --check` | Passed |
 
 Unit/API/provider fixtures are mocks. SQL tests use actual PostgreSQL and the actual migration, with a small test-only Supabase roles/Storage schema stub. Browser fixtures test the app's payment wiring and recovery, not Razorpay's hosted payment UI or a real card transaction. External upload, API, webhook and real signed-URL expiry checks were not run without credentials.

@@ -4,6 +4,8 @@ One Next.js 16 App Router / TypeScript application on Vercel. Supabase supplies 
 
 The existing editorial design, fonts, covers, responsive pages, motion, bag and checkout review are retained. The repository contained five titles; the requested four-book storefront currently activates **The First Table, The Full Table, Behind the Kitchen Door, and The Math Behind the Menu**. “Empty Tables to Full House” remains inactive metadata. Original prices are retained: **1 / 2 / 3 / 4 books = ₹249 / ₹399 / ₹549 / ₹699**. The old five-book First50 promotion does not apply to four books.
 
+The visual source of truth is `src/app/globals.css`: warm paper/brown/gold colors, Playfair Display headings, DM Sans body text and JetBrains Mono labels. Shared controls live in `src/components/ui/`; page compositions live in `src/views/`.
+
 ## Local development
 
 Use Node **24** (`nvm use`) and npm:
@@ -44,6 +46,8 @@ npx supabase db push
 Use either SQL Editor or CLI for initial setup, not both on the same project. Subsequent changes should be new versioned migrations. Local PostgreSQL tests use a minimal Storage schema stub; only a real Supabase project can verify its Storage API and platform policies. Prefer separate Supabase projects and Razorpay keys for staging and production. Purchase payment mode is snapshotted; switching keys never relabels old test purchases as live purchases.
 
 ### Private PDFs
+
+`public/` contains covers and favicons only. All PDF files and local staging inputs are Git-ignored and excluded from Vercel CLI uploads. `npm run build` checks `public/` before compilation and `.next/static/` afterward, rejecting PDFs (including renamed PDF headers), credential files, symlinks, backups and browser source maps. Run `npm run check:assets` for the standalone public-file check.
 
 The SQL migration creates bucket **`handbooks`**, `public=false`, MIME type `application/pdf`, maximum file size 50 MiB. Upload the following **object paths inside that bucket**:
 
@@ -94,9 +98,10 @@ src/lib/catalog/         typed canonical catalogue and server-only PDF mapping
 src/lib/commerce/        pricing, schemas and shared types
 src/lib/server/          commerce service, Supabase/Razorpay adapters, authorization, HTTP errors
 supabase/migrations/     deterministic PostgreSQL and Storage setup
-scripts/                 environment, upload, recovery, integration and SQL test tools
+scripts/                 asset guard, environment, upload, recovery, integration and SQL test tools
 tests/                   domain, service, HTTP, adapters, PostgreSQL and browser coverage
 public/                  local covers, favicons; no paid PDFs
+docs/                    migration decisions and security/verification evidence
 ```
 
 ## Payment and download lifecycle
@@ -146,12 +151,12 @@ Browser tests start the production build on port 3100, cover desktop/mobile rout
 4. Confirm the migration-created `handbooks` bucket is private; do not add public policies.
 5. Supply/upload all four PDFs with the exact paths above. Run `npm run check:integrations` after Razorpay credentials are ready. Revoke old public artifact files.
 6. Create matching Razorpay credentials and enable **automatic capture** in Razorpay payment settings. This application deliberately never fulfills merely authorized payments.
-7. Register `https://YOUR_DOMAIN/api/webhooks/razorpay` with the configured webhook secret. Subscribe to **`payment.captured`, `order.paid`, `payment.failed`, `refund.processed`**. Test and live dashboards need their own webhook configuration. Keep the secret stable while older deliveries are retrying.
+7. Choose a **new** webhook secret; never reuse the legacy secret exposed in commit `da62819` (see the [security incident](docs/SECURITY_AUDIT.md#historical-credential-incident)). Register `https://YOUR_DOMAIN/api/webhooks/razorpay` with the configured webhook secret. Subscribe to **`payment.captured`, `order.paid`, `payment.failed`, `refund.processed`**. Test and live dashboards need their own webhook configuration. Keep the secret stable while older deliveries are retrying.
 8. Import the repository into Vercel with **root directory `.`**, Next.js preset, Node **24.x**. Add all six values to the appropriate environments. Set `APP_URL` to the exact canonical HTTPS domain used by checkout and recovery links. Preview aliases require their own matching `APP_URL` and test credentials; production secrets should not reach untrusted previews.
 9. Review vendor security advisories, then deploy. `vercel.json` sets npm ci/build; no backend process, redirects to a backend, persistent disk or worker is required. Sensitive routes use Node, bounded provider timeouts and no-store responses. Public assets are local. Vercel handles HTTP→HTTPS; use one canonical domain matching `APP_URL`.
 10. Complete the smoke test below in Razorpay test mode, then a small live transaction/refund after configuring live credentials. Verify webhook delivery/retry status in the dashboard. Only then accept customer payments.
 
-**Vendor launch gate (9 October 2026):** Next.js announced an upstream security update for 14 October, covering two Critical and one High vulnerability. The announcement does not yet give affected ranges or patches. This repository pins the currently stable Next.js 16.4.0 and has a clean dependency audit, but that does not establish immunity. Check the [official announcement](https://nextjs.org/blog/upcoming-nextjs-security-update-october-2026), install the applicable stable patches, rerun this test/build suite and redeploy before taking live payments. Do not infer a fixed version from the absence of npm advisories.
+**Vendor launch gate (reviewed 10 October 2026):** Next.js announced an upstream security update for 14 October, covering two Critical and one High vulnerability. The announcement does not yet give affected ranges or patches. This repository pins the currently stable Next.js 16.4.0 and has a clean dependency audit, but that does not establish immunity. Check the [official announcement](https://nextjs.org/blog/upcoming-nextjs-security-update-october-2026), install the applicable stable patches, rerun this test/build suite and redeploy before taking live payments. Do not infer a fixed version from the absence of npm advisories.
 
 ### External smoke test
 

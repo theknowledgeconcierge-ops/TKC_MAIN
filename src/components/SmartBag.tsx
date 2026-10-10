@@ -2,7 +2,7 @@
 import { ArrowRight, Plus, Sparkles, Trash2, X } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { useCatalogue, formatInr } from "@/lib/catalogue";
+import { activeBooks as books, formatInr } from "@/lib/catalog";
 import { useStore } from "@/lib/store";
 import Modal from "@/components/Modal";
 import CheckoutModal from "@/components/CheckoutModal";
@@ -16,7 +16,6 @@ const milestones = [
 ];
 
 export default function SmartBag() {
-  const { books } = useCatalogue();
   const {
     selectedIds,
     bagOpen,

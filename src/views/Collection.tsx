@@ -3,11 +3,10 @@ import { ArrowRight, Check } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import BookCover from "@/components/BookCover";
-import { useCatalogue } from "@/lib/catalogue";
+import { activeBooks as books } from "@/lib/catalog";
 import { useStore } from "@/lib/store";
 
 export default function Collection() {
-  const { books } = useCatalogue();
   const { addBooks, setBagOpen } = useStore();
   return (
     <div data-testid="collection-page">

@@ -1,4 +1,4 @@
-import type { Book } from "@/lib/catalogue";
+import type { Book } from "@/lib/catalog";
 
 export default function BookCover({
   book,

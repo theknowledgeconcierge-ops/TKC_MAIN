@@ -15,14 +15,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import Modal from "@/components/Modal";
 import { ApiError, apiPost } from "@/lib/api";
-import { formatInr } from "@/lib/catalogue";
+import { formatInr } from "@/lib/catalog";
 import {
   readStorage,
   writeStorage,
   randomCheckoutToken,
   rememberOrder,
 } from "@/lib/browser-storage";
-import { loadRazorpayCheckout, type RazorpaySuccess } from "@/lib/payments";
+import { loadRazorpayCheckout, type RazorpaySuccess } from "@/lib/razorpay-checkout";
 import type { CheckoutOrder, PublicOrder } from "@/lib/commerce/types";
 import { useStore } from "@/lib/store";
 function errorMessage(error: unknown, fallback: string) {
