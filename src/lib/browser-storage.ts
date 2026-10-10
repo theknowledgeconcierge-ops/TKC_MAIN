@@ -6,11 +6,13 @@ export function readStorage(key: string): unknown {
     return null;
   }
 }
-export function writeStorage(key: string, value: unknown): void {
+export function writeStorage(key: string, value: unknown): boolean {
   try {
     window.localStorage.setItem(key, JSON.stringify(value));
+    return true;
   } catch {
     /* A blocked browser store must not break checkout. */
+    return false;
   }
 }
 export function rememberOrder(id: string) {

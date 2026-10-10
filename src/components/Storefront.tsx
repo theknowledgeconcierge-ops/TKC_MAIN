@@ -5,16 +5,16 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ShoppingBag, Menu, X } from "lucide-react";
 import { useState, type MouseEvent } from "react";
-import { AnimatePresence, motion } from "motion/react";
 import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/sonner";
-import { StoreProvider, useStore } from "@/lib/store";
+import { StoreProvider, useCart, useCartActions } from "@/lib/store";
 import SmartBag from "@/components/SmartBag";
 import ConciergeChatbot from "@/components/ConciergeChatbot";
 import BackToTop from "@/components/BackToTop";
 
 function Header() {
-  const { summary, setBagOpen } = useStore();
+  const { summary, persistenceError } = useCart();
+  const { setBagOpen } = useCartActions();
   const [menuOpen, setMenuOpen] = useState(false);
   const pathname = usePathname();
   const links = [
@@ -41,6 +41,7 @@ function Header() {
       >
         <Link
           href="/restaurant-business-collection"
+          className="-my-2 block min-h-11 content-center py-2 sm:min-h-0"
           data-testid="announcement-collection-link"
         >
           All 5 restaurant handbooks · ₹999 regular · ₹499 promotional
@@ -49,13 +50,13 @@ function Header() {
         </Link>
       </div>
       <header
-        className="sticky top-0 z-50 border-b border-[#2e241f]/10 bg-[#fbf9f5]/95 py-3 backdrop-blur-xl sm:py-4"
+        className="sticky top-0 z-50 border-b border-[#2e241f]/10 bg-[#fbf9f5]/95 py-1.5 backdrop-blur-xl sm:py-4"
         data-testid="site-header"
       >
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-2 px-3 sm:gap-6 sm:px-6 lg:px-8">
           <Link
             href="/"
-            className="min-w-0 shrink"
+            className="flex min-h-11 min-w-0 shrink flex-col justify-center sm:min-h-0"
             onClick={(event) => handleNavigation("/", event)}
             data-testid="nav-brand-link"
           >
@@ -93,15 +94,17 @@ function Header() {
             <Button
               variant="outline"
               size="sm"
-              className="px-2 sm:px-3"
+              className="h-11 min-w-11 px-2 sm:h-7 sm:min-w-0 sm:px-3"
               onClick={() => setBagOpen(true)}
-              aria-label="Open shopping bag"
+              aria-label={`Open shopping bag, ${summary.count} ${summary.count === 1 ? "book" : "books"}`}
               data-testid="nav-bag-toggle-btn"
             >
               <ShoppingBag className="size-4 sm:mr-2" />
               <span className="hidden sm:inline">Bag</span>
               <span
-                className="ml-1 font-mono text-xs"
+                // Re-keyed so the count visibly pops the moment it changes.
+                key={summary.count}
+                className="animate-count-pop ml-1 inline-block font-mono text-xs"
                 data-testid="nav-bag-count"
               >
                 {summary.count}
@@ -110,17 +113,21 @@ function Header() {
             <Button
               variant="ghost"
               size="icon"
-              className="md:hidden"
+              className="size-11 sm:size-8 md:hidden"
               onClick={() => setMenuOpen((value) => !value)}
               data-testid="nav-mobile-menu-btn"
               aria-label="Toggle navigation"
+              aria-expanded={menuOpen}
+              aria-controls="mobile-navigation"
             >
               {menuOpen ? <X /> : <Menu />}
             </Button>
           </div>
         </div>
+        {persistenceError && <p role="alert" className="px-4 py-2 text-sm text-[#9b3d32]">{persistenceError}</p>}
         {menuOpen && (
           <nav
+            id="mobile-navigation"
             className="border-t border-[#2e241f]/10 px-4 pb-2 pt-4 md:hidden"
             data-testid="mobile-navigation"
           >
@@ -174,21 +181,21 @@ function Footer() {
           <div className="mt-4 space-y-3 text-sm text-[#c5b7a8]">
             <Link
               href="/books"
-              className="block hover:text-white"
+              className="flex min-h-11 items-center hover:text-white sm:block sm:min-h-0"
               data-testid="footer-books-link"
             >
               All books
             </Link>
             <Link
               href="/restaurant-business-collection"
-              className="block hover:text-white"
+              className="flex min-h-11 items-center hover:text-white sm:block sm:min-h-0"
               data-testid="footer-collection-link"
             >
               Complete collection
             </Link>
             <Link
               href="/about"
-              className="block hover:text-white"
+              className="flex min-h-11 items-center hover:text-white sm:block sm:min-h-0"
               data-testid="footer-about-link"
             >
               About the brand
@@ -206,11 +213,11 @@ function Footer() {
           </p>
           <Link
             href="/faq"
-            className="mt-4 inline-block text-sm text-[#c5a880]"
+            className="mt-4 inline-flex min-h-11 items-center text-sm text-[#c5a880] sm:min-h-0"
           >
             Questions &amp; help
           </Link>
-          <Link href="/thank-you" className="mt-3 block text-sm text-[#c5a880]">
+          <Link href="/thank-you" className="mt-3 flex min-h-11 items-center text-sm text-[#c5a880] sm:block sm:min-h-0">
             My purchases
           </Link>
         </div>
@@ -227,23 +234,11 @@ function Footer() {
 }
 
 function Shell({ children }: { children: ReactNode }) {
-  const pathname = usePathname();
+  // No keyed exit wrapper: it faded the new page out and remounted it on every navigation.
   return (
     <>
       <Header />
-      <main>
-        <AnimatePresence mode="wait" initial={false}>
-          <motion.div
-            key={pathname}
-            initial={false}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -5 }}
-            transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
-          >
-            {children}
-          </motion.div>
-        </AnimatePresence>
-      </main>
+      <main>{children}</main>
       <Footer />
       <SmartBag />
       <BackToTop />

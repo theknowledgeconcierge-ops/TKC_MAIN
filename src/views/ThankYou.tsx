@@ -11,6 +11,7 @@ import { catalogue, formatInr } from "@/lib/catalog";
 import { ApiError, apiGet, apiPost } from "@/lib/api";
 import { readStorage } from "@/lib/browser-storage";
 import { orderIdSchema } from "@/lib/commerce/validation";
+import { mergePurchaseState } from "@/lib/commerce/purchase-state";
 import type {
   CheckoutOrder,
   PublicDelivery,
@@ -20,7 +21,7 @@ import {
   loadRazorpayCheckout,
   verifyCheckoutPayment,
 } from "@/lib/razorpay-checkout";
-import { useStore } from "@/lib/store";
+import { useCartActions } from "@/lib/store";
 
 export default function ThankYou() {
   const params = useSearchParams();
@@ -31,7 +32,10 @@ export default function ThankYou() {
   const [recent, setRecent] = useState<string[]>([]);
   const [downloading, setDownloading] = useState("");
   const [retrying, setRetrying] = useState(false);
-  const { removePurchased } = useStore();
+  const deliveryInFlight = useRef(false);
+  const downloadInFlight = useRef(false);
+  const paymentInFlight = useRef(false);
+  const { removePurchased } = useCartActions();
   const cleared = useRef<string | null>(null);
   useEffect(() => {
     const saved = readStorage("tkc_purchase_ids");
@@ -54,6 +58,7 @@ export default function ThankYou() {
   const query = useQuery({
     queryKey: ["purchase", id],
     queryFn: () => apiGet<PublicOrder>(`/orders/${id}`),
+    structuralSharing: (previous, next) => mergePurchaseState(previous as PublicOrder | undefined, next as PublicOrder),
     enabled: !!id && ready,
     retry: (attempt, error) =>
       !(error instanceof ApiError && error.status === 404) && attempt < 1,
@@ -70,12 +75,18 @@ export default function ThankYou() {
         order_id: id,
         ...(email ? { email } : {}),
       }),
-    onSuccess: (order) => cache.setQueryData(["purchase", id], order),
+    onSuccess: (order) => cache.setQueryData(["purchase", order.id], order),
+    onSettled: () => { deliveryInFlight.current = false; },
   });
+  const sendBooks = (email?: string) => {
+    if (deliveryInFlight.current || query.data?.delivery?.status === "sending" || query.data?.delivery?.locked) return;
+    deliveryInFlight.current = true;
+    deliver.mutate(email);
+  };
   const reconcile = useMutation({
     mutationFn: () =>
       apiPost<PublicOrder>("/orders/reconcile", { order_id: id }),
-    onSuccess: (order) => cache.setQueryData(["purchase", id], order),
+    onSuccess: (order) => cache.setQueryData(["purchase", order.id], order),
   });
   const reconcileRef = useRef(reconcile.mutate);
   reconcileRef.current = reconcile.mutate;
@@ -117,6 +128,8 @@ export default function ThankYou() {
     return result.url;
   };
   const download = async (entitlementId: string) => {
+    if (downloadInFlight.current) return;
+    downloadInFlight.current = true;
     setDownloading(entitlementId);
     try {
       window.location.assign(await downloadUrl(entitlementId));
@@ -127,10 +140,13 @@ export default function ThankYou() {
           : "Download unavailable. Please retry.",
       );
     } finally {
+      downloadInFlight.current = false;
       setDownloading("");
     }
   };
   const downloadAll = async () => {
+    if (downloadInFlight.current) return;
+    downloadInFlight.current = true;
     setDownloading("all");
     try {
       const ordered = purchased
@@ -148,6 +164,7 @@ export default function ThankYou() {
           : "Download unavailable. Please retry.",
       );
     } finally {
+      downloadInFlight.current = false;
       setDownloading("");
     }
   };
@@ -156,7 +173,8 @@ export default function ThankYou() {
       .getElementById("downloads")
       ?.scrollIntoView({ behavior: "smooth", block: "start" });
   const retryPayment = async () => {
-    if (retrying) return;
+    if (paymentInFlight.current) return;
+    paymentInFlight.current = true;
     setRetrying(true);
     try {
       const checkout = await apiPost<CheckoutOrder>("/orders/resume", {
@@ -187,6 +205,7 @@ export default function ThankYou() {
         modal: {
           confirm_close: true,
           ondismiss: () => {
+            paymentInFlight.current = false;
             setRetrying(false);
             reconcile.mutate();
           },
@@ -202,17 +221,19 @@ export default function ThankYou() {
               "Checking your payment. Please wait before paying again.",
             );
           } finally {
+            paymentInFlight.current = false;
             setRetrying(false);
             reconcile.mutate();
           }
         },
       });
       instance.on("payment.failed", () => {
-        setRetrying(false);
+        // Razorpay remains open for its own retry flow until dismissal or success.
         reconcile.mutate();
       });
       instance.open();
     } catch (error) {
+      paymentInFlight.current = false;
       setRetrying(false);
       reconcile.mutate();
       toast.error(
@@ -250,7 +271,7 @@ export default function ThankYou() {
           </p>
           <Link
             href="/books"
-            className="mt-8 inline-flex h-9 items-center justify-center rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/80"
+            className="mt-8 inline-flex h-11 items-center justify-center rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/80 sm:h-9"
             data-testid="thank-you-return-store"
           >
             Return to store
@@ -344,9 +365,10 @@ export default function ThankYou() {
                   variant="outline"
                   onClick={() => reconcile.mutate()}
                   disabled={reconcile.isPending}
+                  aria-busy={reconcile.isPending}
                   data-testid="check-payment-status"
                 >
-                  Check payment status
+                  {reconcile.isPending ? "Checking payment…" : "Check payment status"}
                 </Button>
                 {["created", "payment_pending", "failed"].includes(
                   order.status,
@@ -354,6 +376,7 @@ export default function ThankYou() {
                   <Button
                     onClick={retryPayment}
                     disabled={retrying}
+                    aria-busy={retrying}
                     data-testid="resume-payment"
                   >
                     {retrying
@@ -378,7 +401,7 @@ export default function ThankYou() {
               <Link
                 key={rid}
                 href={`/thank-you?order=${rid}`}
-                className="block break-all text-sm underline"
+                className="flex min-h-11 items-center break-all text-sm underline sm:block sm:min-h-0"
               >
                 Open purchase {rid.slice(0, 8)}
               </Link>
@@ -387,7 +410,7 @@ export default function ThankYou() {
         )}
         <Link
           href="/books"
-          className="mt-8 inline-block text-sm underline"
+          className="mt-8 inline-flex min-h-11 items-center text-sm underline sm:min-h-0"
           data-testid="thank-you-explore-btn"
         >
           Continue exploring
@@ -409,7 +432,7 @@ export default function ThankYou() {
                     : "We couldn't send the email right now."
                   : ""
               }
-              onSend={(email) => deliver.mutate(email)}
+              onSend={sendBooks}
               onShowDownloads={showDownloads}
             />
           )}
@@ -424,6 +447,7 @@ export default function ThankYou() {
                 variant="outline"
                 onClick={downloadAll}
                 disabled={!!downloading || !order.entitlements.length}
+                aria-busy={downloading === "all"}
                 data-testid="downloads-all-btn"
               >
                 <Download className="mr-2 size-4" />
@@ -446,6 +470,7 @@ export default function ThankYou() {
                     <Button
                       size="sm"
                       disabled={!entitlement || !!downloading}
+                      aria-busy={downloading === entitlement?.id}
                       onClick={() => entitlement && download(entitlement.id)}
                       data-testid={`download-${book.id}`}
                     >
@@ -538,7 +563,7 @@ function DeliveryPanel({
         />
       </label>
       <div className="flex flex-wrap gap-3">
-        <Button type="submit" disabled={sending} data-testid="delivery-update-btn">
+        <Button type="submit" disabled={sending} aria-busy={sending} data-testid="delivery-update-btn">
           {sending ? "Sending…" : action}
         </Button>
         {delivery.email && (
@@ -566,7 +591,9 @@ function DeliveryPanel({
       </p>
       {failed && (
         <p role="alert" className="mt-4 font-medium text-[#9b3d32]">
-          {delivery.can_retry || failure
+          {delivery.error === "delivery_needs_reconciliation"
+            ? "The previous send may have succeeded. Download your books here, and keep your payment reference if you need delivery help."
+            : delivery.can_retry || failure
             ? failure || "We couldn't send the email right now."
             : "We couldn't send the email. Your books are ready to download, and you can keep your payment reference if you need help."}
         </p>
@@ -616,7 +643,7 @@ function DeliveryPanel({
               </Button>
             )}
             {sending && (
-              <Button disabled data-testid="delivery-confirm-btn">
+              <Button disabled aria-busy="true" data-testid="delivery-confirm-btn">
                 Sending…
               </Button>
             )}
@@ -626,12 +653,12 @@ function DeliveryPanel({
               </Button>
             )}
           </div>
-          {editable && (
+          {editable && delivery.can_change_email !== false && (
             <p className="mt-4 text-sm text-[#6e655e]">
               Wrong email?{" "}
               <button
                 type="button"
-                className="underline"
+                className="inline-flex min-h-11 items-center underline sm:min-h-0"
                 onClick={() => {
                   setDraft("");
                   setChanging(true);

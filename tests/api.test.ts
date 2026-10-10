@@ -270,7 +270,20 @@ describe("Next.js HTTP boundaries", () => {
     fixture.service.repo.rateLimit.mockResolvedValue(false);
     const response = await create(request("orders", orderInput));
     expect(response.status).toBe(429);
-    expect(response.headers.get("retry-after")).toBe("60");
+    expect(response.headers.get("retry-after")).toBe("3600");
+  });
+  it("uses the Netlify connecting address and does not trust spoofed forwarded headers in production", async () => {
+    process.env.APP_URL = "https://pixelnpalm.com";
+    fixture.service.create.mockResolvedValue({ internal_order_id: id });
+    for (const forwarded of ["198.51.100.1", "198.51.100.2"])
+      await create(request("orders", orderInput, { Origin: "https://pixelnpalm.com", "x-nf-client-connection-ip": "203.0.113.1", "x-forwarded-for": forwarded }));
+    const keys = fixture.service.repo.rateLimit.mock.calls.map(c => c[0]);
+    expect(keys[0]).toBe(keys[1]);
+    await create(request("orders", orderInput, { Origin: "https://pixelnpalm.com", "x-nf-client-connection-ip": "203.0.113.2" }));
+    expect(fixture.service.repo.rateLimit.mock.calls[2][0]).not.toBe(keys[0]);
+    for (const forwarded of ["198.51.100.3", "198.51.100.4"])
+      await create(request("orders", orderInput, { Origin: "https://pixelnpalm.com", "x-forwarded-for": forwarded }));
+    expect(fixture.service.repo.rateLimit.mock.calls[3][0]).toBe(fixture.service.repo.rateLimit.mock.calls[4][0]);
   });
 });
 describe("email delivery HTTP boundaries", () => {

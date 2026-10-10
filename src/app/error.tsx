@@ -6,7 +6,7 @@ export default function ErrorPage({ reset }: { reset: () => void }) {
       <p className="mt-4">
         Please try again. Your payment status is kept securely on the server.
       </p>
-      <button className="mt-8 underline" onClick={reset}>
+      <button type="button" className="mt-8 min-h-11 underline sm:min-h-0" onClick={reset}>
         Try again
       </button>
     </div>

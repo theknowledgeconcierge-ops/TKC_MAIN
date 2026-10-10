@@ -19,7 +19,7 @@ export default function BackToTop() {
       variant="outline"
       aria-label="Back to top"
       onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
-      className={`fixed bottom-5 left-4 z-40 rounded-full border-[#b49a6a]/60 bg-[#fbf9f5]/95 shadow-lg backdrop-blur-sm sm:left-5 ${visible ? "translate-y-0 opacity-100" : "pointer-events-none translate-y-3 opacity-0"}`}
+      className={`fixed bottom-5 left-4 z-40 size-11 rounded-full sm:size-8 border-[#b49a6a]/60 bg-[#fbf9f5]/95 shadow-lg backdrop-blur-sm sm:left-5 ${visible ? "translate-y-0 opacity-100" : "pointer-events-none invisible translate-y-3 opacity-0"}`}
       data-testid="back-to-top-btn"
     >
       <ArrowUp className="size-4" />

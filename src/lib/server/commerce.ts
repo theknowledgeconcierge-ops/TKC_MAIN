@@ -354,18 +354,23 @@ export class CommerceService {
     const interrupted =
       record.status === "sending" &&
       Date.parse(record.lease_expires_at ?? "") <= Date.now();
+    const needsReconciliation =
+      record.status !== "sent" &&
+      record.outcome_uncertain &&
+      Date.parse(record.send_window_started_at ?? "") <= Date.now() - 23 * 60 * 60 * 1000;
     return {
       email: record.delivery_email,
       status: interrupted ? "failed" : record.status,
       locked: record.status === "sent",
       sent_at: record.sent_at,
-      error: interrupted
+      error: needsReconciliation ? "delivery_needs_reconciliation" : interrupted
         ? "interrupted"
         : record.status === "failed"
           ? record.last_error
           : null,
       can_retry:
-        record.status !== "sent" && record.attempt_count < delivery.maxAttempts,
+        record.status !== "sent" && !needsReconciliation && record.attempt_count < delivery.maxAttempts,
+      can_change_email: !record.outcome_uncertain && record.status !== "sent",
     };
   }
   async read(id: string, checkoutToken?: string, sessionToken?: string) {

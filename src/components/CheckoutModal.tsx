@@ -1,5 +1,5 @@
 "use client";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ArrowLeft,
   ExternalLink,
@@ -28,9 +28,15 @@ import {
   type RazorpaySuccess,
 } from "@/lib/razorpay-checkout";
 import type { CheckoutOrder } from "@/lib/commerce/types";
-import { useStore } from "@/lib/store";
+import { useCart, useCartActions } from "@/lib/store";
 function errorMessage(error: unknown, fallback: string) {
   return error instanceof ApiError ? error.message : fallback;
+}
+// Shown inside the dialog: toasts render beneath a top-layer <dialog> and go unseen.
+interface Notice {
+  tone: "error" | "info";
+  title: string;
+  description?: string;
 }
 export default function CheckoutModal({
   open,
@@ -39,7 +45,8 @@ export default function CheckoutModal({
   open: boolean;
   onClose: () => void;
 }) {
-  const { selectedIds, summary, setBagOpen } = useStore();
+  const { selectedIds, summary } = useCart();
+  const { setBagOpen } = useCartActions();
   const router = useRouter();
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
@@ -50,16 +57,22 @@ export default function CheckoutModal({
   );
   const [gatewayLoading, setGatewayLoading] = useState(false);
   const [gatewayActive, setGatewayActive] = useState(false);
+  const [notice, setNotice] = useState<Notice | null>(null);
   const checkoutDialog = useRef<HTMLDialogElement>(null);
   const busy = useRef(false);
+  const submitting = useRef(false);
+  const paymentFailed = useRef(false);
   const close = () => {
-    if (busy.current) return;
+    if (busy.current || submitting.current) return;
     setCheckoutOrder(null);
     setGatewayLoading(false);
+    setNotice(null);
     onClose();
   };
   const goToPurchase = (id: string) => {
     busy.current = false;
+    setCheckoutOrder(null);
+    setNotice(null);
     setGatewayLoading(false);
     setGatewayActive(false);
     onClose();
@@ -83,6 +96,9 @@ export default function CheckoutModal({
     },
   });
   const orderMutation = useMutation({
+    onSettled: () => {
+      submitting.current = false;
+    },
     mutationFn: async () => {
       const payload = {
         book_ids: [...selectedIds].sort(),
@@ -101,67 +117,84 @@ export default function CheckoutModal({
       )
         .map((byte) => byte.toString(16).padStart(2, "0"))
         .join("");
-      const stored = readStorage("tkc_checkout_attempt");
-      const attempt =
-        stored && typeof stored === "object"
-          ? (stored as {
-              fingerprint?: string;
-              token?: string;
-              order_id?: string;
-            })
-          : null;
-      const start = (token: string) => {
-        // This idempotency key can only continue checkout; it never authorizes a download.
-        writeStorage("tkc_checkout_attempt", { fingerprint, token });
-        return apiPost<CheckoutOrder>("/orders", {
-          ...payload,
-          checkout_token: token,
-        });
-      };
-      try {
-        if (attempt?.fingerprint === fingerprint && attempt.order_id)
-          return await apiPost<CheckoutOrder>("/orders/resume", {
-            order_id: attempt.order_id,
-            book_ids: payload.book_ids,
+      const continueCheckout = async () => {
+        const stored = readStorage("tkc_checkout_attempt");
+        const attempt =
+          stored && typeof stored === "object"
+            ? (stored as {
+                fingerprint?: string;
+                token?: string;
+                order_id?: string;
+              })
+            : null;
+        const start = (token: string) => {
+          // This idempotency key can only continue checkout; it never authorizes a download.
+          writeStorage("tkc_checkout_attempt", { fingerprint, token });
+          return apiPost<CheckoutOrder>("/orders", {
+            ...payload,
+            checkout_token: token,
           });
-        return await start(
-          attempt?.fingerprint === fingerprint &&
-            typeof attempt.token === "string" &&
-            /^[A-Za-z0-9_-]{43}$/.test(attempt.token)
-            ? attempt.token
-            : randomCheckoutToken(),
-        );
-      } catch (error) {
-        if (!(error instanceof ApiError && error.code === "CHECKOUT_PRICE_CHANGED"))
-          throw error;
-        // The server refused a remembered order priced before a change: start afresh once.
-        const order = await start(randomCheckoutToken());
-        toast.info("Your order has been refreshed with the latest price.");
+        };
+        let order: CheckoutOrder;
+        try {
+          if (attempt?.fingerprint === fingerprint && attempt.order_id)
+            order = await apiPost<CheckoutOrder>("/orders/resume", {
+              order_id: attempt.order_id,
+              book_ids: payload.book_ids,
+            });
+          else order = await start(
+            attempt?.fingerprint === fingerprint &&
+              typeof attempt.token === "string" &&
+              /^[A-Za-z0-9_-]{43}$/.test(attempt.token)
+              ? attempt.token
+              : randomCheckoutToken(),
+          );
+        } catch (error) {
+          if (!(error instanceof ApiError && error.code === "CHECKOUT_PRICE_CHANGED"))
+            throw error;
+          // The server refused a remembered order priced before a change: start afresh once.
+          order = await start(randomCheckoutToken());
+          setNotice({
+            tone: "info",
+            title: "Your order has been refreshed with the latest price.",
+          });
+        }
+        const latest = readStorage("tkc_checkout_attempt") as { fingerprint?: string; token?: string } | null;
+        writeStorage("tkc_checkout_attempt", {
+          fingerprint,
+          ...(latest?.fingerprint === fingerprint ? { token: latest.token } : {}),
+          order_id: order.internal_order_id,
+        });
         return order;
-      }
+      };
+      // Serialize shared checkout attempts across tabs, including stale-price replacement.
+      return navigator.locks
+        ? navigator.locks.request("tkc-checkout", continueCheckout)
+        : continueCheckout();
     },
     onSuccess: (order) => {
       setCheckoutOrder(order);
       rememberOrder(order.internal_order_id);
-      const previous = readStorage("tkc_checkout_attempt") as {
-        fingerprint?: string;
-      } | null;
-      writeStorage("tkc_checkout_attempt", {
-        fingerprint: previous?.fingerprint,
-        order_id: order.internal_order_id,
-      });
     },
     onError: (error) =>
-      toast.error("Checkout could not start", {
+      setNotice({
+        tone: "error",
+        title: "Checkout could not start",
         description: errorMessage(
           error,
           "Check your connection and retry the same checkout.",
         ),
       }),
   });
+  useEffect(() => {
+    // Fetch Razorpay while the buyer reviews, so Pay does not wait on the network.
+    if (checkoutOrder) loadRazorpayCheckout().catch(() => {});
+  }, [checkoutOrder]);
   const openRazorpay = async () => {
     if (!checkoutOrder || busy.current) return;
     busy.current = true;
+    paymentFailed.current = false;
+    setNotice(null);
     setGatewayLoading(true);
     try {
       await loadRazorpayCheckout();
@@ -193,12 +226,28 @@ export default function CheckoutModal({
             busy.current = false;
             setGatewayLoading(false);
             setGatewayActive(false);
-            toast.info("Payment window closed", {
-              description: "You can return to this order from My purchases.",
-            });
+            setNotice(
+              paymentFailed.current
+                ? {
+                    tone: "error",
+                    title: "Payment was not completed",
+                    description:
+                      "You can retry here, or check My purchases before paying again.",
+                  }
+                : {
+                    tone: "info",
+                    title: "Payment window closed",
+                    description:
+                      "You can return to this order from My purchases.",
+                  },
+            );
           },
         },
         handler: (response: RazorpaySuccess) => {
+          // Razorpay has closed: show verification progress rather than a bare page.
+          setGatewayActive(false);
+          if (checkoutDialog.current && !checkoutDialog.current.open)
+            checkoutDialog.current.showModal();
           verifyMutation.mutate({
             internal_order_id: checkoutOrder.internal_order_id,
             ...response,
@@ -207,10 +256,7 @@ export default function CheckoutModal({
       });
       // The provider keeps its iframe open for retries after payment.failed.
       razorpay.on("payment.failed", () => {
-        toast.error("Payment was not completed", {
-          description:
-            "Retry within Razorpay, or close it and check My purchases.",
-        });
+        paymentFailed.current = true;
       });
       // Native top-layer dialogs would otherwise hide/inert Razorpay's body-mounted iframe.
       checkoutDialog.current?.close();
@@ -223,11 +269,10 @@ export default function CheckoutModal({
       // A synchronous open() failure can batch true/false state together, so restore explicitly.
       if (checkoutDialog.current && !checkoutDialog.current.open)
         checkoutDialog.current.showModal();
-      toast.error("Razorpay could not open", {
-        description: errorMessage(
-          error,
-          "Check your connection and try again.",
-        ),
+      setNotice({
+        tone: "error",
+        title: "Razorpay could not open",
+        description: errorMessage(error, "Check your connection and try again."),
       });
     }
   };
@@ -246,7 +291,7 @@ export default function CheckoutModal({
         className="fixed inset-0 z-[90] flex items-center justify-center bg-[#181412]/55 p-3 backdrop-blur-sm sm:p-4"
         data-testid="razorpay-checkout-modal"
       >
-        <div className="max-h-[94vh] w-full max-w-lg overflow-y-auto bg-[#fbf9f5] shadow-2xl">
+        <div className="animate-modal-in max-h-[94dvh] w-full max-w-lg overflow-y-auto overscroll-contain bg-[#fbf9f5] shadow-2xl">
           <div className="flex items-start justify-between border-b border-[#2e241f]/10 px-5 py-5 sm:px-6">
             <div>
               <p className="mock-pill" data-testid="razorpay-mode-badge">
@@ -264,13 +309,27 @@ export default function CheckoutModal({
             <Button
               variant="ghost"
               size="icon"
+              className="size-11 sm:size-8"
               onClick={close}
+              disabled={orderMutation.isPending || gatewayLoading || verifyMutation.isPending}
               data-testid="razorpay-checkout-close-btn"
               aria-label="Close checkout"
             >
               <X />
             </Button>
           </div>
+          {notice && (
+            <div
+              role={notice.tone === "error" ? "alert" : "status"}
+              className={`mx-5 mt-5 border p-4 text-sm sm:mx-6 ${notice.tone === "error" ? "border-[#9b3d32]/40 bg-[#f6e7e3] text-[#7a2f26]" : "border-[#b49a6a]/55 bg-[#eadfcd] text-[#5d4b3f]"}`}
+              data-testid="checkout-notice"
+            >
+              <p className="font-medium">{notice.title}</p>
+              {notice.description && (
+                <p className="mt-1 leading-relaxed">{notice.description}</p>
+              )}
+            </div>
+          )}
           {checkoutOrder ? (
             <div
               className="space-y-5 p-5 sm:p-6"
@@ -350,15 +409,18 @@ export default function CheckoutModal({
                 payment is verified.
               </p>
               <Button
-                className="w-full"
+                className="h-11 w-full sm:h-8"
                 onClick={openRazorpay}
                 disabled={gatewayLoading || verifyMutation.isPending}
+                aria-busy={gatewayLoading || verifyMutation.isPending}
                 data-testid="razorpay-open-btn"
               >
                 {gatewayLoading || verifyMutation.isPending ? (
                   <>
                     <LoaderCircle className="mr-2 size-4 animate-spin" />
-                    Waiting for Razorpay…
+                    {verifyMutation.isPending
+                      ? "Verifying payment…"
+                      : "Opening Razorpay…"}
                   </>
                 ) : (
                   <>
@@ -369,8 +431,11 @@ export default function CheckoutModal({
               </Button>
               <Button
                 variant="ghost"
-                className="w-full"
-                onClick={() => setCheckoutOrder(null)}
+                className="h-11 w-full sm:h-8"
+                onClick={() => {
+                  setNotice(null);
+                  setCheckoutOrder(null);
+                }}
                 disabled={gatewayLoading || verifyMutation.isPending}
                 data-testid="razorpay-edit-details-btn"
               >
@@ -383,6 +448,9 @@ export default function CheckoutModal({
               className="space-y-5 p-5 sm:p-6"
               onSubmit={(event) => {
                 event.preventDefault();
+                if (submitting.current) return;
+                submitting.current = true;
+                setNotice(null);
                 orderMutation.mutate();
               }}
             >
@@ -398,7 +466,7 @@ export default function CheckoutModal({
                     minLength={2}
                     value={fullName}
                     onChange={(event) => setFullName(event.target.value)}
-                    className="mt-2"
+                    className="mt-2 h-11 sm:h-8"
                     autoComplete="name"
                     data-testid="razorpay-checkout-name-input"
                   />
@@ -414,7 +482,7 @@ export default function CheckoutModal({
                     minLength={7}
                     value={mobile}
                     onChange={(event) => setMobile(event.target.value)}
-                    className="mt-2"
+                    className="mt-2 h-11 sm:h-8"
                     inputMode="tel"
                     autoComplete="tel"
                     data-testid="razorpay-checkout-mobile-input"
@@ -433,7 +501,7 @@ export default function CheckoutModal({
                   maxLength={254}
                   value={email}
                   onChange={(event) => setEmail(event.target.value)}
-                  className="mt-2"
+                  className="mt-2 h-11 sm:h-8"
                   autoComplete="email"
                   aria-describedby="checkout-email-note"
                   data-testid="razorpay-checkout-email-input"
@@ -455,7 +523,7 @@ export default function CheckoutModal({
                     id="checkout-coupon"
                     value={coupon}
                     onChange={(event) => setCoupon(event.target.value)}
-                    className="mt-2 uppercase"
+                    className="mt-2 h-11 uppercase sm:h-8"
                     placeholder="First50"
                     data-testid="razorpay-checkout-coupon-input"
                   />
@@ -502,8 +570,9 @@ export default function CheckoutModal({
               </div>
               <Button
                 type="submit"
-                className="w-full"
+                className="h-11 w-full sm:h-8"
                 disabled={orderMutation.isPending}
+                aria-busy={orderMutation.isPending}
                 data-testid="razorpay-create-order-btn"
               >
                 {orderMutation.isPending ? (

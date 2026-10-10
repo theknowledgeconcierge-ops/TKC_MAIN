@@ -105,6 +105,7 @@ export interface PublicDelivery {
   sent_at: string | null;
   error: string | null;
   can_retry: boolean;
+  can_change_email?: boolean;
 }
 export interface EmailDeliveryRecord {
   id: string;
@@ -116,6 +117,8 @@ export interface EmailDeliveryRecord {
   delivery_email_locked_at: string | null;
   last_error: string | null;
   sent_at: string | null;
+  outcome_uncertain?: boolean;
+  send_window_started_at?: string | null;
 }
 export interface DeliveryClaim {
   delivery_id: string;
@@ -123,7 +126,7 @@ export interface DeliveryClaim {
 }
 export type DeliveryClaimResult =
   | ({ outcome: "claimed" } & DeliveryClaim)
-  | { outcome: "sent" | "in_progress" | "exhausted" };
+  | { outcome: "sent" | "in_progress" | "exhausted" | "needs_reconciliation" };
 export interface DeliveryPayload {
   delivery_email: string;
   idempotency_key: string;

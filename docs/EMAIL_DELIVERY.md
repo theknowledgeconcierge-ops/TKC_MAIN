@@ -15,11 +15,12 @@ The thank-you URL (`/thank-you?order=<uuid>`) is never a credential. Every prote
 
 A copied URL in Incognito, another browser or device receives a 404 and the page shows only "This purchase is not available in this browser…" with **Return to store** — no name, email, mobile, entitlements, signed URLs or delivery controls. The client only names its order and an optional corrected address; it can never choose files.
 
-## Data model (`202610100002_email_delivery.sql`)
+## Data model (`202610100002_email_delivery.sql`, `202610110001_delivery_retry_safety.sql`)
 
 - `orders.customer_email` remains the immutable **checkout email** (still nullable for historical orders; not altered).
 - `email_deliveries`, one row per paid order (`unique(order_id)`): `delivery_email`, `email_version`, `delivery_email_confirmed_at` (buyer confirmed/corrected), `delivery_email_locked_at` (set only on SENT), `status`, `provider`, `provider_message_id`, `attempt_count`, `idempotency_key` (unique), `claim_token`, `lease_expires_at`, `last_error` (payload-free code), `created_at`, `updated_at`, `sent_at`, `failed_at`.
 - Constraints enforce the state invariants: SENDING ⇔ claim token + lease; SENT ⇔ locked, with `sent_at` and provider message ID; FAILED requires `failed_at` and an error code; lowercase address; at most 5 attempts and 5 address versions.
+- Retry safety records `send_window_started_at`, `outcome_uncertain` and `prior_outcome_uncertain`. Claims mark uncertainty before any external call, covering worker crashes. Historical unfinished attempts are conservatively treated as uncertain.
 - RLS enabled, no browser policies; table and RPCs are service-role only (anonymous/authenticated access is tested to fail).
 
 ## State machine
@@ -29,14 +30,15 @@ A copied URL in Incognito, another browser or device receives a 404 and the page
                                                        ▲                 │
                                                        │                 └─provider error/timeout──▶ FAILED
                                                        └──── retry (session; or fallback if never confirmed) ◀──┘
-SENDING with an expired lease (crashed/timed-out worker) is reclaimable with the same idempotency key.
+SENDING with an expired lease (crashed/timed-out worker) is reclaimable with the same idempotency key inside the safe retry window.
 ```
 
 - Claims run in `tkc_claim_email_delivery` / `tkc_claim_fallback_deliveries` under row locks (`for update`, `skip locked` for the batch); only one caller can move a row to SENDING. Concurrent requests or double clicks receive `in_progress`/`sent` and never a second send. A request after SENT returns the locked state; a different address after SENT is `409 DELIVERY_LOCKED`.
 - Only the current claim holder may record the outcome (`tkc_finish_email_delivery` matches `claim_token`); a stale worker's result is ignored.
-- The idempotency key is stable per address (`pnp-delivery-<delivery-id>-v<email_version>`). A retry after a timeout or lost response reuses it, so if Resend already accepted the first request it returns that email instead of sending again (Resend keeps keys for 24 hours). Correcting the address increments the version, producing a new key.
+- The idempotency key is stable per address (`pnp-delivery-<delivery-id>-v<email_version>`). A retry after a timeout or lost response reuses it, so if Resend already accepted the first request it returns that email instead of sending again ([Resend keeps keys for 24 hours](https://resend.com/docs/dashboard/emails/idempotency-keys)). Unknown outcomes stop being retryable after **23 hours** from their first claim, leaving retention headroom. Manual and fallback claims then refuse another send until operator reconciliation; downloads remain available.
+- Correcting an address increments its version and key only when there is no uncertain prior send. An uncertain outcome returns `409 DELIVERY_OUTCOME_UNKNOWN` for correction and hides the correction control (`can_change_email: false`). Same-address retry remains available within the safe window. A later definite rejection cannot clear uncertainty from an earlier attempt. SENT is always terminal.
 - Email failure never changes the order, payment or entitlements. Order stays PAID; downloads continue.
-- Bounds: 5 attempts per delivery (buyer retries), 3 automatic attempts for the fallback, 15 minutes between automatic retries, 120-second lease, 5 address changes. No recursive retries.
+- Bounds: 5 attempts per delivery (buyer retries), 3 automatic attempts for the fallback, 15 minutes between automatic retries, 120-second lease, 5 address versions total. No recursive retries.
 
 ## Attachments
 
@@ -73,6 +75,7 @@ Mechanism (no new infrastructure): `netlify/functions/email-delivery-fallback.ts
 - paid at least 5 minutes ago (grace) and at most 24 hours ago (so historical orders are never mass-emailed after deployment);
 - `orders.customer_email` is present and no delivery exists, or the delivery was **never confirmed/corrected** by the buyer, is not SENT, and is pending, failed more than 15 minutes ago, or has an expired lease;
 - fewer than 3 automatic attempts.
+- any uncertain previous send is still inside its 23-hour retry window.
 
 Before attaching PDFs it re-fetches the Razorpay payment (recording refunds), then sends to the checkout email using the same claim/finish/idempotency path. SENT locks the address. Effective delay is 5–10 minutes after payment. Buyer-confirmed deliveries are never auto-retried; the buyer retries from the purchasing browser. The function and route log status codes and counts only.
 
@@ -93,9 +96,9 @@ Set them in Netlify with **Builds and Functions** scope and redeploy. `npm run c
 
 ## Deployment order
 
-1. Apply `supabase/migrations/202610100002_email_delivery.sql` to the target project (additive: one table, indexes, functions; no existing column changes).
+1. Apply the migrations in order, including `supabase/migrations/202610100002_email_delivery.sql` and `supabase/migrations/202610110001_delivery_retry_safety.sql`. The retry-safety migration adds uncertainty fields and replaces the claim/finish RPCs. It must precede release of the hardened code; application code alone cannot supply the database safety fence.
 2. Set `RESEND_API_KEY`, `EMAIL_FROM` (optional) and `EMAIL_DELIVERY_CRON_SECRET`; verify `pixelnpalm.com` in Resend (SPF/DKIM DNS records) before sending from `books@pixelnpalm.com`.
-3. Deploy. If the migration is missing, paid buyers still see downloads (delivery state degrades to hidden) but delivery and the fallback fail until it is applied.
+3. Deploy only after both migrations succeed. If the initial email migration is missing, delivery state degrades to hidden. If only the retry-safety migration is missing, the old RPCs remain callable without the new safety fence; this is not a safe release configuration.
 4. In Netlify → Functions, confirm `email-delivery-fallback` is listed as scheduled and its logs show `email_fallback_run` with status 200.
 
 ## Manual production certification checklist
@@ -115,3 +118,6 @@ Use Razorpay **test mode** first, then one small live purchase. Use mailboxes yo
 11. **Close-tab fallback:** complete a payment and close the tab immediately after Razorpay success (before confirming). Within 5–10 minutes the checkout email receives the books once; the row shows `status=sent`, `delivery_email_confirmed_at` null. Confirm the scheduled function log entry.
 12. **Refund behavior:** refund a test purchase in Razorpay; after the refund webhook, the purchasing browser shows the refunded state, downloads fail and Confirm/Send is refused; no fallback email is sent for refunded orders. Attachments already emailed remain in the inbox (expected).
 13. **Missing configuration:** with `RESEND_API_KEY` unset in a test deploy, confirming shows the failure message without changing state and downloads still work.
+14. **Unknown provider outcome:** use a controlled test fixture that accepts then drops the response. Correction must be blocked; same-address retry must yield the original provider message. After advancing the uncertain window beyond 23 hours, manual and fallback sends must both stop, with downloads still available. Reconcile provider history before any operator recovery.
+
+The combined [mobile and commerce resilience audit](MOBILE_RESPONSIVENESS_AUDIT.md) records the anonymous production-history investigation, real-Postgres concurrency tests, browser reload matrix and current verification results. This local audit did not apply migrations or send test emails in production.

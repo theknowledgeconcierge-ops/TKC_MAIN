@@ -1,5 +1,6 @@
 import "server-only";
 import { randomUUID, createHmac } from "node:crypto";
+import { isIP } from "node:net";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { HttpError } from "./errors";
@@ -98,7 +99,7 @@ export async function boundary(
       status,
     );
     response.headers.set("X-Request-Id", requestId);
-    if (status === 429) response.headers.set("Retry-After", "60");
+    if (status === 429) response.headers.set("Retry-After", String(known ? error.retryAfterSeconds ?? 60 : 60));
     return response;
   }
 }
@@ -167,15 +168,25 @@ export async function rateLimit(
   seconds: number,
   orderId = "",
 ) {
-  const ip =
-    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "local";
-  const key = createHmac("sha256", serverEnv().SUPABASE_SERVICE_ROLE_KEY)
-    .update(`${scope}:${ip}:${orderId}`)
-    .digest("hex");
-  if (!(await repo.rateLimit(key, limit, seconds)))
+  const env = serverEnv();
+  const local = ["localhost", "127.0.0.1", "[::1]"].includes(new URL(env.APP_URL).hostname);
+  const connectingIp = request.headers.get("x-nf-client-connection-ip")?.trim() ?? "";
+  // Netlify sets the connecting IP; caller-supplied X-Forwarded-For is not trusted.
+  const ip = local
+    ? request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "local"
+    : isIP(connectingIp) ? connectingIp : "unknown-client";
+  const check = async (bucket: string, cap: number, window: number, order = "") => {
+    const key = createHmac("sha256", env.SUPABASE_SERVICE_ROLE_KEY)
+      .update(`${bucket}:${ip}:${order}`).digest("hex");
+    if (await repo.rateLimit(key, cap, window)) return;
     throw new HttpError(
       429,
       "TOO_MANY_REQUESTS",
-      "Too many requests. Please wait a minute and try again.",
+      "Too many requests. Please wait before trying again.",
+      window,
     );
+  };
+  // Bound expensive calls and counter growth even when a caller rotates order IDs.
+  if (orderId) await check("commerce-client", 180, 60);
+  await check(scope, limit, seconds, orderId);
 }
