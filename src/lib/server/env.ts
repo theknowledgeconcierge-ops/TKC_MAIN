@@ -2,7 +2,12 @@ import "server-only";
 import { envSchema } from "@/lib/env-schema";
 import { HttpError } from "./errors";
 export function serverEnv() {
-  const result = envSchema.safeParse(process.env);
+  const result = envSchema.safeParse({
+    ...process.env,
+    // Explicit reads preserve Next.js build substitutions for preview metadata.
+    APP_URL: process.env.APP_URL,
+    DEPLOY_CONTEXT: process.env.DEPLOY_CONTEXT,
+  });
   if (!result.success) {
     // Names only; never serialize the input/environment or provider exceptions.
     console.error(

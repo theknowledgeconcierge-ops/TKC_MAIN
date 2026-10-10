@@ -14,8 +14,9 @@ describe("checkout environment policy", () => {
     { NODE_ENV: "development" },
     { NODE_ENV: "test" },
     {},
-    { VERCEL_ENV: "development", NODE_ENV: "development" },
-    { VERCEL_ENV: "preview", NODE_ENV: "production" },
+    { DEPLOY_CONTEXT: "dev", NODE_ENV: "development" },
+    { DEPLOY_CONTEXT: "deploy-preview", NODE_ENV: "production" },
+    { DEPLOY_CONTEXT: "branch-deploy", NODE_ENV: "production" },
   ])("allows test checkout without a webhook secret in %j", (context) => {
     expect(
       envSchema.safeParse({ ...configuration, ...context }).success,
@@ -31,11 +32,12 @@ describe("checkout environment policy", () => {
 
   it.each([
     { NODE_ENV: "production" },
-    { VERCEL_ENV: "production", NODE_ENV: "production" },
-    { VERCEL_ENV: "production", NODE_ENV: "development" },
-    { VERCEL_ENV: "development", NODE_ENV: "production" },
+    { DEPLOY_CONTEXT: "production", NODE_ENV: "production" },
+    { DEPLOY_CONTEXT: "production", NODE_ENV: "development" },
+    { DEPLOY_CONTEXT: "dev", NODE_ENV: "production" },
     { RAZORPAY_KEY_ID: "rzp_live_fixture", NODE_ENV: "development" },
-    { RAZORPAY_KEY_ID: "rzp_live_fixture", VERCEL_ENV: "preview" },
+    { RAZORPAY_KEY_ID: "rzp_live_fixture", DEPLOY_CONTEXT: "deploy-preview" },
+    { RAZORPAY_KEY_ID: "rzp_live_fixture", DEPLOY_CONTEXT: "branch-deploy" },
   ])("requires a webhook secret in %j", (context) => {
     const result = envSchema.safeParse({ ...configuration, ...context });
     expect(result.success).toBe(false);
@@ -56,7 +58,7 @@ describe("checkout environment policy", () => {
     expect(
       envSchema.safeParse({
         ...configuration,
-        VERCEL_ENV: "preview",
+        DEPLOY_CONTEXT: "deploy-preview",
         RAZORPAY_WEBHOOK_SECRET: "short",
       }).success,
     ).toBe(false);

@@ -43,3 +43,9 @@ The build now rejects unsafe public assets before/after compilation. Ignore file
 ## Deliberate boundaries
 
 No accounts, CMS, email provider, queue, worker, Redis or additional deployment. PostgreSQL transactions fulfill payments synchronously and durably; Razorpay retries webhooks after transient failures. Confirmation can reconcile provider state when callbacks are lost. Recovery links are bearer secrets in URL fragments, exchanged for HttpOnly cookies; UUID/order number alone never authorizes access. Download entitlements persist; signed file URLs expire after 60 seconds. Recovery tokens expire after one year and can be rotated by a server-only operator script after ownership verification.
+
+## Deployment provider change — 10 October 2026
+
+Netlify now hosts the same application through its automatically managed OpenNext adapter. Removed the former provider's deployment JSON and CLI ignore file; added minimal `netlify.toml` and ignored local `.netlify/` output. No dependencies, catalogue/UI, SQL or commerce contract changed.
+
+The only application-specific change replaces the old preview environment policy with Netlify build metadata. Deploy Previews/branch deploys use their validated primary HTTPS origin; production keeps the configured canonical `APP_URL`. Only non-secret context/preview origin is embedded, since Netlify does not supply that build metadata at function runtime. Credentials remain server-only. See [deployment compatibility and operations](NETLIFY_DEPLOYMENT.md).

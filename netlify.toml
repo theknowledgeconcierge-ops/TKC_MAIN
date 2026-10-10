@@ -1,0 +1,6 @@
+[build]
+  command = "npm run build"
+  publish = ".next"
+
+# Netlify automatically applies its current OpenNext adapter.
+# Node 24 is selected by the existing .nvmrc; do not pin a legacy adapter.

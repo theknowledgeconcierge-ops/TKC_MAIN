@@ -2,7 +2,7 @@
 
 Reviewed 10 October 2026 against the current working tree. No payment behavior, pricing, UI, database contract or dependencies were changed for this audit. Missing cross-layer regression coverage was added; the database runner now serializes files because fault-injection tests install temporary database triggers.
 
-**Verdict: the application-controlled lifecycle is implemented end to end. No missing application-code step or confirmed application-code Critical/High defect was found in the traced paths. This is not a successful real-payment certification or permission to launch with failing credentials.**
+**Verdict: the application-controlled lifecycle is implemented end to end. No missing application-code step or confirmed application-code Critical/High defect was found in the traced paths. This is not a successful real-payment certification.** Netlify deployment preparation subsequently preserved these code paths and revalidated them; current provider-specific evidence and hosted verification gates are in [Netlify deployment](NETLIFY_DEPLOYMENT.md).
 
 The current catalogue has **five active books**, including the four named in the original brief. All five were audited. Pricing remains ₹249 / ₹399 / ₹549 / ₹699 / ₹999 for one through five unique titles, with ₹499 for eligible first-time five-book purchases.
 
@@ -10,8 +10,9 @@ The current catalogue has **five active books**, including the four named in the
 
 - **CODE-CERTIFIED:** inspected frontend, route handlers, validation, commerce service, both HTTP adapters, authorization, SQL/RLS and Storage mapping. Tests execute all 31 non-empty book selections through real Next route handlers, the commerce service, Supabase SDK, Razorpay HTTP adapter and an actual PostgreSQL database initialized from the production migration. Only external HTTP transport is replaced: the Supabase REST fixture forwards queries/RPCs into PostgreSQL, and Razorpay/Storage responses are controlled fixtures. No production mock or test bypass was added.
 - **Connected Supabase verification:** the configured project's six tables are accessible, all five production object paths exist in the private bucket, and anonymous public object requests fail. The actual application `createRepository().signDownload(path, 60)` adapter retrieved each PDF's header using HTTP Range (206, `%PDF-`, attachment response), then streamed all five complete files (HTTP 200, byte counts matching Storage metadata, PDF header and end marker present). A signed URL was rejected with HTTP 400 after its 60-second validity window. No URL, capability, credential, PDF body or customer information was logged or committed. These checks do not create production orders/payments.
-- **CREDENTIAL-BLOCKED:** real Razorpay API authentication rejects the configured test key pair (401/authentication failed). `npm run check:integrations` passes the database/Storage portion and exits 1 at Razorpay authentication. The webhook secret is not configured locally. Real order creation, provider capture and signed provider webhook delivery remain untested against Razorpay.
-- **PRODUCTION-VERIFICATION:** a deployed transaction must verify the actual hosted Razorpay UI/CSP, payment capture, callback, webhook delivery/retries, clean-browser recovery and complete PDF contents/downloads. Local browser fixtures test our UI wiring; they do not certify Razorpay's hosted payment UI, bank processing or Vercel routing.
+- **Connected Razorpay verification:** the earlier key pair failed authentication (401). The owner subsequently updated it; `npm run check:integrations` now passes read-only Test Mode authentication as well as database/Storage checks. No captured payment is certified by authentication alone.
+- **CREDENTIAL-BLOCKED:** the webhook secret is not configured locally. Provider capture and signed provider webhook delivery remain unverified.
+- **DEPLOYMENT/PRODUCTION VERIFICATION REQUIRED:** a deployed transaction must verify the actual hosted Razorpay UI/CSP, payment capture, callback, webhook delivery/retries, clean-browser recovery and complete PDF contents/downloads. Local browser fixtures test our UI wiring; they do not certify Razorpay's hosted payment UI, bank processing or hosted Netlify routing.
 
 ## Lifecycle matrix
 
@@ -80,15 +81,15 @@ Node 24 and the existing lockfile/dependency versions were used.
 | `PLAYWRIGHT_CHANNEL=chrome npm run test:e2e` | 28 passed; desktop/mobile; real production Next server, external API/gateway/PDF fixtures |
 | `npm audit --json` | Exit 0; 0 vulnerabilities at every severity |
 | Compiled asset secret comparison | 25 browser assets checked; 0 configured privileged secret matches |
-| `npm run check:integrations` | Exit 1 only at Razorpay authentication; six Supabase tables and five private PDFs/public denial checks pass |
+| `npm run check:integrations` | Initially exit 1 at Razorpay authentication; now exit 0 after key update. Six tables, five private PDFs/public denial checks and Test Mode authentication pass |
 | Actual application Storage signing adapter | Five complete HTTP 200 transfers matching metadata byte counts; five 206 PDF Range/attachment responses; public access denied; expired URL HTTP 400 |
 | `git diff --check` | Exit 0 |
 
 ## Remaining external gates and limits
 
-1. Supply a valid matching Razorpay test key pair, then live credentials after a deployed test transaction. The current pair returns 401. No actual payment or Razorpay order was created during this audit.
+1. The updated matching Razorpay test key pair passes read-only authentication. Complete a deployed test transaction before configuring live credentials. No real payment was attempted during this audit or Netlify preparation.
 2. Configure **automatic capture** in Razorpay (already required by README), and a fresh ≥20-character webhook secret. Subscribe to `payment.captured`, `order.paid`, `payment.failed`, `refund.processed` at `https://YOUR_DOMAIN/api/webhooks/razorpay`. Our code deliberately does not deliver on authorization alone. [Razorpay capture requirements](https://razorpay.com/docs/payments/payment-gateway/web-integration/standard/integration-steps/).
-3. Configure the exact canonical `APP_URL`, HTTPS, matching Vercel environment and production credentials. Keep staging/test data and keys isolated from production. Validate the deployed health/integration checks and hosted gateway CSP on desktop/mobile.
+3. Configure the exact canonical `APP_URL`, HTTPS, matching Netlify context variables and production credentials. Keep staging/test data and keys isolated from production. Validate the deployed health/integration checks and hosted gateway CSP on desktop/mobile. Netlify previews automatically use their own primary HTTPS origin.
 4. Complete README's deployed test payment, lost-callback/revisit, webhook replay/retry, clean-browser private-link, complete PDF content and refund smoke tests. Webhook retries are finite; operationally replay failed deliveries if an outage outlasts provider retries. Provider/DB unavailability intentionally prevents new downloads until retry succeeds.
 5. Resolve the pre-existing external security gates in `SECURITY_AUDIT.md`: revoke legacy public PDF copies and rotate the historically exposed webhook secret. Their closure was not verified here. Review and apply the announced Next.js upstream security fixes when published before accepting live payments; affected versions are not disclosed yet. [Official 14 October update announcement](https://nextjs.org/blog/upcoming-nextjs-security-update-october-2026).
 6. Guest purchases have no accounts or email delivery. Cookies last 30 days; saved capabilities expire after one year. Loss of both requires operator ownership verification and link rotation. Sharing a private purchase link deliberately shares access; customers can copy PDFs after downloading. These are documented product boundaries, not authorization by order ID.

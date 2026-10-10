@@ -29,12 +29,16 @@ export const envSchema = z.object({
   ),
   // These are runtime/platform values, not additional operator credentials.
   NODE_ENV: z.enum(["development", "test", "production"]).optional(),
-  VERCEL_ENV: z.enum(["development", "preview", "production"]).optional(),
+  DEPLOY_CONTEXT: z
+    .enum(["", "dev", "deploy-preview", "branch-deploy", "production"])
+    .optional(),
 }).superRefine((env, context) => {
   const testMode = env.RAZORPAY_KEY_ID.startsWith("rzp_test_");
-  const preview = env.VERCEL_ENV === "preview";
+  const preview = ["deploy-preview", "branch-deploy"].includes(
+    env.DEPLOY_CONTEXT ?? "",
+  );
   const local =
-    (!env.VERCEL_ENV || env.VERCEL_ENV === "development") &&
+    (!env.DEPLOY_CONTEXT || env.DEPLOY_CONTEXT === "dev") &&
     env.NODE_ENV !== "production";
   if (!env.RAZORPAY_WEBHOOK_SECRET && !(testMode && (preview || local)))
     context.addIssue({

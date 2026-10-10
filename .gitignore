@@ -28,7 +28,7 @@ test-results/
 private-pdfs/
 
 # Local tooling and deployment state
-.vercel/
+.netlify/
 supabase/.temp/
 supabase/.branches/
 .idea/

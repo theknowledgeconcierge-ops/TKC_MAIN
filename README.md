@@ -1,6 +1,6 @@
 # The Knowledge Concierge
 
-One Next.js 16 App Router / TypeScript application on Vercel. Supabase supplies PostgreSQL and private PDF Storage; Razorpay supplies payments. No separate backend, customer accounts, email provider, CMS, queues or Redis.
+One Next.js 16 App Router / TypeScript application on Netlify using its automatically managed OpenNext adapter. Supabase supplies PostgreSQL and private PDF Storage; Razorpay supplies payments. No separate backend, customer accounts, email provider, CMS, queues or Redis.
 
 The existing editorial design, fonts, covers, responsive pages, motion, bag and checkout review are retained. All five titles are active: **The First Table, The Full Table, Behind the Kitchen Door, The Math Behind the Menu, and Empty Tables to Full House**. Original prices are retained: **1 / 2 / 3 / 4 / 5 books = ₹249 / ₹399 / ₹549 / ₹699 / ₹999**. Eligible first-time buyers receive the **₹499 First50** price for all five books; the server checks purchase history and confirms the payable amount before payment.
 
@@ -22,20 +22,20 @@ Open http://localhost:3000. The storefront and build work without credentials; p
 
 | Variable | Value | Exposure |
 | --- | --- | --- |
-| `APP_URL` | Exact origin, e.g. `http://localhost:3000` or your HTTPS production domain; no path | Server configuration |
+| `APP_URL` | Local: `http://localhost:3000`; production: exact canonical HTTPS origin, no path. Netlify previews automatically use their primary deployment URL | Server configuration; preview origin is non-secret build metadata |
 | `SUPABASE_URL` | Supabase project URL | Used only on server |
 | `SUPABASE_SERVICE_ROLE_KEY` | Project secret API key (`sb_secret_...`) or legacy service-role key | Secret, server only |
 | `RAZORPAY_KEY_ID` | Matching test/live key ID | Server configuration; returned to authorized checkout because Razorpay requires it in the browser |
 | `RAZORPAY_KEY_SECRET` | Secret paired with key ID | Secret, server only |
-| `RAZORPAY_WEBHOOK_SECRET` | Webhook secret (at least 20 characters); required for production deployments or live Razorpay keys, optional for test checkout in local development/Vercel Preview | Secret, server only |
+| `RAZORPAY_WEBHOOK_SECRET` | Webhook secret (at least 20 characters); required for production deployments or live Razorpay keys, optional for test checkout in local development/Netlify Deploy Previews and branch deploys | Secret, server only |
 
 No Supabase anonymous key, `NEXT_PUBLIC_*` variables or duplicate Razorpay keys are needed. Never put secrets in public variables. Environment validation is lazy at the server boundary so builds do not need production credentials; `check:env` checks everything explicitly without printing values.
 
-### Vercel Preview checkout
+### Netlify preview checkout
 
 Test checkout needs the first five variables above and matched `rzp_test_...` credentials. `RAZORPAY_WEBHOOK_SECRET` can remain unset: callback HMAC verification uses the Razorpay key secret, and the server fetches provider evidence before fulfillment. Confirmation/download requests also reconcile provider state. Webhook requests return 503 until their separate signing secret is configured; they never fall back to the API key secret or an empty key.
 
-Use an actual **Preview** deployment (`npx vercel deploy`, without `--prod`). Enable access to System Environment Variables in Vercel project settings so Vercel supplies `VERCEL_ENV=preview`; do not override it or `NODE_ENV`. Configure Preview environment variables in the project settings, with `APP_URL` matching a stable preview alias, then deploy and assign that alias using `npx vercel alias set DEPLOYMENT_URL PREVIEW_ALIAS`. Open the alias for checkout, since other deployment origins will fail the origin check. Keep deployment protection enabled during internal testing. Production deployments and any use of live keys still require the webhook secret.
+Configure Deploy Preview/branch context variables in Netlify with **Builds and Functions** scope (or all scopes). Use isolated Supabase test data and Razorpay test keys; keep production secrets out of untrusted previews. Netlify supplies `CONTEXT` and `DEPLOY_PRIME_URL` during the build. The application embeds only the non-secret context and preview origin, so checkout, secure cookies and recovery links use the preview's own primary URL even when these platform variables are absent at function runtime. Do not override platform metadata or set `NODE_ENV`. Open the primary preview URL; other deployment aliases deliberately fail the exact-origin check. Production deployments and any use of live keys still require the webhook secret.
 
 Upload all five PDFs before accepting live purchases. A preview with incomplete storage can test checkout/downloads for the uploaded titles; `check:integrations` intentionally continues to fail until all five files exist. Configure and exercise webhook delivery separately before launch.
 
@@ -55,7 +55,7 @@ Use either SQL Editor or CLI for initial setup, not both on the same project. Su
 
 ### Private PDFs
 
-`public/` contains covers and favicons only. All PDF files and local staging inputs are Git-ignored and excluded from Vercel CLI uploads. `npm run build` checks `public/` before compilation and `.next/static/` afterward, rejecting PDFs (including renamed PDF headers), credential files, symlinks, backups and browser source maps. Run `npm run check:assets` for the standalone public-file check.
+`public/` contains covers and favicons only. All PDF files and local staging inputs are Git-ignored. `npm run build` checks `public/` before compilation and `.next/static/` afterward, rejecting PDFs (including renamed PDF headers), credential files, symlinks, backups and browser source maps. Netlify's adapter publishes generated public assets, not the repository root or server files. Keep the configured publish directory `.next`; never change it to `.` or copy staging PDFs into public assets. Run `npm run check:assets` for the standalone public-file check.
 
 The SQL migration creates bucket **`handbooks`**, `public=false`, MIME type `application/pdf`, maximum file size 50 MiB. Upload the following **object paths inside that bucket**:
 
@@ -161,8 +161,8 @@ Browser tests start the production build on port 3100, cover desktop/mobile rout
 5. Supply/upload all five PDFs with the exact paths above. Run `npm run check:integrations` after Razorpay credentials are ready. Revoke old public artifact files.
 6. Create matching Razorpay credentials and enable **automatic capture** in Razorpay payment settings. This application deliberately never fulfills merely authorized payments.
 7. Choose a **new** webhook secret; never reuse the legacy secret exposed in commit `da62819` (see the [security incident](docs/SECURITY_AUDIT.md#historical-credential-incident)). Register `https://YOUR_DOMAIN/api/webhooks/razorpay` with the configured webhook secret. Subscribe to **`payment.captured`, `order.paid`, `payment.failed`, `refund.processed`**. Test and live dashboards need their own webhook configuration. Keep the secret stable while older deliveries are retrying.
-8. Import the repository into Vercel with **root directory `.`**, Next.js preset, Node **24.x**. Add all six values to Production; test Preview checkout may omit the webhook secret as described above. Set `APP_URL` to the exact canonical HTTPS domain used by checkout and recovery links. Preview aliases require their own matching `APP_URL` and test credentials; production secrets should not reach untrusted previews.
-9. Review vendor security advisories, then deploy. `vercel.json` sets npm ci/build; no backend process, redirects to a backend, persistent disk or worker is required. Sensitive routes use Node, bounded provider timeouts and no-store responses. Public assets are local. Vercel handles HTTP→HTTPS; use one canonical domain matching `APP_URL`.
+8. Import the repository into Netlify, base directory **`.`**, build **`npm run build`**, publish **`.next`**. `netlify.toml` supplies the build/publish settings; `.nvmrc` selects Node **24**. Allow Netlify to manage the current Next.js/OpenNext adapter automatically; do not install or pin a legacy plugin. Add all six values to Production with **Builds and Functions** scope. Set `APP_URL` to the exact canonical HTTPS origin used by checkout and recovery links. Initial hosted testing must use test credentials; use context-specific test credentials for Deploy Previews as described above.
+9. Review vendor security advisories, then deploy a test-context preview first. No backend process, SPA fallback, persistent disk or worker is required. Sensitive routes use Node, bounded provider timeouts and no-store responses. Public assets are local. Configure Netlify's primary custom domain and HTTPS, update production `APP_URL`, and redeploy after environment changes. See [Netlify deployment and compatibility](docs/NETLIFY_DEPLOYMENT.md) for the preview, runtime limits and domain sequence.
 10. Complete the smoke test below in Razorpay test mode, then a small live transaction/refund after configuring live credentials. Verify webhook delivery/retry status in the dashboard. Only then accept customer payments.
 
 **Vendor launch gate (reviewed 10 October 2026):** Next.js announced an upstream security update for 14 October, covering two Critical and one High vulnerability. The announcement does not yet give affected ranges or patches. This repository pins the currently stable Next.js 16.4.0 and has a clean dependency audit, but that does not establish immunity. Check the [official announcement](https://nextjs.org/blog/upcoming-nextjs-security-update-october-2026), install the applicable stable patches, rerun this test/build suite and redeploy before taking live payments. Do not infer a fixed version from the absence of npm advisories.
@@ -177,4 +177,4 @@ Browser tests start the production build on port 3100, cover desktop/mobile rout
 - Download each real PDF; verify correct contents. A copied signed URL expires after 60 seconds, anonymous public bucket paths fail, and no service key appears in browser scripts/network responses.
 - Refund a test purchase; confirmation must show refunded and new download requests must fail. Check failure/loading messages and real Razorpay iframe/CSP behavior on mobile and desktop (browser fixtures cannot verify the provider's live assets).
 
-[Migration map](docs/MIGRATION.md) · [Production audit and certification limits](docs/SECURITY_AUDIT.md) · [Customer lifecycle audit and verification matrix](docs/LIFECYCLE_AUDIT.md)
+[Migration map](docs/MIGRATION.md) · [Production audit and certification limits](docs/SECURITY_AUDIT.md) · [Customer lifecycle audit and verification matrix](docs/LIFECYCLE_AUDIT.md) · [Netlify deployment](docs/NETLIFY_DEPLOYMENT.md)
