@@ -50,6 +50,7 @@ export default function Library() {
         </Button>
       </div>
       <div className="mt-12 grid grid-cols-2 gap-x-4 gap-y-12 sm:mt-14 sm:gap-x-6 sm:gap-y-16 lg:grid-cols-5">
+        <h2 className="sr-only">Restaurant business PDF handbooks</h2>
         {books.map((book) => (
           <BookCard key={book.id} book={book} />
         ))}

@@ -1,4 +1,10 @@
 import Link from "next/link";
+export const metadata = {
+  title: "Page not found",
+  description:
+    "This page could not be found. Browse the restaurant business PDF handbooks instead.",
+  robots: { index: false, follow: false },
+};
 export default function NotFound() {
   return (
     <div className="mx-auto max-w-3xl px-6 py-24">

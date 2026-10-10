@@ -1,5 +1,15 @@
 import Collection from "@/views/Collection";
-export const metadata = { title: "Restaurant business collection" };
+import JsonLd from "@/components/JsonLd";
+import { activeBooks } from "@/lib/catalog";
+import { collectionStructuredData, pageMetadata, publicPages } from "@/lib/seo";
+export const metadata = pageMetadata(publicPages.collection);
 export default function Page() {
-  return <Collection />;
+  return (
+    <>
+      <JsonLd
+        data={collectionStructuredData(publicPages.collection, activeBooks)}
+      />
+      <Collection />
+    </>
+  );
 }

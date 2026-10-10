@@ -92,13 +92,25 @@ export default function Home() {
             data-testid="hero-book-arrangement"
           >
             <div className="book-stack-offset pt-8 sm:pt-12">
-              <BookCover book={books[2]} />
+              <BookCover
+                book={books[2]}
+                loading="eager"
+                sizes="(max-width: 767px) 30vw, 180px"
+              />
             </div>
             <div className="z-10">
-              <BookCover book={books[0]} />
+              <BookCover
+                book={books[0]}
+                preload
+                sizes="(max-width: 767px) 30vw, 180px"
+              />
             </div>
             <div className="book-stack-offset pb-6 sm:pb-10">
-              <BookCover book={books[3]} />
+              <BookCover
+                book={books[3]}
+                loading="eager"
+                sizes="(max-width: 767px) 30vw, 180px"
+              />
             </div>
             <div className="absolute bottom-0 left-1/2 z-20 w-[82%] -translate-x-1/2 border border-[#b49a6a]/50 bg-[#fbf9f5]/95 p-3 text-center shadow-xl backdrop-blur-sm sm:w-[68%] sm:p-4">
               <p className="overline">Five books · one journey</p>

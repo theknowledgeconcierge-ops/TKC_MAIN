@@ -6,9 +6,8 @@ import {
   Download,
   ShieldCheck,
 } from "lucide-react";
-import { useState } from "react";
 import Link from "next/link";
-import { AnimatePresence, motion } from "motion/react";
+import { motion } from "motion/react";
 import { Button } from "@/components/ui/button";
 import BookCard from "@/components/BookCard";
 import BookCover from "@/components/BookCover";
@@ -32,7 +31,6 @@ const partnerCopy: Record<string, string> = {
 export default function Product({ slug }: { slug: string }) {
   const book = books.find((item) => item.slug === slug)!;
   const { addBook, selectedIds, setBagOpen } = useStore();
-  const [openToc, setOpenToc] = useState(false);
   const selected = selectedIds.includes(book.id);
   const progress = summaryFor(
     selectedIds.includes(book.id) ? selectedIds : [...selectedIds, book.id],
@@ -43,12 +41,16 @@ export default function Product({ slug }: { slug: string }) {
         <div className="pointer-events-none absolute -right-24 top-10 size-72 rounded-full bg-[#c5a880]/10 blur-3xl" />
         <div className="mx-auto grid max-w-7xl gap-10 px-4 py-12 sm:px-6 sm:py-16 md:grid-cols-[.7fr_1.3fr] md:gap-12 md:py-24 lg:px-8">
           <motion.div
-            initial={{ opacity: 0, x: -18, rotate: -1 }}
+            initial={{ opacity: 1, x: -18, rotate: -1 }}
             animate={{ opacity: 1, x: 0, rotate: 0 }}
             transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
             className="mx-auto w-full max-w-[250px] sm:max-w-[300px]"
           >
-            <BookCover book={book} />
+            <BookCover
+              book={book}
+              preload
+              sizes="(max-width: 639px) 250px, 300px"
+            />
             <p
               className="mt-3 text-center text-[10px] uppercase tracking-[0.14em] text-[#8c6d46] sm:mt-4 sm:text-xs"
               data-testid="product-cover-note"
@@ -57,7 +59,7 @@ export default function Product({ slug }: { slug: string }) {
             </p>
           </motion.div>
           <motion.div
-            initial={{ opacity: 0, y: 16 }}
+            initial={{ opacity: 1, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{
               duration: 0.45,
@@ -67,7 +69,8 @@ export default function Product({ slug }: { slug: string }) {
             className="relative max-w-2xl"
           >
             <p className="overline">
-              Restaurant business handbook · {book.pages} pages
+              Restaurant business handbook · {book.pages} pages · By{" "}
+              {book.author}
             </p>
             <h1
               className="mt-5 font-serif text-4xl leading-tight text-[#29231f] sm:text-5xl"
@@ -254,7 +257,7 @@ export default function Product({ slug }: { slug: string }) {
       >
         <div className="grid gap-12 md:grid-cols-[1fr_1fr] md:gap-14">
           <motion.div
-            initial={{ opacity: 0, y: 18 }}
+            initial={{ opacity: 1, y: 18 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true, amount: 0.25 }}
             transition={{ duration: 0.4 }}
@@ -266,7 +269,7 @@ export default function Product({ slug }: { slug: string }) {
             <div className="mt-8 grid gap-3 sm:grid-cols-2">
               {book.topics.map((topic, index) => (
                 <motion.div
-                  initial={{ opacity: 0, x: -8 }}
+                  initial={{ opacity: 1, x: -8 }}
                   whileInView={{ opacity: 1, x: 0 }}
                   viewport={{ once: true }}
                   transition={{ duration: 0.25, delay: index * 0.04 }}
@@ -280,55 +283,31 @@ export default function Product({ slug }: { slug: string }) {
             </div>
           </motion.div>
           <motion.div
-            initial={{ opacity: 0, y: 18 }}
+            initial={{ opacity: 1, y: 18 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true, amount: 0.25 }}
             transition={{ duration: 0.4, delay: 0.08 }}
           >
             <p className="overline">Inside the book</p>
-            <button
-              className="mt-4 flex w-full items-center justify-between border-b border-[#2e241f]/10 py-4 text-left font-serif text-2xl text-[#29231f] hover:border-[#b49a6a] hover:text-[#8c6d46]"
-              onClick={() => setOpenToc((value) => !value)}
-              data-testid="product-toc-toggle"
-              aria-expanded={openToc}
-            >
-              Contents{" "}
-              <motion.span
-                animate={{ rotate: openToc ? 180 : 0 }}
-                transition={{ duration: 0.25 }}
+            <details className="group">
+              <summary
+                className="mt-4 flex w-full cursor-pointer list-none items-center justify-between border-b border-[#2e241f]/10 py-4 text-left font-serif text-2xl text-[#29231f] hover:border-[#b49a6a] hover:text-[#8c6d46] [&::-webkit-details-marker]:hidden"
+                data-testid="product-toc-toggle"
               >
-                <ChevronDown className="size-5 text-[#8c6d46]" />
-              </motion.span>
-            </button>
-            <AnimatePresence initial={false}>
-              {openToc && (
-                <motion.div
-                  initial={{ height: 0, opacity: 0 }}
-                  animate={{ height: "auto", opacity: 1 }}
-                  exit={{ height: 0, opacity: 0 }}
-                  transition={{
-                    height: { duration: 0.32, ease: [0.22, 1, 0.36, 1] },
-                    opacity: { duration: 0.2 },
-                  }}
-                  className="overflow-hidden"
-                  data-testid="product-toc-list"
-                >
-                  <div className="divide-y divide-[#2e241f]/10">
-                    {book.toc.map((item, index) => (
-                      <motion.p
-                        initial={{ opacity: 0, x: -6 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        transition={{ delay: 0.08 + index * 0.035 }}
-                        className="py-3 text-sm text-[#6e655e]"
-                        key={item}
-                      >
-                        {item}
-                      </motion.p>
-                    ))}
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
+                <h2>Contents</h2>
+                <ChevronDown className="size-5 text-[#8c6d46] transition-transform group-open:rotate-180" />
+              </summary>
+              <div
+                className="divide-y divide-[#2e241f]/10"
+                data-testid="product-toc-list"
+              >
+                {book.toc.map((item) => (
+                  <p className="py-3 text-sm text-[#6e655e]" key={item}>
+                    {item}
+                  </p>
+                ))}
+              </div>
+            </details>
             <div className="mt-10 border-l border-[#b49a6a] pl-5">
               <p className="overline">More than a book</p>
               <h3 className="mt-3 font-serif text-3xl text-[#29231f]">

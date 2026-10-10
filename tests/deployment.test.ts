@@ -8,6 +8,49 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllEnvs());
 
 describe("Netlify build metadata", () => {
+  it("limits production noindex response headers to private routes", async () => {
+    vi.stubEnv("CONTEXT", "production");
+    const { default: config } = await import("../next.config");
+    const headers = await config.headers!();
+    const noindex = headers.filter((rule) =>
+      rule.headers.some((header) => header.key === "X-Robots-Tag"),
+    );
+    expect(noindex.map((rule) => rule.source)).toEqual(
+      expect.arrayContaining([
+        "/api/:path*",
+        "/thank-you/:path*",
+        "/checkout/:path*",
+        "/payment/:path*",
+        "/orders/:path*",
+        "/downloads/:path*",
+        "/purchases/:path*",
+      ]),
+    );
+    expect(noindex.some((rule) => rule.source === "/:path*")).toBe(false);
+  });
+
+  it("adds a global noindex response header for preview builds", async () => {
+    vi.stubEnv("CONTEXT", "deploy-preview");
+    vi.stubEnv("DEPLOY_PRIME_URL", "https://preview.example.com");
+    const { default: config } = await import("../next.config");
+    expect(await config.headers!()).toContainEqual({
+      source: "/:path*",
+      headers: [{ key: "X-Robots-Tag", value: "noindex, nofollow, noarchive" }],
+    });
+  });
+
+  it("normalizes trailing slashes and permanently redirects only the legacy site alias", async () => {
+    const { default: config } = await import("../next.config");
+    expect(config.trailingSlash).toBe(false);
+    expect(await config.redirects!()).toEqual([
+      {
+        source: "/:path*",
+        has: [{ type: "host", value: "stately-praline-26f65f.netlify.app" }],
+        destination: "https://pixelnpalm.com/:path*",
+        permanent: true,
+      },
+    ]);
+  });
   it.each(["deploy-preview", "branch-deploy"])(
     "locks %s checkout to its primary deployment origin",
     async (context) => {

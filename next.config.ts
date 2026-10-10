@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import { privateRoutePrefixes, PRODUCTION_ORIGIN } from "./src/lib/seo";
 const context = process.env.CONTEXT ?? "";
 const preview = ["deploy-preview", "branch-deploy"].includes(context);
 const previewUrl = process.env.DEPLOY_PRIME_URL;
@@ -26,8 +27,34 @@ const config: NextConfig = {
   poweredByHeader: false,
   reactStrictMode: true,
   productionBrowserSourceMaps: false,
+  trailingSlash: false,
+  async redirects() {
+    return [
+      {
+        source: "/:path*",
+        has: [{ type: "host", value: "stately-praline-26f65f.netlify.app" }],
+        destination: `${PRODUCTION_ORIGIN}/:path*`,
+        permanent: true,
+      },
+    ];
+  },
   async headers() {
     return [
+      ...(preview
+        ? [
+            {
+              source: "/:path*",
+              headers: [
+                { key: "X-Robots-Tag", value: "noindex, nofollow, noarchive" },
+              ],
+            },
+          ]
+        : privateRoutePrefixes.map((path) => ({
+            source: `${path}/:path*`,
+            headers: [
+              { key: "X-Robots-Tag", value: "noindex, nofollow, noarchive" },
+            ],
+          }))),
       {
         source: "/:path*",
         headers: [

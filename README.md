@@ -57,7 +57,7 @@ Use either SQL Editor or CLI for initial setup, not both on the same project. Su
 
 ### Private PDFs
 
-`public/` contains covers and favicons only. All PDF files and local staging inputs are Git-ignored. `npm run build` checks `public/` before compilation and `.next/static/` afterward, rejecting PDFs (including renamed PDF headers), credential files, symlinks, backups and browser source maps. Netlify's adapter publishes generated public assets, not the repository root or server files. Keep the configured publish directory `.next`; never change it to `.` or copy staging PDFs into public assets. Run `npm run check:assets` for the standalone public-file check.
+`public/` contains covers, favicons and the social preview image (`og-image.png`) only. All PDF files and local staging inputs are Git-ignored. `npm run build` checks `public/` before compilation and `.next/static/` afterward, rejecting PDFs (including renamed PDF headers), credential files, symlinks, backups and browser source maps. Netlify's adapter publishes generated public assets, not the repository root or server files. Keep the configured publish directory `.next`; never change it to `.` or copy staging PDFs into public assets. Run `npm run check:assets` for the standalone public-file check.
 
 The SQL migration creates bucket **`handbooks`**, `public=false`, MIME type `application/pdf`, maximum file size 50 MiB. Upload the following **object paths inside that bucket**:
 
@@ -112,7 +112,7 @@ src/lib/server/          commerce service, Supabase/Razorpay adapters, authoriza
 supabase/migrations/     deterministic PostgreSQL and Storage setup
 scripts/                 asset guard, environment, upload, integration and SQL test tools
 tests/                   domain, service, HTTP, adapters, PostgreSQL and browser coverage
-public/                  local covers, favicons; no paid PDFs
+public/                  local covers, favicons, og-image; no paid PDFs
 docs/                    migration decisions and security/verification evidence
 ```
 

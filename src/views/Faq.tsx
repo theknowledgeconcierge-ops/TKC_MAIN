@@ -1,5 +1,3 @@
-"use client";
-import { useState } from "react";
 import { ChevronDown } from "lucide-react";
 const faqs = [
   [
@@ -33,7 +31,6 @@ const faqs = [
   ],
 ];
 export default function Faq() {
-  const [open, setOpen] = useState<number | null>(null);
   return (
     <div
       className="mx-auto max-w-4xl px-4 py-20 sm:px-6 lg:px-8"
@@ -51,27 +48,21 @@ export default function Faq() {
         data-testid="faq-list"
       >
         {faqs.map(([question, answer], index) => (
-          <div key={question}>
-            <button
-              className="flex w-full items-center justify-between gap-4 py-6 text-left font-serif text-2xl text-[#29231f]"
-              onClick={() => setOpen(open === index ? null : index)}
-              aria-expanded={open === index}
+          <details name="faq" className="group" key={question}>
+            <summary
+              className="flex w-full cursor-pointer list-none items-center justify-between gap-4 py-6 text-left font-serif text-2xl text-[#29231f] [&::-webkit-details-marker]:hidden"
               data-testid={`faq-toggle-${index}`}
             >
-              <span>{question}</span>
-              <ChevronDown
-                className={`size-5 shrink-0 text-[#8c6d46] transition-transform ${open === index ? "rotate-180" : ""}`}
-              />
-            </button>
-            {open === index && (
-              <p
-                className="max-w-2xl pb-6 text-base leading-relaxed text-[#6e655e]"
-                data-testid={`faq-answer-${index}`}
-              >
-                {answer}
-              </p>
-            )}
-          </div>
+              <h2>{question}</h2>
+              <ChevronDown className="size-5 shrink-0 text-[#8c6d46] transition-transform group-open:rotate-180" />
+            </summary>
+            <p
+              className="max-w-2xl pb-6 text-base leading-relaxed text-[#6e655e]"
+              data-testid={`faq-answer-${index}`}
+            >
+              {answer}
+            </p>
+          </details>
         ))}
       </div>
     </div>

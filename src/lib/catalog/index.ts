@@ -2,6 +2,7 @@ export interface Book {
   id: string;
   slug: string;
   title: string;
+  seo_title: string;
   subtitle: string;
   author: string;
   pages: number;
@@ -21,6 +22,7 @@ export const catalogue = [
     id: "the-first-table",
     slug: "the-first-table",
     title: "The First Table",
+    seo_title: "The First Table: Restaurant Startup PDF",
     subtitle: "The Complete Journey From Restaurant Idea to First Customer",
     author: "Rakesh Chauhan",
     pages: 47,
@@ -53,6 +55,7 @@ export const catalogue = [
     id: "the-full-table",
     slug: "the-full-table",
     title: "The Full Table",
+    seo_title: "The Full Table: Restaurant Marketing PDF",
     subtitle: "The Journey to Sustained Success and Customer Loyalty",
     author: "Rakesh Chauhan",
     pages: 53,
@@ -84,6 +87,7 @@ export const catalogue = [
     id: "behind-the-kitchen-door",
     slug: "behind-the-kitchen-door",
     title: "Behind the Kitchen Door",
+    seo_title: "Behind the Kitchen Door: Restaurant Operations PDF",
     subtitle: "The People and Systems That Keep Restaurants Running",
     author: "Rakesh Chauhan",
     pages: 64,
@@ -115,6 +119,7 @@ export const catalogue = [
     id: "the-math-behind-the-menu",
     slug: "the-math-behind-the-menu",
     title: "The Math Behind the Menu",
+    seo_title: "The Math Behind the Menu: Restaurant Finance PDF",
     subtitle: "The Numbers Every Restaurant Owner Must Know",
     author: "Rakesh Chauhan",
     pages: 65,
@@ -146,6 +151,7 @@ export const catalogue = [
     id: "empty-tables-to-full-house",
     slug: "empty-tables-to-full-house",
     title: "Empty Tables to Full House",
+    seo_title: "Empty Tables to Full House: Restaurant Growth PDF",
     subtitle:
       "The Practical Guide to Getting More Customers and Building a Loyal Local Base",
     author: "Rakesh Chauhan",
