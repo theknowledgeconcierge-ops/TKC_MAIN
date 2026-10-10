@@ -58,7 +58,7 @@ function Button({
         nativeButton ??
         (render == null || (isValidElement(render) && render.type === "button"))
       }
-      className={cn(buttonVariants({ variant, size, className }))}
+      className={cn(buttonVariants({ variant, size, className }), "min-h-11 min-w-11 sm:min-h-0 sm:min-w-0")}
       {...props}
     />
   );

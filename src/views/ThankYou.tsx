@@ -20,7 +20,7 @@ import {
   loadRazorpayCheckout,
   verifyCheckoutPayment,
 } from "@/lib/razorpay-checkout";
-import { useStore } from "@/lib/store";
+import { useCartActions } from "@/lib/store";
 
 export default function ThankYou() {
   const params = useSearchParams();
@@ -31,7 +31,7 @@ export default function ThankYou() {
   const [recent, setRecent] = useState<string[]>([]);
   const [downloading, setDownloading] = useState("");
   const [retrying, setRetrying] = useState(false);
-  const { removePurchased } = useStore();
+  const { removePurchased } = useCartActions();
   const cleared = useRef<string | null>(null);
   useEffect(() => {
     const saved = readStorage("tkc_purchase_ids");
@@ -250,7 +250,7 @@ export default function ThankYou() {
           </p>
           <Link
             href="/books"
-            className="mt-8 inline-flex h-9 items-center justify-center rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/80"
+            className="mt-8 inline-flex h-11 items-center justify-center rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/80 sm:h-9"
             data-testid="thank-you-return-store"
           >
             Return to store
@@ -344,9 +344,10 @@ export default function ThankYou() {
                   variant="outline"
                   onClick={() => reconcile.mutate()}
                   disabled={reconcile.isPending}
+                  aria-busy={reconcile.isPending}
                   data-testid="check-payment-status"
                 >
-                  Check payment status
+                  {reconcile.isPending ? "Checking payment…" : "Check payment status"}
                 </Button>
                 {["created", "payment_pending", "failed"].includes(
                   order.status,
@@ -354,6 +355,7 @@ export default function ThankYou() {
                   <Button
                     onClick={retryPayment}
                     disabled={retrying}
+                    aria-busy={retrying}
                     data-testid="resume-payment"
                   >
                     {retrying
@@ -378,7 +380,7 @@ export default function ThankYou() {
               <Link
                 key={rid}
                 href={`/thank-you?order=${rid}`}
-                className="block break-all text-sm underline"
+                className="flex min-h-11 items-center break-all text-sm underline sm:block sm:min-h-0"
               >
                 Open purchase {rid.slice(0, 8)}
               </Link>
@@ -387,7 +389,7 @@ export default function ThankYou() {
         )}
         <Link
           href="/books"
-          className="mt-8 inline-block text-sm underline"
+          className="mt-8 inline-flex min-h-11 items-center text-sm underline sm:min-h-0"
           data-testid="thank-you-explore-btn"
         >
           Continue exploring
@@ -424,6 +426,7 @@ export default function ThankYou() {
                 variant="outline"
                 onClick={downloadAll}
                 disabled={!!downloading || !order.entitlements.length}
+                aria-busy={downloading === "all"}
                 data-testid="downloads-all-btn"
               >
                 <Download className="mr-2 size-4" />
@@ -446,6 +449,7 @@ export default function ThankYou() {
                     <Button
                       size="sm"
                       disabled={!entitlement || !!downloading}
+                      aria-busy={downloading === entitlement?.id}
                       onClick={() => entitlement && download(entitlement.id)}
                       data-testid={`download-${book.id}`}
                     >
@@ -538,7 +542,7 @@ function DeliveryPanel({
         />
       </label>
       <div className="flex flex-wrap gap-3">
-        <Button type="submit" disabled={sending} data-testid="delivery-update-btn">
+        <Button type="submit" disabled={sending} aria-busy={sending} data-testid="delivery-update-btn">
           {sending ? "Sending…" : action}
         </Button>
         {delivery.email && (
@@ -616,7 +620,7 @@ function DeliveryPanel({
               </Button>
             )}
             {sending && (
-              <Button disabled data-testid="delivery-confirm-btn">
+              <Button disabled aria-busy="true" data-testid="delivery-confirm-btn">
                 Sending…
               </Button>
             )}
@@ -631,7 +635,7 @@ function DeliveryPanel({
               Wrong email?{" "}
               <button
                 type="button"
-                className="underline"
+                className="inline-flex min-h-11 items-center underline sm:min-h-0"
                 onClick={() => {
                   setDraft("");
                   setChanging(true);

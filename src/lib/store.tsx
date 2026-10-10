@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -55,39 +56,72 @@ export function summaryFor(ids: string[]): BagSummary {
     totalSavings: q.total_savings_inr,
   };
 }
-interface Store {
+interface Cart {
   selectedIds: string[];
-  bagOpen: boolean;
+  summary: BagSummary;
+  persistenceError: string;
+}
+interface CartActions {
   setBagOpen: (open: boolean) => void;
   addBook: (id: string) => void;
   addBooks: (ids: string[]) => void;
   removeBook: (id: string) => void;
   clearBag: () => void;
   removePurchased: (ids: string[]) => void;
-  summary: BagSummary;
+  announce: (message: string) => void;
 }
-const Context = createContext<Store | null>(null);
+// Split so that opening the bag or changing its contents re-renders only the
+// components that read that piece, not every page that merely calls an action.
+const CartContext = createContext<Cart | null>(null);
+const BagOpenContext = createContext<boolean | null>(null);
+const ActionsContext = createContext<CartActions | null>(null);
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [hydrated, setHydrated] = useState(false);
   const [bagOpen, setBagOpen] = useState(false);
+  const [announcement, setAnnouncement] = useState("");
+  const [persistenceError, setPersistenceError] = useState("");
+  const savedIds = useRef<string[] | null>(null);
   useEffect(() => {
-    setSelectedIds(sanitizeBag(readStorage(BAG_STORAGE_KEY)));
+    const saved = readStorage(BAG_STORAGE_KEY);
+    const ids = sanitizeBag(saved);
+    if (Array.isArray(saved)) savedIds.current = ids;
+    setSelectedIds(ids);
     setHydrated(true);
     const sync = (event: StorageEvent) => {
-      if (event.key === BAG_STORAGE_KEY)
-        setSelectedIds(sanitizeBag(readStorage(BAG_STORAGE_KEY)));
+      if (event.key === BAG_STORAGE_KEY || event.key === null) {
+        const ids = sanitizeBag(readStorage(BAG_STORAGE_KEY));
+        savedIds.current = ids;
+        setSelectedIds(ids);
+      }
     };
     window.addEventListener("storage", sync);
     return () => window.removeEventListener("storage", sync);
   }, []);
   useEffect(() => {
-    if (hydrated) writeStorage(BAG_STORAGE_KEY, selectedIds);
+    if (!hydrated) return;
+    if (writeStorage(BAG_STORAGE_KEY, selectedIds)) {
+      // A successful restoration must not erase the failure notice before it can be read.
+      if (selectedIds !== savedIds.current) setPersistenceError("");
+      savedIds.current = selectedIds;
+    } else if (savedIds.current) {
+      if (selectedIds !== savedIds.current) setSelectedIds(savedIds.current);
+      setPersistenceError(
+        "Your bag could not be saved. Your last saved selection has been restored.",
+      );
+    } else {
+      // With storage blocked from the outset, local shopping still works for this visit.
+      setPersistenceError(
+        (previous) => previous || "Browser storage is unavailable. Your bag will last for this visit only.",
+      );
+    }
   }, [selectedIds, hydrated]);
-  const value = useMemo<Store>(
+  const cart = useMemo<Cart>(
+    () => ({ selectedIds, summary: summaryFor(selectedIds), persistenceError }),
+    [selectedIds, persistenceError],
+  );
+  const actions = useMemo<CartActions>(
     () => ({
-      selectedIds,
-      bagOpen,
       setBagOpen,
       addBook: (id) => setSelectedIds((ids) => sanitizeBag([...ids, id])),
       addBooks: (ids) =>
@@ -97,14 +131,35 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       removePurchased: (purchased) =>
         setSelectedIds((ids) => ids.filter((id) => !purchased.includes(id))),
       clearBag: () => setSelectedIds([]),
-      summary: summaryFor(selectedIds),
+      // Alternate a trailing space so a repeated message is still re-announced.
+      announce: (message) =>
+        setAnnouncement((previous) =>
+          previous === message ? `${message} ` : message,
+        ),
     }),
-    [selectedIds, bagOpen],
+    [],
   );
-  return <Context.Provider value={value}>{children}</Context.Provider>;
+  return (
+    <ActionsContext.Provider value={actions}>
+      <BagOpenContext.Provider value={bagOpen}>
+        <CartContext.Provider value={cart}>
+          {children}
+          <output
+            className="sr-only"
+            aria-live="polite"
+            data-testid="cart-announcer"
+          >
+            {announcement}
+          </output>
+        </CartContext.Provider>
+      </BagOpenContext.Provider>
+    </ActionsContext.Provider>
+  );
 }
-export function useStore() {
-  const store = useContext(Context);
-  if (!store) throw new Error("Missing StoreProvider");
-  return store;
+function required<T>(value: T | null): T {
+  if (value === null) throw new Error("Missing StoreProvider");
+  return value;
 }
+export const useCart = () => required(useContext(CartContext));
+export const useBagOpen = () => required(useContext(BagOpenContext));
+export const useCartActions = () => required(useContext(ActionsContext));

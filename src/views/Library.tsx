@@ -4,10 +4,11 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import BookCard from "@/components/BookCard";
 import { activeBooks as books, formatInr } from "@/lib/catalog";
-import { useStore } from "@/lib/store";
+import { useCart, useCartActions } from "@/lib/store";
 
 export default function Library() {
-  const { summary, setBagOpen } = useStore();
+  const { summary } = useCart();
+  const { setBagOpen } = useCartActions();
   return (
     <div
       className="mx-auto max-w-7xl px-4 py-12 sm:px-6 sm:py-16 lg:px-8"

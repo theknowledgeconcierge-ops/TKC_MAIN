@@ -14,7 +14,7 @@ import BookCard from "@/components/BookCard";
 import BookCover from "@/components/BookCover";
 import CollectionOffer from "@/components/CollectionOffer";
 import { activeBooks as books } from "@/lib/catalog";
-import { useStore } from "@/lib/store";
+import { useCartActions } from "@/lib/store";
 
 const trustItems = [
   { icon: BookOpen, label: "5 practical handbooks" },
@@ -24,7 +24,7 @@ const trustItems = [
 ];
 
 export default function Home() {
-  const { setBagOpen } = useStore();
+  const { setBagOpen } = useCartActions();
   return (
     <div data-testid="home-page">
       <section
@@ -73,7 +73,7 @@ export default function Home() {
               </Button>
               <Link
                 href="/books"
-                className="inline-flex h-10 w-full items-center justify-center border border-[#2e241f]/20 px-5 text-sm font-medium text-[#29231f] transition-colors hover:bg-[#2e241f]/5 min-[420px]:w-auto"
+                className="inline-flex h-11 w-full items-center justify-center border border-[#2e241f]/20 px-5 text-sm font-medium text-[#29231f] transition-colors hover:bg-[#2e241f]/5 min-[420px]:w-auto sm:h-10"
                 data-testid="hero-secondary-cta"
               >
                 Browse individual books
@@ -147,7 +147,7 @@ export default function Home() {
             </div>
             <Link
               href="/books"
-              className="inline-flex items-center text-sm font-medium uppercase tracking-[0.12em] text-[#8c6d46]"
+              className="inline-flex min-h-11 items-center text-sm font-medium uppercase tracking-[0.12em] text-[#8c6d46] sm:min-h-0"
               data-testid="books-view-all-link"
             >
               View all books <ArrowRight className="ml-2 size-4" />

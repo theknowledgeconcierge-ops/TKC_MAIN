@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { headers } from "next/headers";
 import Storefront from "@/components/Storefront";
 import { isPreviewDeployment, PRODUCTION_ORIGIN, SITE_NAME } from "@/lib/seo";
@@ -40,6 +40,12 @@ export const metadata: Metadata = {
     images: [socialImage],
   },
 };
+// Android resizes the layout for the keyboard, so modal forms keep their buttons reachable.
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  interactiveWidget: "resizes-content",
+};
 export default async function RootLayout({
   children,
 }: {
@@ -47,7 +53,8 @@ export default async function RootLayout({
 }) {
   const nonce = (await headers()).get("x-nonce") ?? "";
   return (
-    <html lang="en">
+    // Let Next suspend CSS smooth scrolling while restoring the route's scroll position.
+    <html lang="en" data-scroll-behavior="smooth">
       <head>
         <meta name="csp-nonce" content={nonce} />
       </head>

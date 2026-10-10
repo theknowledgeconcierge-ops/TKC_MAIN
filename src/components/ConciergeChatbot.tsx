@@ -24,12 +24,14 @@ export default function ConciergeChatbot() {
       `A: ${answers[question] ?? "Explore the handbooks or visit Questions & help for purchase and download guidance."}`,
     ]);
   return (
-    <div className="fixed bottom-5 right-5 z-50 flex flex-col items-end gap-3">
+    // The wrapper spans the panel's box even while it is hidden; only its children may take taps.
+    <div className="pointer-events-none fixed bottom-5 right-5 z-50 flex flex-col items-end gap-3">
       <div
-        className={`w-[min(360px,calc(100vw-2rem))] overflow-hidden border border-[#b49a6a]/40 bg-[#fbf9f5] shadow-2xl transition-all duration-300 ${open ? "translate-y-0 opacity-100" : "pointer-events-none translate-y-4 opacity-0"}`}
+        className={`max-h-[calc(100dvh-6rem)] w-[min(360px,calc(100vw-2rem))] overflow-y-auto overscroll-contain border border-[#b49a6a]/40 bg-[#fbf9f5] shadow-2xl transition-all duration-300 ${open ? "pointer-events-auto translate-y-0 opacity-100" : "invisible translate-y-4 opacity-0"}`}
+        inert={!open}
         data-testid="concierge-panel"
       >
-        <div className="flex items-center justify-between bg-[#181412] px-4 py-3 text-[#fbf9f5]">
+        <div className="sticky top-0 z-10 flex items-center justify-between bg-[#181412] px-4 py-3 text-[#fbf9f5]">
           <div>
             <p className="font-serif text-lg">The Knowledge Assistant</p>
             <p
@@ -42,8 +44,9 @@ export default function ConciergeChatbot() {
           <Button
             variant="ghost"
             size="icon-xs"
-            className="text-[#fbf9f5] hover:bg-white/10 hover:text-white"
+            className="size-11 text-[#fbf9f5] hover:bg-white/10 hover:text-white sm:size-6"
             onClick={() => setOpen(false)}
+            aria-label="Close knowledge assistant"
             data-testid="concierge-close-btn"
           >
             <X />
@@ -74,16 +77,18 @@ export default function ConciergeChatbot() {
             .slice(0, 3)
             .map((question) => (
               <button
+                type="button"
                 key={question}
                 onClick={() => ask(question)}
-                className="block w-full text-left text-xs text-[#6e655e] hover:text-[#29231f]"
+                className="block min-h-11 w-full text-left text-xs text-[#6e655e] hover:text-[#29231f] sm:min-h-0"
                 data-testid={`concierge-question-${question.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
               >
                 {question}
               </button>
             ))}
           <button
-            className="mt-2 flex items-center gap-2 text-xs font-medium uppercase tracking-[0.12em] text-[#8c6d46]"
+            type="button"
+            className="mt-2 flex min-h-11 items-center gap-2 text-xs font-medium uppercase tracking-[0.12em] text-[#8c6d46] sm:min-h-0"
             onClick={() => ask("How do I download my purchase?")}
             data-testid="concierge-send-btn"
           >
@@ -94,9 +99,10 @@ export default function ConciergeChatbot() {
       </div>
       <Button
         onClick={() => setOpen((value) => !value)}
-        className="size-12 rounded-full bg-[#b49a6a] p-0 text-[#181412] shadow-xl hover:bg-[#99733e]"
+        className="pointer-events-auto size-12 rounded-full bg-[#b49a6a] p-0 text-[#181412] shadow-xl hover:bg-[#99733e]"
         data-testid="concierge-toggle-btn"
-        aria-label="Open knowledge assistant"
+        aria-label={open ? "Close knowledge assistant" : "Open knowledge assistant"}
+        aria-expanded={open}
       >
         <MessageCircle className="size-5" />
       </Button>
