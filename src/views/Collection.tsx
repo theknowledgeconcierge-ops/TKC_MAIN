@@ -4,13 +4,13 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import BookCover from "@/components/BookCover";
 import { activeBooks as books, formatInr } from "@/lib/catalog";
-import { useStore } from "@/lib/store";
+import { useCartActions } from "@/lib/store";
 import { quoteFor } from "@/lib/commerce/pricing";
 
 const collection = quoteFor(books.map((book) => book.id));
 
 export default function Collection() {
-  const { addBooks, setBagOpen } = useStore();
+  const { addBooks, setBagOpen } = useCartActions();
   return (
     <div data-testid="collection-page">
       <section className="bg-[#302821] text-[#f7f4ee]">

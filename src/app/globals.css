@@ -33,6 +33,25 @@
   --radius-2xl: calc(var(--radius) * 1.8);
   --radius-3xl: calc(var(--radius) * 2.2);
   --radius-4xl: calc(var(--radius) * 2.6);
+  --animate-bag-in: bag-in 240ms cubic-bezier(0.22, 1, 0.36, 1);
+  --animate-modal-in: modal-in 200ms cubic-bezier(0.22, 1, 0.36, 1);
+  --animate-count-pop: count-pop 260ms ease-out;
+  @keyframes bag-in {
+    from {
+      opacity: 0.85;
+    }
+  }
+  @keyframes modal-in {
+    from {
+      opacity: 0;
+      transform: translateY(12px);
+    }
+  }
+  @keyframes count-pop {
+    40% {
+      transform: scale(1.35);
+    }
+  }
 }
 
 :root {
@@ -101,6 +120,18 @@
       border-color 180ms ease,
       transform 180ms ease,
       opacity 180ms ease;
+  }
+  /* No double-tap zoom on controls, so quick repeated taps stay taps. */
+  button,
+  a,
+  summary,
+  label,
+  input {
+    touch-action: manipulation;
+  }
+  /* The page behind an open bag or checkout must not scroll under the user's finger. */
+  html:has(dialog:modal) {
+    overflow: hidden;
   }
 }
 

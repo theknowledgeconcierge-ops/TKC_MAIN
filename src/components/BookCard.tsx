@@ -1,24 +1,35 @@
 "use client";
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import { Check, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import BookCover from "@/components/BookCover";
 import type { Book } from "@/lib/catalog";
 import { formatInr } from "@/lib/catalog";
-import { useStore } from "@/lib/store";
-import { toast } from "sonner";
+import { useCart, useCartActions } from "@/lib/store";
+
+// Keep acknowledgement visible through a burst of taps.
+const ADDED_ACK_MS = 1200;
 
 export default function BookCard({ book }: { book: Book }) {
-  const { selectedIds, addBook, removeBook } = useStore();
+  const { selectedIds } = useCart();
+  const { addBook, setBagOpen, announce } = useCartActions();
   const selected = selectedIds.includes(book.id);
+  const [justAdded, setJustAdded] = useState(false);
+  useEffect(() => {
+    if (!justAdded) return;
+    const timer = setTimeout(() => setJustAdded(false), ADDED_ACK_MS);
+    return () => clearTimeout(timer);
+  }, [justAdded]);
+  // Adding is idempotent: a second tap opens the bag instead of silently removing the book.
   const handleAdd = () => {
-    if (selected) removeBook(book.id);
-    else {
-      addBook(book.id);
-      toast.success("Added to your library bag", {
-        description: "Keep exploring—the bag stays with you.",
-      });
+    if (selected) {
+      if (!justAdded) setBagOpen(true);
+      return;
     }
+    addBook(book.id);
+    setJustAdded(true);
+    announce(`${book.title} added to your bag.`);
   };
   return (
     <article
@@ -43,6 +54,7 @@ export default function BookCard({ book }: { book: Book }) {
             </p>
             <Link
               href={`/books/${book.slug}`}
+              className="inline-flex min-h-11 items-center sm:min-h-0"
               data-testid={`book-card-title-link-${book.slug}`}
             >
               <h3 className="mt-2 font-serif text-lg leading-tight text-[#29231f] transition-colors group-hover:text-[#8d6d43] sm:text-2xl">
@@ -77,9 +89,15 @@ export default function BookCard({ book }: { book: Book }) {
           </div>
           <Button
             size="sm"
-            className={`w-full px-2 sm:w-32 sm:px-3 ${selected ? "border-[#b49a6a]/60 bg-[#eadfcd] text-[#29231f] hover:bg-[#e1d2ba]" : ""}`}
+            className={`h-11 w-full px-2 sm:h-7 sm:w-32 sm:px-3 ${selected ? "border-[#b49a6a]/60 bg-[#eadfcd] text-[#29231f] hover:bg-[#e1d2ba]" : ""}`}
             variant={selected ? "outline" : "default"}
             onClick={handleAdd}
+            aria-label={
+              selected && !justAdded
+                ? `In bag: ${book.title}. Open bag`
+                : undefined
+            }
+            data-state={selected ? (justAdded ? "added" : "in-bag") : "idle"}
             data-testid={`book-card-add-btn-${book.slug}`}
           >
             {selected ? (
@@ -87,7 +105,7 @@ export default function BookCard({ book }: { book: Book }) {
             ) : (
               <Plus className="mr-1 size-3.5 sm:mr-2 sm:size-4" />
             )}
-            {selected ? "In bag" : "Add to bag"}
+            {selected ? (justAdded ? "Added" : "In bag") : "Add to bag"}
           </Button>
         </div>
       </div>

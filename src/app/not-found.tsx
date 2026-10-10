@@ -12,7 +12,7 @@ export default function NotFound() {
       <h1 className="mt-5 font-serif text-4xl">
         Let’s get you back to the library.
       </h1>
-      <Link href="/books" className="mt-8 inline-block underline">
+      <Link href="/books" className="mt-8 inline-flex min-h-11 items-center underline sm:min-h-0">
         Browse the handbooks
       </Link>
     </div>

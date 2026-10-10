@@ -13,7 +13,7 @@ import BookCard from "@/components/BookCard";
 import BookCover from "@/components/BookCover";
 import CollectionOffer from "@/components/CollectionOffer";
 import { activeBooks as books, formatInr } from "@/lib/catalog";
-import { useStore, summaryFor } from "@/lib/store";
+import { useCart, useCartActions, summaryFor } from "@/lib/store";
 
 const partnerCopy: Record<string, string> = {
   "the-first-table":
@@ -30,7 +30,8 @@ const partnerCopy: Record<string, string> = {
 
 export default function Product({ slug }: { slug: string }) {
   const book = books.find((item) => item.slug === slug)!;
-  const { addBook, selectedIds, setBagOpen } = useStore();
+  const { selectedIds } = useCart();
+  const { addBook, setBagOpen } = useCartActions();
   const selected = selectedIds.includes(book.id);
   const progress = summaryFor(
     selectedIds.includes(book.id) ? selectedIds : [...selectedIds, book.id],
