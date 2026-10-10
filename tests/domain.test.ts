@@ -12,13 +12,33 @@ import {
 
 const ids = catalogue.filter((book) => book.active).map((book) => book.id);
 describe("catalogue and authoritative pricing", () => {
+  it("offers all five handbooks, including Empty Tables to Full House", () => {
+    expect(ids).toHaveLength(5);
+    expect(ids).toContain("empty-tables-to-full-house");
+  });
   it.each([
     [1, 249],
     [2, 399],
     [3, 549],
     [4, 699],
+    [5, 999],
   ])("prices %i books from trusted configuration", (count, total) => {
     expect(quoteFor(ids.slice(0, count)).total_inr).toBe(total);
+  });
+  it.each([
+    [true, 499],
+    [false, 999],
+    [null, 999],
+  ] as const)(
+    "prices the full collection with first-time eligibility %s",
+    (eligible, total) => {
+      expect(quoteFor(ids, eligible).total_inr).toBe(total);
+    },
+  );
+  it("accepts First50 only for the complete collection and verifies eligibility separately", () => {
+    expect(quoteFor(ids, true, "First50").total_inr).toBe(499);
+    expect(quoteFor(ids, false, "First50").total_inr).toBe(999);
+    expect(() => quoteFor(ids.slice(0, 4), true, "First50")).toThrow();
   });
   it("rejects unknown products and empty selections", () => {
     expect(() => quoteFor(["unknown"])).toThrow();

@@ -172,7 +172,7 @@ export const catalogue = [
     cover_image_url: "/covers/empty-tables-to-full-house.jpg",
     currency: "INR",
     price_paise: 24900,
-    active: false,
+    active: true,
   },
 ] as const satisfies readonly Book[];
 export type ProductId = (typeof catalogue)[number]["id"];

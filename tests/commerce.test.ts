@@ -10,6 +10,7 @@ import type {
   ProviderPayment,
 } from "@/lib/commerce/types";
 import { createOrderSchema } from "@/lib/commerce/validation";
+import { catalogue } from "@/lib/catalog";
 
 const secret = "fixture-secret";
 const token = "a".repeat(43);
@@ -148,8 +149,8 @@ beforeEach(() => {
     webhookSecret: "webhook-secret",
   });
 });
-async function captured() {
-  const checkout = await service.create(input());
+async function captured(orderInput = input()) {
+  const checkout = await service.create(orderInput);
   const payment = {
     id: "pay_abc",
     order_id: checkout.razorpay_order_id,
@@ -165,6 +166,32 @@ async function captured() {
 const signature = (order: string, payment: string) =>
   createHmac("sha256", secret).update(`${order}|${payment}`).digest("hex");
 describe("checkout and recovery", () => {
+  it.each([
+    [false, 49900],
+    [true, 99900],
+  ] as const)(
+    "uses server purchase history for five-book pricing (returning: %s)",
+    async (returning, amount) => {
+      repo.hasPreviousPurchase = vi.fn(async () => returning);
+      const orderInput = createOrderSchema.parse({
+        ...input(),
+        book_ids: catalogue.map((book) => book.id),
+        coupon_code: "FIRST50",
+        total: 1,
+        eligible_first_time: true,
+      });
+      const checkout = await service.create(orderInput);
+      expect(checkout.amount_paise).toBe(amount);
+      expect(repo.hasPreviousPurchase).toHaveBeenCalledWith(orderInput.email);
+      const order = orders.get(checkout.internal_order_id)!;
+      expect(order.subtotal).toBe(124500);
+      expect(order.total).toBe(amount);
+      expect(order.order_items).toHaveLength(5);
+      expect(provider.createOrder).toHaveBeenCalledWith(
+        expect.objectContaining({ total: amount }),
+      );
+    },
+  );
   it("creates an internal order before calling the provider and reuses repeated submissions", async () => {
     const a = await service.create(input());
     const b = await service.create(input());
@@ -223,6 +250,34 @@ describe("checkout and recovery", () => {
   });
 });
 describe("trusted verification and private downloads", () => {
+  it("fulfills all five titles once and signs the fifth PDF only for its owner", async () => {
+    const orderInput = createOrderSchema.parse({
+      ...input(),
+      book_ids: catalogue.map((book) => book.id),
+    });
+    const { checkout, payment } = await captured(orderInput);
+    const verification = {
+      internal_order_id: checkout.internal_order_id,
+      razorpay_order_id: payment.order_id,
+      razorpay_payment_id: payment.id,
+      razorpay_signature: signature(payment.order_id, payment.id),
+    };
+    await service.verify(verification, token);
+    await service.verify(verification, token);
+    expect(entitlements).toHaveLength(5);
+    const fifth = entitlements.find(
+      (item) => item.product_id === "empty-tables-to-full-house",
+    )!;
+    await expect(
+      service.download(checkout.internal_order_id, fifth.id, "b".repeat(43)),
+    ).rejects.toMatchObject({ status: 404 });
+    expect(repo.signDownload).not.toHaveBeenCalled();
+    await service.download(checkout.internal_order_id, fifth.id, token);
+    expect(repo.signDownload).toHaveBeenCalledWith(
+      "handbooks/empty-tables-to-full-house.pdf",
+      60,
+    );
+  });
   it("verifies a captured test payment and permits downloads without webhook configuration", async () => {
     service = new CommerceService(repo, provider, {
       keyId: "rzp_test_fixture",
@@ -405,7 +460,10 @@ describe("webhook authenticity, duplicates and retry", () => {
           .digest("hex");
         await expect(
           service.webhook(Buffer.from(body), forged),
-        ).rejects.toMatchObject({ status: 503, code: "CONFIGURATION_REQUIRED" });
+        ).rejects.toMatchObject({
+          status: 503,
+          code: "CONFIGURATION_REQUIRED",
+        });
       }
       expect(providerRead).not.toHaveBeenCalled();
       expect(orderRead).not.toHaveBeenCalled();

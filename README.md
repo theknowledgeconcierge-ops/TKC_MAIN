@@ -2,7 +2,7 @@
 
 One Next.js 16 App Router / TypeScript application on Vercel. Supabase supplies PostgreSQL and private PDF Storage; Razorpay supplies payments. No separate backend, customer accounts, email provider, CMS, queues or Redis.
 
-The existing editorial design, fonts, covers, responsive pages, motion, bag and checkout review are retained. The repository contained five titles; the requested four-book storefront currently activates **The First Table, The Full Table, Behind the Kitchen Door, and The Math Behind the Menu**. “Empty Tables to Full House” remains inactive metadata. Original prices are retained: **1 / 2 / 3 / 4 books = ₹249 / ₹399 / ₹549 / ₹699**. The old five-book First50 promotion does not apply to four books.
+The existing editorial design, fonts, covers, responsive pages, motion, bag and checkout review are retained. All five titles are active: **The First Table, The Full Table, Behind the Kitchen Door, The Math Behind the Menu, and Empty Tables to Full House**. Original prices are retained: **1 / 2 / 3 / 4 / 5 books = ₹249 / ₹399 / ₹549 / ₹699 / ₹999**. Eligible first-time buyers receive the **₹499 First50** price for all five books; the server checks purchase history and confirms the payable amount before payment.
 
 The visual source of truth is `src/app/globals.css`: warm paper/brown/gold colors, Playfair Display headings, DM Sans body text and JetBrains Mono labels. Shared controls live in `src/components/ui/`; page compositions live in `src/views/`.
 
@@ -37,7 +37,7 @@ Test checkout needs the first five variables above and matched `rzp_test_...` cr
 
 Use an actual **Preview** deployment (`npx vercel deploy`, without `--prod`). Enable access to System Environment Variables in Vercel project settings so Vercel supplies `VERCEL_ENV=preview`; do not override it or `NODE_ENV`. Configure Preview environment variables in the project settings, with `APP_URL` matching a stable preview alias, then deploy and assign that alias using `npx vercel alias set DEPLOYMENT_URL PREVIEW_ALIAS`. Open the alias for checkout, since other deployment origins will fail the origin check. Keep deployment protection enabled during internal testing. Production deployments and any use of live keys still require the webhook secret.
 
-Upload all four PDFs before accepting live purchases. A preview with incomplete storage can test checkout/downloads for the uploaded titles; `check:integrations` intentionally continues to fail until all four files exist. Configure and exercise webhook delivery separately before launch.
+Upload all five PDFs before accepting live purchases. A preview with incomplete storage can test checkout/downloads for the uploaded titles; `check:integrations` intentionally continues to fail until all five files exist. Configure and exercise webhook delivery separately before launch.
 
 ## Supabase setup: one migration path
 
@@ -65,6 +65,7 @@ The SQL migration creates bucket **`handbooks`**, `public=false`, MIME type `app
 | `the-full-table.pdf` | `handbooks/the-full-table.pdf` |
 | `behind-the-kitchen-door.pdf` | `handbooks/behind-the-kitchen-door.pdf` |
 | `the-math-behind-the-menu.pdf` | `handbooks/the-math-behind-the-menu.pdf` |
+| `empty-tables-to-full-house.pdf` | `handbooks/empty-tables-to-full-house.pdf` |
 
 Use Storage dashboard upload or the idempotent uploader:
 
@@ -75,7 +76,7 @@ npm run check:integrations
 
 The uploader checks the private bucket, PDF header, size and existing file checksum; it refuses to replace different contents. Version object paths deliberately when replacing purchased files because orders snapshot them. `check:integrations` performs read-only database, private-file and Razorpay API checks. It does not simulate a payment.
 
-Three original PDFs were downloaded into the ignored local `private-pdfs/` directory during migration. They are **not committed or deployed**. The First Table's original source returned HTTP 403; supply that PDF with the exact filename above. Files staged in this workstation will not exist in a fresh clone.
+Three original PDFs remain in the ignored local `private-pdfs/` staging directory. They are **not committed or deployed** and will not exist in a fresh clone. The owner subsequently uploaded all five production PDFs to the private bucket; the two filenames with spaces/capitalization were normalized to the exact paths above, with matching content checksums.
 
 **Revoke/delete the old publicly hosted Emergent PDFs before launch.** The application no longer references them, but changing this repository cannot disable copies on external hosting.
 
@@ -157,7 +158,7 @@ Browser tests start the production build on port 3100, cover desktop/mobile rout
 2. Set the six environment values above in `.env.local` for setup tools. Keep actual secrets out of Git.
 3. Apply the versioned SQL migration using the chosen setup path.
 4. Confirm the migration-created `handbooks` bucket is private; do not add public policies.
-5. Supply/upload all four PDFs with the exact paths above. Run `npm run check:integrations` after Razorpay credentials are ready. Revoke old public artifact files.
+5. Supply/upload all five PDFs with the exact paths above. Run `npm run check:integrations` after Razorpay credentials are ready. Revoke old public artifact files.
 6. Create matching Razorpay credentials and enable **automatic capture** in Razorpay payment settings. This application deliberately never fulfills merely authorized payments.
 7. Choose a **new** webhook secret; never reuse the legacy secret exposed in commit `da62819` (see the [security incident](docs/SECURITY_AUDIT.md#historical-credential-incident)). Register `https://YOUR_DOMAIN/api/webhooks/razorpay` with the configured webhook secret. Subscribe to **`payment.captured`, `order.paid`, `payment.failed`, `refund.processed`**. Test and live dashboards need their own webhook configuration. Keep the secret stable while older deliveries are retrying.
 8. Import the repository into Vercel with **root directory `.`**, Next.js preset, Node **24.x**. Add all six values to Production; test Preview checkout may omit the webhook secret as described above. Set `APP_URL` to the exact canonical HTTPS domain used by checkout and recovery links. Preview aliases require their own matching `APP_URL` and test credentials; production secrets should not reach untrusted previews.
@@ -169,11 +170,11 @@ Browser tests start the production build on port 3100, cover desktop/mobile rout
 ### External smoke test
 
 - `GET /api/health` returns 200/`status: ready`; `npm run check:integrations` passes with actual credentials/files.
-- Purchase one book and then four; confirm Razorpay receives 24900 and 69900 paise regardless of edited browser fields.
+- Purchase one book, four books and all five; confirm Razorpay receives 24900, 69900 and either 49900 (eligible first-time buyer) or 99900 (returning buyer) paise regardless of edited browser fields.
 - Close/reopen checkout and refresh; confirm the same internal/provider order is reused. Temporarily lose the callback or close the browser after paying; webhook/reconciliation must still mark paid.
 - Replay a signed event using Razorpay dashboard replay; verify one entitlement per item and no duplicate payment/fulfillment. Failed delivery must retry after the underlying issue is restored.
 - Open a saved private link in a clean browser; verify access. UUID alone, wrong token, another purchase's entitlement, forged callback and spoofed webhook must fail.
 - Download each real PDF; verify correct contents. A copied signed URL expires after 60 seconds, anonymous public bucket paths fail, and no service key appears in browser scripts/network responses.
 - Refund a test purchase; confirmation must show refunded and new download requests must fail. Check failure/loading messages and real Razorpay iframe/CSP behavior on mobile and desktop (browser fixtures cannot verify the provider's live assets).
 
-[Migration map](docs/MIGRATION.md) · [Production audit and certification limits](docs/SECURITY_AUDIT.md)
+[Migration map](docs/MIGRATION.md) · [Production audit and certification limits](docs/SECURITY_AUDIT.md) · [Customer lifecycle audit and verification matrix](docs/LIFECYCLE_AUDIT.md)

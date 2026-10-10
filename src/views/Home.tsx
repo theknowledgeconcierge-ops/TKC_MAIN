@@ -14,9 +14,16 @@ import BookCard from "@/components/BookCard";
 import BookCover from "@/components/BookCover";
 import { activeBooks as books, formatInr } from "@/lib/catalog";
 import { useStore } from "@/lib/store";
+import { quoteFor } from "@/lib/commerce/pricing";
+
+const collection = quoteFor(books.map((book) => book.id));
+const firstTimeCollection = quoteFor(
+  books.map((book) => book.id),
+  true,
+);
 
 const trustItems = [
-  { icon: BookOpen, label: "4 practical handbooks" },
+  { icon: BookOpen, label: "5 practical handbooks" },
   { icon: ArrowDownRight, label: "Indian business context" },
   { icon: Timer, label: "Instant digital access" },
   { icon: ShieldCheck, label: "Secure checkout-ready flow" },
@@ -45,7 +52,7 @@ export default function Home() {
               className="mt-6 max-w-xl text-base leading-relaxed text-[#6e655e] sm:mt-7 sm:text-lg"
               data-testid="hero-subheadline"
             >
-              Four carefully curated handbooks covering the journey of starting,
+              Five carefully curated handbooks covering the journey of starting,
               marketing, managing, and financing a restaurant.
             </p>
             <p
@@ -100,7 +107,7 @@ export default function Home() {
               <BookCover book={books[3]} />
             </div>
             <div className="absolute bottom-0 left-1/2 z-20 w-[82%] -translate-x-1/2 border border-[#b49a6a]/50 bg-[#fbf9f5]/95 p-3 text-center shadow-xl backdrop-blur-sm sm:w-[68%] sm:p-4">
-              <p className="overline">Four books · one journey</p>
+              <p className="overline">Five books · one journey</p>
               <p className="mt-1 font-serif text-base text-[#29231f] sm:mt-2 sm:text-xl">
                 The complete collection
               </p>
@@ -130,7 +137,7 @@ export default function Home() {
           <div className="flex flex-wrap items-end justify-between gap-5">
             <div>
               <p className="overline">The library</p>
-              <h2 className="section-title mt-4">Four practical handbooks.</h2>
+              <h2 className="section-title mt-4">Five practical handbooks.</h2>
             </div>
             <Link
               href="/books"
@@ -140,7 +147,7 @@ export default function Home() {
               View all books <ArrowRight className="ml-2 size-4" />
             </Link>
           </div>
-          <div className="mt-10 grid grid-cols-2 gap-x-4 gap-y-12 sm:mt-12 sm:gap-x-6 lg:grid-cols-4">
+          <div className="mt-10 grid grid-cols-2 gap-x-4 gap-y-12 sm:mt-12 sm:gap-x-6 lg:grid-cols-5">
             {books.map((book) => (
               <BookCard key={book.id} book={book} />
             ))}
@@ -174,7 +181,7 @@ export default function Home() {
             [
               "Struggling with sales?",
               "Learn to diagnose weak demand and plan practical improvements.",
-              "/books/the-full-table",
+              "/books/empty-tables-to-full-house",
               "Find your next step",
             ],
           ].map(([title, copy, href, cta]) => (
@@ -213,7 +220,7 @@ export default function Home() {
               className="mt-5 font-serif text-4xl leading-tight sm:text-5xl"
               data-testid="collection-heading"
             >
-              Four books. One complete restaurant business journey.
+              Five books. One complete restaurant business journey.
             </h2>
             <p
               className="mt-6 max-w-xl text-base leading-relaxed text-[#d2c3b3]"
@@ -226,16 +233,24 @@ export default function Home() {
             <div className="mt-8 flex flex-wrap items-end gap-5">
               <div>
                 <p className="text-sm text-[#c5b7a8] line-through">
-                  {formatInr(996)} individual total
+                  {formatInr(collection.regular_total_inr)} individual total
                 </p>
-                <p className="mt-1 font-serif text-4xl text-[#e9dfcf]">₹699</p>
+                <p className="mt-1 font-serif text-4xl text-[#e9dfcf]">
+                  {formatInr(collection.total_inr)}
+                </p>
               </div>
               <div className="border-l border-[#c5a880]/40 pl-5 text-sm text-[#d2c3b3]">
-                four handbooks
+                five handbooks
                 <br />
-                <span className="font-mono text-[#c5a880]">SAVE ₹297</span>
+                <span className="font-mono text-[#c5a880]">
+                  SAVE {formatInr(collection.total_savings_inr)}
+                </span>
               </div>
             </div>
+            <p className="mt-4 text-sm text-[#d2c3b3]">
+              First50: {formatInr(firstTimeCollection.total_inr)} for eligible
+              first-time buyers. Eligibility is confirmed at checkout.
+            </p>
             <Button
               className="mt-8 bg-[#c5a880] text-[#181412] hover:bg-[#b38f56]"
               size="lg"
@@ -245,7 +260,8 @@ export default function Home() {
               }}
               data-testid="collection-primary-cta"
             >
-              Get all 4 books <ArrowRight className="ml-2 size-4" />
+              Get all {books.length} books{" "}
+              <ArrowRight className="ml-2 size-4" />
             </Button>
             <p className="mt-3 text-xs text-[#b8a99a]">
               Razorpay secure checkout · instant PDF access after confirmed
@@ -253,7 +269,7 @@ export default function Home() {
             </p>
           </div>
           <div
-            className="grid grid-cols-4 gap-2 sm:gap-4"
+            className="grid grid-cols-5 gap-2 sm:gap-4"
             data-testid="collection-cover-grid"
           >
             {books.map((book) => (

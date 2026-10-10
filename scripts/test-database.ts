@@ -52,10 +52,20 @@ try {
     "-f",
     "supabase/migrations/202610090001_storefront.sql",
   ]);
-  run("node", ["node_modules/vitest/vitest.mjs", "run", "tests/database"], {
-    ...process.env,
-    TEST_DATABASE_URL: url,
-  });
+  // Fault-injection tests share the migrated database and install temporary triggers.
+  run(
+    "node",
+    [
+      "node_modules/vitest/vitest.mjs",
+      "run",
+      "tests/database",
+      "--no-file-parallelism",
+    ],
+    {
+      ...process.env,
+      TEST_DATABASE_URL: url,
+    },
+  );
 } finally {
   if (started)
     spawnSync(

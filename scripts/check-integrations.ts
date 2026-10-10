@@ -54,7 +54,7 @@ try {
     if (response.ok) throw new Error(`Unsafe public PDF access: ${book.id}`);
   }
   console.log(
-    "Storage: four PDFs present; anonymous public object requests rejected",
+    `Storage: ${activeBooks.length} PDFs present; anonymous public object requests rejected`,
   );
   const response = await fetch("https://api.razorpay.com/v1/orders?count=1", {
     cache: "no-store",

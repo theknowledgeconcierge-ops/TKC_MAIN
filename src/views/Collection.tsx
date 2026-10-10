@@ -3,8 +3,15 @@ import { ArrowRight, Check } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import BookCover from "@/components/BookCover";
-import { activeBooks as books } from "@/lib/catalog";
+import { activeBooks as books, formatInr } from "@/lib/catalog";
 import { useStore } from "@/lib/store";
+import { quoteFor } from "@/lib/commerce/pricing";
+
+const collection = quoteFor(books.map((book) => book.id));
+const firstTimeCollection = quoteFor(
+  books.map((book) => book.id),
+  true,
+);
 
 export default function Collection() {
   const { addBooks, setBagOpen } = useStore();
@@ -17,32 +24,38 @@ export default function Collection() {
             className="mt-5 max-w-4xl font-serif text-5xl leading-tight sm:text-6xl"
             data-testid="collection-page-heading"
           >
-            Four books. One complete restaurant business journey.
+            Five books. One complete restaurant business journey.
           </h1>
           <p
             className="mt-6 max-w-2xl text-lg leading-relaxed text-[#d2c3b3]"
             data-testid="collection-page-copy"
           >
             From your first restaurant idea to attracting customers, managing
-            people, understanding numbers.
+            people, understanding numbers, and rebuilding demand.
           </p>
           <div className="mt-8 flex flex-wrap items-end gap-6">
             <div>
               <span className="text-sm text-[#c5b7a8] line-through">
-                ₹996 individual total
+                {formatInr(collection.regular_total_inr)} individual total
               </span>
               <p className="mt-1 font-serif text-4xl text-[#e9dfcf]">
-                ₹699{" "}
+                {formatInr(collection.total_inr)}{" "}
                 <span className="font-sans text-sm text-[#c5b7a8]">
                   standard
                 </span>
               </p>
             </div>
             <div className="border-l border-[#c5a880]/40 pl-6">
-              <p className="font-serif text-3xl text-[#c5a880]">Save ₹297</p>
+              <p className="font-serif text-3xl text-[#c5a880]">
+                Save {formatInr(collection.total_savings_inr)}
+              </p>
               <p className="text-sm text-[#d2c3b3]">complete collection</p>
             </div>
           </div>
+          <p className="mt-4 text-sm text-[#d2c3b3]">
+            First50: {formatInr(firstTimeCollection.total_inr)} for eligible
+            first-time buyers. Eligibility is confirmed at checkout.
+          </p>
           <Button
             onClick={() => {
               addBooks(books.map((book) => book.id));
@@ -52,13 +65,13 @@ export default function Collection() {
             size="lg"
             data-testid="collection-page-add-all-btn"
           >
-            Get all 4 books <ArrowRight className="ml-2 size-4" />
+            Get all {books.length} books <ArrowRight className="ml-2 size-4" />
           </Button>
         </div>
       </section>
       <section className="mx-auto max-w-7xl px-4 py-20 sm:px-6 lg:px-8">
         <div
-          className="grid grid-cols-4 gap-2 sm:gap-5"
+          className="grid grid-cols-5 gap-2 sm:gap-5"
           data-testid="collection-page-covers"
         >
           {books.map((book) => (
@@ -84,6 +97,7 @@ export default function Collection() {
               "Local discovery and repeat demand",
               "People, systems, and daily service",
               "Pricing, costs, cash, and profit",
+              "Rebuilding demand and planning growth",
             ].map((item) => (
               <p className="flex gap-3" key={item}>
                 <Check className="size-4 shrink-0 text-[#b49a6a]" />

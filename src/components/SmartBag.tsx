@@ -12,7 +12,8 @@ const milestones = [
   { count: 1, label: "1 Book", price: "₹249" },
   { count: 2, label: "2 Books", price: "₹399" },
   { count: 3, label: "3 Books", price: "₹549" },
-  { count: 4, label: "All 4", price: "₹699" },
+  { count: 4, label: "4 Books", price: "₹699" },
+  { count: 5, label: "All 5", price: "₹499*" },
 ];
 
 export default function SmartBag() {
@@ -29,7 +30,7 @@ export default function SmartBag() {
   const [confirmClear, setConfirmClear] = useState(false);
   const selected = books.filter((book) => selectedIds.includes(book.id));
   const remaining = books.filter((book) => !selectedIds.includes(book.id));
-  const progress = `${summary.count * 25}%`;
+  const progress = `${(summary.count / books.length) * 100}%`;
   const message =
     summary.count === 0
       ? "Choose your first handbook to begin building your collection."
@@ -39,7 +40,9 @@ export default function SmartBag() {
           ? "Add 1 more book to unlock 3 for ₹549 and save ₹198."
           : summary.count === 3
             ? "Add 1 more book to unlock 4 for ₹699 and save ₹297."
-            : "Complete collection unlocked: all four handbooks for ₹699, saving ₹297.";
+            : summary.count === 4
+              ? "Complete your five-book collection. First50 eligibility is checked at checkout."
+              : "Complete collection unlocked: ₹999 standard, or ₹499 for eligible first-time buyers.";
   const closeBag = () => {
     setConfirmClear(false);
     setBagOpen(false);
@@ -108,7 +111,9 @@ export default function SmartBag() {
               data-testid="smart-bag-tier-progress"
             >
               <div className="mb-2 flex items-center justify-between text-xs font-mono uppercase tracking-[0.16em] text-[#8c6d46]">
-                <span>{summary.count} of 4 books selected</span>
+                <span>
+                  {summary.count} of {books.length} books selected
+                </span>
                 <span>{progress}</span>
               </div>
               <div
@@ -125,12 +130,14 @@ export default function SmartBag() {
                   const reached = summary.count >= milestone.count;
                   const current = summary.count === milestone.count;
                   const next = summary.count + 1 === milestone.count;
-                  const bestValue = milestone.count === 4;
+                  const bestValue = milestone.count === books.length;
                   return (
                     <span
                       key={milestone.count}
                       className={`absolute top-1/2 size-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 transition-[background-color,border-color,transform] duration-300 ${bestValue ? "border-[#b49a6a] bg-[#302821] ring-2 ring-[#b49a6a]/25" : reached ? "border-[#b49a6a] bg-[#b49a6a]" : "border-[#cdbfae] bg-[#fbf9f5]"} ${current ? "scale-125" : next ? "scale-110" : ""}`}
-                      style={{ left: `${milestone.count * 25}%` }}
+                      style={{
+                        left: `${(milestone.count / books.length) * 100}%`,
+                      }}
                       data-testid={`smart-bag-milestone-stop-${milestone.count}`}
                       data-current={current || undefined}
                       data-next={next || undefined}
@@ -140,13 +147,13 @@ export default function SmartBag() {
                 })}
               </div>
               <div
-                className="mt-2 grid grid-cols-4 gap-1"
+                className="mt-2 grid grid-cols-5 gap-1"
                 data-testid="smart-bag-milestone-labels"
               >
                 {milestones.map((milestone) => {
                   const current = summary.count === milestone.count;
                   const next = summary.count + 1 === milestone.count;
-                  const bestValue = milestone.count === 4;
+                  const bestValue = milestone.count === books.length;
                   return (
                     <div
                       key={milestone.count}
@@ -177,7 +184,7 @@ export default function SmartBag() {
                           className="mt-0.5 block text-[6px] leading-[1.05] text-[#d7c8b8] sm:text-[7px]"
                           data-testid="smart-bag-best-value-eligibility"
                         >
-                          Save ₹297
+                          First-time buyers
                         </span>
                       )}
                     </div>
@@ -194,8 +201,9 @@ export default function SmartBag() {
                 className="mt-1 text-[9px] leading-relaxed text-[#8c6d46]"
                 data-testid="smart-bag-milestone-footnote"
               >
-                Collection savings are automatic. The exact amount is confirmed
-                before payment.
+                *First50 applies to eligible first-time buyers of all five
+                books. The standard collection price is ₹999. Your exact amount
+                is confirmed before payment.
               </p>
             </div>
 

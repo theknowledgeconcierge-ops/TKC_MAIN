@@ -16,11 +16,11 @@ const faqs = [
   ],
   [
     "What is included in the complete collection?",
-    "All four restaurant business handbooks, priced at ₹699 together.",
+    "All five restaurant business handbooks, priced at ₹999 together, or ₹499 for eligible first-time buyers with First50. Eligibility is confirmed at checkout.",
   ],
   [
     "How do collection savings work?",
-    "One handbook is ₹249, two are ₹399, three are ₹549, and all four are ₹699. Your exact payable amount is confirmed before payment.",
+    "One handbook is ₹249, two are ₹399, three are ₹549, four are ₹699, and all five are ₹999. Eligible first-time buyers receive the ₹499 First50 collection price. Your exact payable amount is confirmed before payment.",
   ],
   [
     "Will these books guarantee restaurant success?",

@@ -1,20 +1,20 @@
 # Production audit — 10 October 2026
 
-Scope: current Next.js application, HTTP boundaries, browser state, Supabase adapter and SQL transaction logic, Razorpay integration, private Storage delivery and deployment configuration. Includes an independent read-only security review of payment/download code and regression tests for its finding. No external credentials or customer records were used. The cleanup additionally inspected every repository path, all 12 reachable pre-cleanup commits and their 222 unique tracked file versions, plus commit messages. No history was rewritten.
+Scope: current Next.js application, HTTP boundaries, browser state, Supabase adapter and SQL transaction logic, Razorpay integration, private Storage delivery and deployment configuration. Includes an independent read-only security review of payment/download code and regression tests for its finding. The initial review used no external credentials or customer records; subsequent owner-authorized integration checks are recorded below. The cleanup additionally inspected every repository path, all 12 reachable pre-cleanup commits and their 222 unique tracked file versions, plus commit messages. No history was rewritten.
 
 ## Certification
 
 - **CODE-CERTIFIED:** implementation, pricing, input validation, cryptography, authorization, idempotency and state transitions tested locally; actual PostgreSQL migration and transaction invariants tested on PostgreSQL 16; production build/browser flows tested with external API fixtures. This label is scoped evidence, not a guarantee against every vulnerability.
-- **CREDENTIAL-BLOCKED:** real Supabase PostgREST/Storage/RLS platform behavior, actual four-file uploads and delivery, Razorpay account settings, API keys, live capture, refunds and webhook delivery/retry. `npm run check:integrations` and the README smoke test are ready to run after configuration. No external integration success is claimed.
-- **EXTERNAL-MANUAL-VERIFICATION:** owner revocation of old public artifact files; vendor security patch applicability and upgrade; canonical domain/Vercel environment configuration; real provider checkout/CSP behavior and production smoke test.
+- **CREDENTIAL-BLOCKED:** Razorpay rejects the locally configured test key pair with 401 Unauthorized, and the webhook secret is not yet configured. Real capture, refunds and webhook delivery/retry remain unverified. `npm run check:integrations` passes its database/private Storage checks, then fails Razorpay authentication.
+- **PRODUCTION-VERIFICATION:** owner revocation of old public artifact files; vendor security patch applicability and upgrade; canonical domain/Vercel environment configuration; deployed paid Supabase commerce flow, real provider checkout/CSP behavior and production smoke test. Direct private Storage signing/retrieval/expiry has been checked with the configured project; the complete real-payment flow remains gated.
 
 ### Subsequent deployment preparation
 
-Read-only checks with owner-supplied credentials confirmed the six tables and expected RPCs are available, the `handbooks` bucket is private, and anonymous table access is denied. Three expected PDFs are present; `handbooks/the-first-table.pdf` remains outstanding. These checks do not certify real payment, webhook, refund or signed-download behavior.
+Read-only checks with owner-supplied credentials confirmed the six tables and expected RPCs are available, the `handbooks` bucket is private, and anonymous table access is denied. All five expected PDFs are now present. Two uploaded filenames were normalized to the existing canonical paths, with SHA-256 checks confirming unchanged PDF contents. Private Storage and anonymous-public-access checks passed for all five objects. These checks do not certify real payment, webhook, refund or entitlement-authorized signed-download behavior.
 
 Test credentials may now omit the webhook secret in local development and Vercel Preview only. Production deployments and live keys still require it. Callback verification and provider reconciliation retain all payment/amount/currency checks. An unconfigured webhook rejects requests with 503 before provider/database access, including signatures made with an empty key or the API key secret. Environment-policy and commerce regression tests cover these boundaries.
 
-Follow-up verification: `npm ci`, environment validation, TypeScript, lint, all **95** unit/API/adapter/domain tests, **8** PostgreSQL tests, production build and **14** desktop/mobile browser tests passed. `npm audit --json` reported zero advisories. A read-only Razorpay Orders API authentication check returned **401 Unauthorized** for the supplied test key pair; replace/recheck the matching Test Mode credentials before external checkout testing. No real payment was attempted.
+Follow-up verification: TypeScript, lint, all **104** unit/API/adapter/domain tests, **57** PostgreSQL tests, production build and **28** desktop/mobile browser tests passed. Coverage now includes all 31 non-empty title combinations through real route handlers, commerce service, both HTTP adapters and PostgreSQL with external HTTP fixtures; returning-buyer pricing from actual database history; concurrent callbacks/webhooks; lost provider/bind/commit responses; and per-title delivery with storage failure/retry. Browser assets were checked against configured privileged credentials with no matches. `npm audit --json` reported zero advisories. A read-only Razorpay Orders API authentication check returned **401 Unauthorized** for the supplied test key pair; replace/recheck the matching Test Mode credentials before external checkout testing. No real payment was attempted. See the [customer lifecycle matrix and evidence](LIFECYCLE_AUDIT.md).
 
 ## Findings fixed in code
 
@@ -88,15 +88,15 @@ Run from the repository root using Node 24.21.0 and the committed lockfile:
 | `npm run check:assets` | Passed; no unsafe public assets |
 | `npm run typecheck` | Passed; no TypeScript errors |
 | `npm run lint` | Passed; warnings denied |
-| `npm test` | 79 passed across five domain/service/HTTP/adapter/repository suites |
-| `npm run test:db` | 8 passed; actual versioned migration applied to fresh temporary PostgreSQL 16, then cluster destroyed |
+| `npm test` | 104 passed across six domain/service/HTTP/adapter/repository/environment suites |
+| `npm run test:db` | 57 passed; actual versioned migration applied to fresh temporary PostgreSQL 16, then cluster destroyed; includes database-backed route/SDK/adapter lifecycle tests |
 | `npm run build` | Passed; Next.js 16.4.0 production build, all app/API routes compiled |
-| `PLAYWRIGHT_CHANNEL=chrome npm run test:e2e` | 14 passed across desktop/mobile projects (including gateway failure/retry/dismissal) |
+| `PLAYWRIGHT_CHANNEL=chrome npm run test:e2e` | 28 passed across desktop/mobile projects, including one-through-five-book purchase, lost callback, refresh and every purchased PDF download with external fixtures |
 | `npm audit --json` | 0 critical / high / moderate / low / info advisories |
 | `npx --yes --package=knip@6.41.0 knip --reporter json` | Passed; no unused dependencies, files, exports or unresolved imports |
 | `git diff --check` | Passed |
 
-Unit/API/provider fixtures are mocks. SQL tests use actual PostgreSQL and the actual migration, with a small test-only Supabase roles/Storage schema stub. Browser fixtures test the app's payment wiring and recovery, not Razorpay's hosted payment UI or a real card transaction. External upload, API, webhook and real signed-URL expiry checks were not run without credentials.
+Unit/API/provider fixtures use mocks. The added database lifecycle suite runs the real handlers, service and adapters, forwarding its Supabase HTTP fixture into actual PostgreSQL with the actual migration and a small test-only Supabase roles/Storage schema stub. Browser fixtures test the app's payment/download wiring and recovery, not Razorpay's hosted UI or a real card transaction. Direct application-adapter signing on the configured Supabase project retrieved all five complete PDFs (HTTP 200, byte counts matching Storage metadata, PDF header/end marker present), plus Range/attachment responses; anonymous public paths were denied, and a 60-second signed URL was rejected after expiry (HTTP 400). No capability URLs or secrets were logged. A deployed paid transaction, provider webhooks and customer-side PDF content review remain outstanding.
 
 ## Primary implementation references
 

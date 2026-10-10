@@ -7,7 +7,7 @@ const answers: Record<string, string> = {
   "Which book should I start with?":
     "If you are planning a restaurant, start with The First Table. For a broader journey across marketing, operations, finance and growth, choose the complete collection.",
   "What's included in the bundle?":
-    "All four restaurant business handbooks: The First Table, The Full Table, Behind the Kitchen Door, The Math Behind the Menu.",
+    "All five restaurant business handbooks: The First Table, The Full Table, Behind the Kitchen Door, The Math Behind the Menu, and Empty Tables to Full House.",
   "How do I download my purchase?":
     "After payment is captured, open My purchases and download your handbooks. Save your private purchase link to return on another device.",
   "Are these physical books?":

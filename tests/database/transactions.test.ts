@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import pg from "pg";
 import { randomUUID } from "node:crypto";
+import { catalogue } from "@/lib/catalog";
 const pool = new pg.Pool({
   connectionString: process.env.TEST_DATABASE_URL,
   max: 8,
@@ -40,6 +41,64 @@ afterAll(async () => {
 });
 
 describe("real PostgreSQL transaction invariants", () => {
+  it("snapshots and fulfills all five handbooks once under repeated captured events", async () => {
+    const data = {
+      ...input(),
+      subtotal: 124500,
+      total: 49900,
+      pricing: { book_count: 5, total_inr: 499 },
+      items: catalogue.map((book) => ({
+        product_id: book.id,
+        product_title: book.title,
+        unit_price: book.price_paise,
+        quantity: 1,
+        storage_path: `handbooks/${book.id}.pdf`,
+      })),
+    };
+    await rpc("tkc_create_order", data);
+    const providerOrder = "order_" + data.id.replaceAll("-", "");
+    await rpc("tkc_bind_gateway", {
+      order_id: data.id,
+      razorpay_order_id: providerOrder,
+    });
+    const event = {
+      order_id: data.id,
+      razorpay_order_id: providerOrder,
+      payment_id: "pay_" + data.id.replaceAll("-", ""),
+      amount: 49900,
+      currency: "INR",
+      status: "captured",
+      amount_refunded: 0,
+      event_key: "five:" + data.id,
+      event_type: "payment.captured",
+    };
+    await Promise.all(
+      Array.from({ length: 4 }, () => rpc("tkc_apply_payment", event)),
+    );
+    await rpc("tkc_apply_payment", {
+      ...event,
+      event_key: "repeat:" + data.id,
+    });
+    const rows = (
+      await pool.query(
+        "select product_id, storage_path from public.download_entitlements where order_id=$1",
+        [data.id],
+      )
+    ).rows;
+    expect(rows).toHaveLength(5);
+    expect(rows).toContainEqual({
+      product_id: "empty-tables-to-full-house",
+      storage_path: "handbooks/empty-tables-to-full-house.pdf",
+    });
+    expect(
+      (
+        await pool.query(
+          "select total, status from public.orders where id=$1",
+          [data.id],
+        )
+      ).rows[0],
+    ).toEqual({ total: 49900, status: "paid" });
+  });
   it("atomically creates one order and snapshot for concurrent submissions", async () => {
     const data = input();
     const results = await Promise.all(

@@ -4,7 +4,7 @@
 
 Read all seven page modules, the shell/router, six storefront components, UI primitives, CSS/fonts, browser store and payment client, all Python models/routes/database helpers, existing pytest and Playwright scaffolding, reports, and deployment/template configuration. No `.codegraph/` exists, so CodeGraph was not used.
 
-The repository actually has five books. The requested four-book scope and the existing five-book First50 offer were raised with the owner. Preserve existing pricing (owner confirmed): 1/2/3/4 = ₹249/399/549/699; five-book standard ₹999, eligible first-time ₹499. The first four titles are active under the requested four-book scope. The fifth title, “Empty Tables to Full House”, remains inactive metadata. The five-book First50 logic is dormant and cannot be selected through the active catalogue. No commercial terms changed during cleanup.
+The original brief described four books; the owner subsequently confirmed that all five are sold and uploaded to Supabase Storage. All five titles, including “Empty Tables to Full House”, are now active. Original pricing is preserved: 1/2/3/4 = ₹249/399/549/699; five-book standard ₹999, eligible first-time ₹499. The existing schema, storage mapping and server eligibility/payment logic already supported five titles; no database migration or additional storage provider was needed.
 
 ## Migration map
 
@@ -36,7 +36,7 @@ The conventional `src/` layout is retained. The recursive inventory classified a
 
 Removed the unreferenced Emergent Git identity, conflicting mock design brief, unused SVG sprite and standalone 16/32px PNG favicons (the SVG/ICO/Apple icons remain). Removed unused catalogue/pricing HTTP routes and their quote-only schema. Views now import the canonical catalogue directly instead of a static hook facade. The browser gateway loader is explicitly named `razorpay-checkout.ts`; privileged operations remain under `lib/server/`.
 
-Removed unused `tw-animate-css` and chart/sidebar CSS tokens. Motion and Tailwind's used spinner animation remain. Unused exports became private; no payment algorithm, price, migration or database contract changed. The inactive fifth title/cover and five-book pricing rules remain for the documented historical purpose.
+Removed unused `tw-animate-css` and chart/sidebar CSS tokens. Motion and Tailwind's used spinner animation remain. Unused exports became private; no payment algorithm, price, migration or database contract changed. The fifth title/cover and original five-book pricing rules were retained and activated after the owner's catalogue correction.
 
 The build now rejects unsafe public assets before/after compilation. Ignore files protect local secrets, all PDFs, test/build output, archives and tooling caches. Existing setup/recovery/upload scripts remain necessary and documented. Vite exists only as Vitest's development dependency, with no SPA build or deployment role.
 

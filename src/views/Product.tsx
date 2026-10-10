@@ -209,13 +209,17 @@ export default function Product({ slug }: { slug: string }) {
               data-testid="product-progress-meter"
             >
               <div className="flex justify-between text-[10px] font-mono uppercase tracking-[0.12em] text-[#8c6d46] sm:text-xs sm:tracking-[0.15em]">
-                <span>{progress.count} of 4 selected</span>
+                <span>
+                  {progress.count} of {books.length} selected
+                </span>
                 <span>{formatInr(progress.total)}</span>
               </div>
               <div className="mt-3 h-2 overflow-hidden bg-[#e9dfcf]">
                 <motion.div
                   initial={{ width: 0 }}
-                  animate={{ width: `${progress.count * 25}%` }}
+                  animate={{
+                    width: `${(progress.count / books.length) * 100}%`,
+                  }}
                   transition={{ duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
                   className="h-full bg-[#b49a6a]"
                 />
@@ -224,8 +228,10 @@ export default function Product({ slug }: { slug: string }) {
                 <span>2 · ₹399</span>
                 <span>3 · ₹549</span>
                 <span>4 · ₹699</span>
+                <span>5 · ₹999</span>
               </div>
               <p className="mt-5 text-xs leading-relaxed text-[#8c6d46]">
+                First50: ₹499 for eligible first-time buyers of all five books.
                 Your payable total is confirmed securely at checkout.
               </p>
               <Button

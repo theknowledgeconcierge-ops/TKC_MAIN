@@ -36,7 +36,8 @@ export default function Library() {
         <div>
           <p className="overline">Your collection progress</p>
           <p className="mt-2 font-serif text-xl text-[#29231f] sm:text-2xl">
-            {summary.count} of 4 books selected · {formatInr(summary.total)}
+            {summary.count} of {books.length} books selected ·{" "}
+            {formatInr(summary.total)}
           </p>
         </div>
         <Button
@@ -48,7 +49,7 @@ export default function Library() {
           View your bag <ArrowRight className="ml-2 size-4" />
         </Button>
       </div>
-      <div className="mt-12 grid grid-cols-2 gap-x-4 gap-y-12 sm:mt-14 sm:gap-x-6 sm:gap-y-16 lg:grid-cols-4">
+      <div className="mt-12 grid grid-cols-2 gap-x-4 gap-y-12 sm:mt-14 sm:gap-x-6 sm:gap-y-16 lg:grid-cols-5">
         {books.map((book) => (
           <BookCard key={book.id} book={book} />
         ))}
@@ -64,8 +65,8 @@ export default function Library() {
               One book is a start. The collection goes further.
             </h2>
             <p className="mt-3 max-w-2xl text-sm leading-relaxed text-[#d2c3b3]">
-              Progressive savings unlock automatically at two, three, and four
-              books. Four books complete your collection.
+              Collection savings unlock as you add books. All five complete your
+              collection, with First50 eligibility confirmed at checkout.
             </p>
           </div>
           <Link
