@@ -23,5 +23,23 @@ export const envSchema = z.object({
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(20),
   RAZORPAY_KEY_ID: z.string().regex(/^rzp_(test|live)_[A-Za-z0-9]+$/),
   RAZORPAY_KEY_SECRET: z.string().min(16),
-  RAZORPAY_WEBHOOK_SECRET: z.string().min(20),
+  RAZORPAY_WEBHOOK_SECRET: z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z.string().min(20).optional(),
+  ),
+  // These are runtime/platform values, not additional operator credentials.
+  NODE_ENV: z.enum(["development", "test", "production"]).optional(),
+  VERCEL_ENV: z.enum(["development", "preview", "production"]).optional(),
+}).superRefine((env, context) => {
+  const testMode = env.RAZORPAY_KEY_ID.startsWith("rzp_test_");
+  const preview = env.VERCEL_ENV === "preview";
+  const local =
+    (!env.VERCEL_ENV || env.VERCEL_ENV === "development") &&
+    env.NODE_ENV !== "production";
+  if (!env.RAZORPAY_WEBHOOK_SECRET && !(testMode && (preview || local)))
+    context.addIssue({
+      code: "custom",
+      path: ["RAZORPAY_WEBHOOK_SECRET"],
+      message: "Required for production deployments and live Razorpay credentials",
+    });
 });

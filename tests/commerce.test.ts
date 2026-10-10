@@ -223,6 +223,33 @@ describe("checkout and recovery", () => {
   });
 });
 describe("trusted verification and private downloads", () => {
+  it("verifies a captured test payment and permits downloads without webhook configuration", async () => {
+    service = new CommerceService(repo, provider, {
+      keyId: "rzp_test_fixture",
+      keySecret: secret,
+    });
+    const { checkout, payment } = await captured();
+    expect(
+      (
+        await service.verify(
+          {
+            internal_order_id: checkout.internal_order_id,
+            razorpay_order_id: payment.order_id,
+            razorpay_payment_id: payment.id,
+            razorpay_signature: signature(payment.order_id, payment.id),
+          },
+          token,
+        )
+      ).status,
+    ).toBe("paid");
+    const result = await service.download(
+      checkout.internal_order_id,
+      entitlements[0].id,
+      token,
+    );
+    expect(result.expires_in).toBe(60);
+    expect(repo.signDownload).toHaveBeenCalledTimes(1);
+  });
   it("verifies and fulfills a captured payment exactly once", async () => {
     const { checkout, payment } = await captured();
     const verify = {
@@ -357,6 +384,35 @@ describe("trusted verification and private downloads", () => {
 describe("webhook authenticity, duplicates and retry", () => {
   const signed = (body: string) =>
     createHmac("sha256", "webhook-secret").update(body).digest("hex");
+  it.each([undefined, ""])(
+    "rejects webhooks before provider/database access when the secret is %j",
+    async (webhookSecret) => {
+      service = new CommerceService(repo, provider, {
+        keyId: "rzp_test_fixture",
+        keySecret: secret,
+        webhookSecret,
+      });
+      const providerRead = vi.spyOn(provider, "getPayment");
+      const orderRead = vi.spyOn(repo, "findByProviderOrder");
+      const fulfill = vi.spyOn(repo, "applyPayment");
+      const body = JSON.stringify({
+        event: "payment.captured",
+        payload: { payment: { entity: { id: "pay_abc" } } },
+      });
+      for (const signingSecret of ["", secret]) {
+        const forged = createHmac("sha256", signingSecret)
+          .update(body)
+          .digest("hex");
+        await expect(
+          service.webhook(Buffer.from(body), forged),
+        ).rejects.toMatchObject({ status: 503, code: "CONFIGURATION_REQUIRED" });
+      }
+      expect(providerRead).not.toHaveBeenCalled();
+      expect(orderRead).not.toHaveBeenCalled();
+      expect(fulfill).not.toHaveBeenCalled();
+      expect(entitlements).toHaveLength(0);
+    },
+  );
   it("accepts signed captured events; duplicate and repeated paid events fulfill once", async () => {
     const { payment } = await captured();
     const body = JSON.stringify({

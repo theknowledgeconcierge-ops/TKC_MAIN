@@ -13,7 +13,7 @@ Use Node **24** (`nvm use`) and npm:
 ```sh
 npm ci
 cp .env.example .env.local
-# Fill the six values described below when connecting external services.
+# Fill the values described below when connecting external services.
 npm run check:env
 npm run dev
 ```
@@ -24,12 +24,20 @@ Open http://localhost:3000. The storefront and build work without credentials; p
 | --- | --- | --- |
 | `APP_URL` | Exact origin, e.g. `http://localhost:3000` or your HTTPS production domain; no path | Server configuration |
 | `SUPABASE_URL` | Supabase project URL | Used only on server |
-| `SUPABASE_SERVICE_ROLE_KEY` | Project service-role key | Secret, server only |
+| `SUPABASE_SERVICE_ROLE_KEY` | Project secret API key (`sb_secret_...`) or legacy service-role key | Secret, server only |
 | `RAZORPAY_KEY_ID` | Matching test/live key ID | Server configuration; returned to authorized checkout because Razorpay requires it in the browser |
 | `RAZORPAY_KEY_SECRET` | Secret paired with key ID | Secret, server only |
-| `RAZORPAY_WEBHOOK_SECRET` | Strong secret you choose when registering the webhook (at least 20 characters) | Secret, server only |
+| `RAZORPAY_WEBHOOK_SECRET` | Webhook secret (at least 20 characters); required for production deployments or live Razorpay keys, optional for test checkout in local development/Vercel Preview | Secret, server only |
 
 No Supabase anonymous key, `NEXT_PUBLIC_*` variables or duplicate Razorpay keys are needed. Never put secrets in public variables. Environment validation is lazy at the server boundary so builds do not need production credentials; `check:env` checks everything explicitly without printing values.
+
+### Vercel Preview checkout
+
+Test checkout needs the first five variables above and matched `rzp_test_...` credentials. `RAZORPAY_WEBHOOK_SECRET` can remain unset: callback HMAC verification uses the Razorpay key secret, and the server fetches provider evidence before fulfillment. Confirmation/download requests also reconcile provider state. Webhook requests return 503 until their separate signing secret is configured; they never fall back to the API key secret or an empty key.
+
+Use an actual **Preview** deployment (`npx vercel deploy`, without `--prod`). Enable access to System Environment Variables in Vercel project settings so Vercel supplies `VERCEL_ENV=preview`; do not override it or `NODE_ENV`. Configure Preview environment variables in the project settings, with `APP_URL` matching a stable preview alias, then deploy and assign that alias using `npx vercel alias set DEPLOYMENT_URL PREVIEW_ALIAS`. Open the alias for checkout, since other deployment origins will fail the origin check. Keep deployment protection enabled during internal testing. Production deployments and any use of live keys still require the webhook secret.
+
+Upload all four PDFs before accepting live purchases. A preview with incomplete storage can test checkout/downloads for the uploaded titles; `check:integrations` intentionally continues to fail until all four files exist. Configure and exercise webhook delivery separately before launch.
 
 ## Supabase setup: one migration path
 
@@ -152,7 +160,7 @@ Browser tests start the production build on port 3100, cover desktop/mobile rout
 5. Supply/upload all four PDFs with the exact paths above. Run `npm run check:integrations` after Razorpay credentials are ready. Revoke old public artifact files.
 6. Create matching Razorpay credentials and enable **automatic capture** in Razorpay payment settings. This application deliberately never fulfills merely authorized payments.
 7. Choose a **new** webhook secret; never reuse the legacy secret exposed in commit `da62819` (see the [security incident](docs/SECURITY_AUDIT.md#historical-credential-incident)). Register `https://YOUR_DOMAIN/api/webhooks/razorpay` with the configured webhook secret. Subscribe to **`payment.captured`, `order.paid`, `payment.failed`, `refund.processed`**. Test and live dashboards need their own webhook configuration. Keep the secret stable while older deliveries are retrying.
-8. Import the repository into Vercel with **root directory `.`**, Next.js preset, Node **24.x**. Add all six values to the appropriate environments. Set `APP_URL` to the exact canonical HTTPS domain used by checkout and recovery links. Preview aliases require their own matching `APP_URL` and test credentials; production secrets should not reach untrusted previews.
+8. Import the repository into Vercel with **root directory `.`**, Next.js preset, Node **24.x**. Add all six values to Production; test Preview checkout may omit the webhook secret as described above. Set `APP_URL` to the exact canonical HTTPS domain used by checkout and recovery links. Preview aliases require their own matching `APP_URL` and test credentials; production secrets should not reach untrusted previews.
 9. Review vendor security advisories, then deploy. `vercel.json` sets npm ci/build; no backend process, redirects to a backend, persistent disk or worker is required. Sensitive routes use Node, bounded provider timeouts and no-store responses. Public assets are local. Vercel handles HTTP→HTTPS; use one canonical domain matching `APP_URL`.
 10. Complete the smoke test below in Razorpay test mode, then a small live transaction/refund after configuring live credentials. Verify webhook delivery/retry status in the dashboard. Only then accept customer payments.
 

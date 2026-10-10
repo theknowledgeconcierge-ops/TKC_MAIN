@@ -8,6 +8,14 @@ Scope: current Next.js application, HTTP boundaries, browser state, Supabase ada
 - **CREDENTIAL-BLOCKED:** real Supabase PostgREST/Storage/RLS platform behavior, actual four-file uploads and delivery, Razorpay account settings, API keys, live capture, refunds and webhook delivery/retry. `npm run check:integrations` and the README smoke test are ready to run after configuration. No external integration success is claimed.
 - **EXTERNAL-MANUAL-VERIFICATION:** owner revocation of old public artifact files; vendor security patch applicability and upgrade; canonical domain/Vercel environment configuration; real provider checkout/CSP behavior and production smoke test.
 
+### Subsequent deployment preparation
+
+Read-only checks with owner-supplied credentials confirmed the six tables and expected RPCs are available, the `handbooks` bucket is private, and anonymous table access is denied. Three expected PDFs are present; `handbooks/the-first-table.pdf` remains outstanding. These checks do not certify real payment, webhook, refund or signed-download behavior.
+
+Test credentials may now omit the webhook secret in local development and Vercel Preview only. Production deployments and live keys still require it. Callback verification and provider reconciliation retain all payment/amount/currency checks. An unconfigured webhook rejects requests with 503 before provider/database access, including signatures made with an empty key or the API key secret. Environment-policy and commerce regression tests cover these boundaries.
+
+Follow-up verification: `npm ci`, environment validation, TypeScript, lint, all **95** unit/API/adapter/domain tests, **8** PostgreSQL tests, production build and **14** desktop/mobile browser tests passed. `npm audit --json` reported zero advisories. A read-only Razorpay Orders API authentication check returned **401 Unauthorized** for the supplied test key pair; replace/recheck the matching Test Mode credentials before external checkout testing. No real payment was attempted.
+
 ## Findings fixed in code
 
 | Severity | Finding | Resolution and evidence |

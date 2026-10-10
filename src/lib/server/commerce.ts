@@ -45,7 +45,7 @@ export class CommerceService {
     private readonly config: {
       keyId: string;
       keySecret: string;
-      webhookSecret: string;
+      webhookSecret?: string;
     },
   ) {}
   get mode(): "test" | "live" {
@@ -382,6 +382,12 @@ export class CommerceService {
     signature: string | null,
     providerId?: string,
   ): Promise<{ status: string; duplicate: boolean }> {
+    if (!this.config.webhookSecret)
+      throw new HttpError(
+        503,
+        "CONFIGURATION_REQUIRED",
+        "Webhook verification is not configured.",
+      );
     if (!verifySignature(raw, signature, this.config.webhookSecret))
       throw new HttpError(
         400,
