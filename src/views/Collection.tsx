@@ -1,5 +1,5 @@
 "use client";
-import { ArrowRight, Check } from "lucide-react";
+import { ArrowRight, Check, Sparkles } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import BookCover from "@/components/BookCover";
@@ -33,28 +33,35 @@ export default function Collection() {
             From your first restaurant idea to attracting customers, managing
             people, understanding numbers, and rebuilding demand.
           </p>
-          <div className="mt-8 flex flex-wrap items-end gap-6">
-            <div>
-              <span className="text-sm text-[#c5b7a8] line-through">
-                {formatInr(collection.regular_total_inr)} individual total
-              </span>
-              <p className="mt-1 font-serif text-4xl text-[#e9dfcf]">
-                {formatInr(collection.total_inr)}{" "}
-                <span className="font-sans text-sm text-[#c5b7a8]">
-                  standard
-                </span>
-              </p>
-            </div>
-            <div className="border-l border-[#c5a880]/40 pl-6">
-              <p className="font-serif text-3xl text-[#c5a880]">
-                Save {formatInr(collection.total_savings_inr)}
-              </p>
-              <p className="text-sm text-[#d2c3b3]">complete collection</p>
+          <div className="mt-8 w-fit max-w-full border border-[#c5a880] bg-[#e9d5ad] px-5 py-5 text-[#302821] sm:px-6">
+            <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.16em]">
+              <Sparkles className="size-4" aria-hidden="true" />
+              First50 offer
+            </p>
+            <div className="mt-3 flex flex-wrap items-end gap-x-5 gap-y-3">
+              <div>
+                <p className="text-sm text-[#5e4938]">
+                  Bundle price{" "}
+                  <del className="text-lg">
+                    {formatInr(collection.total_inr)}
+                  </del>
+                </p>
+                <p className="mt-1 font-serif text-6xl leading-none tracking-tight">
+                  <span className="sr-only">Offer price </span>
+                  {formatInr(firstTimeCollection.total_inr)}
+                </p>
+              </div>
+              <div className="border-l border-[#302821]/25 pl-5 text-sm">
+                All five handbooks
+                <p className="mt-1 font-semibold">
+                  Save{" "}
+                  {formatInr(collection.total_inr - firstTimeCollection.total_inr)}
+                </p>
+              </div>
             </div>
           </div>
           <p className="mt-4 text-sm text-[#d2c3b3]">
-            First50: {formatInr(firstTimeCollection.total_inr)} for eligible
-            first-time buyers. Eligibility is confirmed at checkout.
+            For eligible first-time buyers. Eligibility is confirmed at checkout.
           </p>
           <Button
             onClick={() => {

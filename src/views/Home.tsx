@@ -12,15 +12,9 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import BookCard from "@/components/BookCard";
 import BookCover from "@/components/BookCover";
-import { activeBooks as books, formatInr } from "@/lib/catalog";
+import CollectionOffer from "@/components/CollectionOffer";
+import { activeBooks as books } from "@/lib/catalog";
 import { useStore } from "@/lib/store";
-import { quoteFor } from "@/lib/commerce/pricing";
-
-const collection = quoteFor(books.map((book) => book.id));
-const firstTimeCollection = quoteFor(
-  books.map((book) => book.id),
-  true,
-);
 
 const trustItems = [
   { icon: BookOpen, label: "5 practical handbooks" },
@@ -30,7 +24,7 @@ const trustItems = [
 ];
 
 export default function Home() {
-  const { addBooks, setBagOpen } = useStore();
+  const { setBagOpen } = useStore();
   return (
     <div data-testid="home-page">
       <section
@@ -208,83 +202,7 @@ export default function Home() {
           ))}
         </div>
       </section>
-      <section
-        id="collection"
-        className="bg-[#302821] text-[#f7f4ee]"
-        data-testid="featured-collection-section"
-      >
-        <div className="mx-auto grid max-w-7xl items-center gap-12 px-4 py-20 sm:px-6 md:grid-cols-[.9fr_1.1fr] lg:px-8">
-          <div>
-            <p className="overline text-[#c5a880]">The flagship offer</p>
-            <h2
-              className="mt-5 font-serif text-4xl leading-tight sm:text-5xl"
-              data-testid="collection-heading"
-            >
-              Five books. One complete restaurant business journey.
-            </h2>
-            <p
-              className="mt-6 max-w-xl text-base leading-relaxed text-[#d2c3b3]"
-              data-testid="collection-copy"
-            >
-              From the first restaurant idea to attracting customers, managing
-              operations, understanding numbers, and rebuilding demand—one
-              connected learning experience.
-            </p>
-            <div className="mt-8 flex flex-wrap items-end gap-5">
-              <div>
-                <p className="text-sm text-[#c5b7a8] line-through">
-                  {formatInr(collection.regular_total_inr)} individual total
-                </p>
-                <p className="mt-1 font-serif text-4xl text-[#e9dfcf]">
-                  {formatInr(collection.total_inr)}
-                </p>
-              </div>
-              <div className="border-l border-[#c5a880]/40 pl-5 text-sm text-[#d2c3b3]">
-                five handbooks
-                <br />
-                <span className="font-mono text-[#c5a880]">
-                  SAVE {formatInr(collection.total_savings_inr)}
-                </span>
-              </div>
-            </div>
-            <p className="mt-4 text-sm text-[#d2c3b3]">
-              First50: {formatInr(firstTimeCollection.total_inr)} for eligible
-              first-time buyers. Eligibility is confirmed at checkout.
-            </p>
-            <Button
-              className="mt-8 bg-[#c5a880] text-[#181412] hover:bg-[#b38f56]"
-              size="lg"
-              onClick={() => {
-                addBooks(books.map((book) => book.id));
-                setBagOpen(true);
-              }}
-              data-testid="collection-primary-cta"
-            >
-              Get all {books.length} books{" "}
-              <ArrowRight className="ml-2 size-4" />
-            </Button>
-            <p className="mt-3 text-xs text-[#b8a99a]">
-              Razorpay secure checkout · instant PDF access after confirmed
-              payment
-            </p>
-          </div>
-          <div
-            className="grid grid-cols-5 gap-2 sm:gap-4"
-            data-testid="collection-cover-grid"
-          >
-            {books.map((book) => (
-              <Link
-                href={`/books/${book.slug}`}
-                key={book.id}
-                className="transition-transform duration-300 hover:-translate-y-2"
-                data-testid={`collection-cover-link-${book.slug}`}
-              >
-                <BookCover book={book} compact />
-              </Link>
-            ))}
-          </div>
-        </div>
-      </section>
+      <CollectionOffer />
       <section
         className="mx-auto grid max-w-7xl items-center gap-12 px-4 py-24 sm:px-6 md:grid-cols-[.8fr_1.2fr] lg:px-8"
         data-testid="silent-partner-section"

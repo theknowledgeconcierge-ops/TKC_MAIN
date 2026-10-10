@@ -12,6 +12,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { Button } from "@/components/ui/button";
 import BookCard from "@/components/BookCard";
 import BookCover from "@/components/BookCover";
+import CollectionOffer from "@/components/CollectionOffer";
 import { activeBooks as books, formatInr } from "@/lib/catalog";
 import { useStore, summaryFor } from "@/lib/store";
 
@@ -183,6 +184,7 @@ export default function Product({ slug }: { slug: string }) {
           </motion.div>
         </div>
       </section>
+      <CollectionOffer />
       <motion.section
         initial={{ opacity: 0.65 }}
         whileInView={{ opacity: 1 }}
