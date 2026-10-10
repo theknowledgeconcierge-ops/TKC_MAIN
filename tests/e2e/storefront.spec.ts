@@ -821,3 +821,88 @@ test("download all requests exactly the purchased books from the authorized orde
   await expect.poll(() => files).toEqual([`${ids[0]}.pdf`, `${ids[1]}.pdf`]);
   await expect(page.getByTestId("thank-you-page")).toBeVisible();
 });
+
+test("a remembered order priced before a change is replaced by a fresh ₹499 order", async ({
+  page,
+}) => {
+  const fixture = (id: string, gateway: string, total: number, message: string) => ({
+    key_id: "rzp_test_fixture",
+    payment_mode: "test",
+    internal_order_id: id,
+    order_number: `TKC-${id.replaceAll("-", "")}`,
+    razorpay_order_id: gateway,
+    amount_paise: total * 100,
+    currency: "INR",
+    customer_name: "Test Buyer",
+    customer_email: "buyer@example.com",
+    customer_mobile: "9876543210",
+    description: "Five handbooks",
+    pricing: {
+      book_count: 5,
+      regular_total_inr: 1245,
+      automatic_discount_inr: 246,
+      automatic_price_inr: 999,
+      coupon_code: total === 499 ? "FIRST50" : null,
+      coupon_discount_inr: 999 - total,
+      total_inr: total,
+      total_savings_inr: 1245 - total,
+      message,
+    },
+  });
+  const staleId = "1f3e0d2c-0b4a-4c6d-8e7f-9a0b1c2d3e4f";
+  const created: { checkout_token: string }[] = [];
+  const resumed: unknown[] = [];
+  await page.route("**/api/orders", async (route) => {
+    created.push(route.request().postDataJSON());
+    // First visit: the order a previous deployment priced at ₹999.
+    await route.fulfill({
+      status: 201,
+      json:
+        created.length === 1
+          ? fixture(staleId, "order_staleprice", 999, "The standard collection price applies to returning customers.")
+          : fixture("2a4f1e3d-1c5b-4d7e-9f80-a1b2c3d4e5f6", "order_freshprice", 499, "Promotional collection price applied."),
+    });
+  });
+  await page.route("**/api/orders/resume", async (route) => {
+    resumed.push(route.request().postDataJSON());
+    await route.fulfill({
+      status: 409,
+      json: {
+        error: {
+          code: "CHECKOUT_PRICE_CHANGED",
+          message: "Prices have changed since this checkout started.",
+        },
+      },
+    });
+  });
+  await page.goto("/restaurant-business-collection");
+  await page.getByTestId("collection-page-add-all-btn").click();
+  const submit = async () => {
+    await page.getByTestId("smart-bag-checkout-btn").click();
+    await page.getByTestId("razorpay-checkout-name-input").fill("Test Buyer");
+    await page.getByTestId("razorpay-checkout-email-input").fill("buyer@example.com");
+    await page.getByTestId("razorpay-checkout-mobile-input").fill("9876543210");
+    await page.getByTestId("razorpay-create-order-btn").click();
+  };
+  await submit();
+  await expect(page.getByTestId("razorpay-confirmed-total")).toHaveText("₹999");
+  await page.getByTestId("razorpay-checkout-close-btn").click();
+  if (!(await page.getByTestId("smart-bag-checkout-btn").isVisible()))
+    await page.getByTestId("nav-bag-toggle-btn").click();
+
+  // Same browser, same details: the remembered order is refused and replaced.
+  await submit();
+  await expect(page.getByTestId("razorpay-confirmed-total")).toHaveText("₹499");
+  await expect(page.getByTestId("razorpay-open-btn")).toContainText("Pay ₹499 with Razorpay");
+  await expect(page.getByTestId("razorpay-price-change-notice")).toHaveCount(0);
+  await expect(page.getByText("Your order has been refreshed with the latest price.")).toBeVisible();
+  await expect(page.getByTestId("razorpay-review-step")).not.toContainText("returning customers");
+  expect(resumed).toEqual([{ order_id: staleId, book_ids: [...ids].sort() }]);
+  expect(created).toHaveLength(2);
+  expect(created[1].checkout_token).toMatch(/^[A-Za-z0-9_-]{43}$/);
+  expect(created[1].checkout_token).not.toBe(created[0].checkout_token);
+  const remembered = await page.evaluate(() =>
+    JSON.parse(localStorage.getItem("tkc_checkout_attempt") ?? "null"),
+  );
+  expect(remembered.order_id).toBe("2a4f1e3d-1c5b-4d7e-9f80-a1b2c3d4e5f6");
+});

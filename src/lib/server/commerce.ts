@@ -18,6 +18,7 @@ import type {
   DeliveryPayload,
   OrderRecord,
   PublicDelivery,
+  PricingQuote,
   PublicOrder,
   ProviderOrder,
   ProviderPayment,
@@ -69,6 +70,13 @@ const sessionRequired = () =>
     404,
     "PURCHASE_SESSION_REQUIRED",
     "Open this purchase in the browser used to complete payment.",
+  );
+// The order was priced or composed differently from what checkout charges today.
+const priceChanged = () =>
+  new HttpError(
+    409,
+    "CHECKOUT_PRICE_CHANGED",
+    "Prices have changed since this checkout started. Start a new checkout to see the latest price.",
   );
 export class CommerceService {
   constructor(
@@ -142,12 +150,21 @@ export class CommerceService {
       });
     }
     authorizeCheckout(order, input.checkout_token);
-    if (order.status === "paid" || order.status === "refunded")
-      throw new HttpError(
+    const completed = () =>
+      new HttpError(
         409,
         "ORDER_COMPLETED",
         "This order already has a payment. Open your purchase page to check its status.",
       );
+    if (order.status === "paid" || order.status === "refunded") throw completed();
+    const pricing = this.currentQuote(order);
+    if (!pricing) {
+      // A captured payment may not be recorded yet: never invite a second payment.
+      const current = await this.reconcile(order.id, input.checkout_token);
+      if (current.status === "paid" || current.status === "refunded")
+        throw completed();
+      throw priceChanged();
+    }
     const gatewayId = await this.ensureGateway(order);
     return {
       key_id: this.config.keyId,
@@ -157,12 +174,43 @@ export class CommerceService {
       razorpay_order_id: gatewayId,
       amount_paise: order.total,
       currency: order.currency,
-      pricing: order.pricing,
+      pricing,
       customer_name: order.customer_name,
       customer_email: order.customer_email,
       customer_mobile: order.customer_mobile,
       description: `${order.order_items.length} Knowledge Concierge handbooks`,
     };
+  }
+  // An unpaid order may be resumed only while it still matches today's catalogue and
+  // price. Paid orders never reach this check and keep their original amount.
+  private currentQuote(
+    order: OrderRecord,
+    bookIds?: readonly string[],
+  ): PricingQuote | null {
+    const ids = order.order_items.map((item) => item.product_id).sort();
+    if (bookIds && [...new Set(bookIds)].sort().join() !== ids.join())
+      return null;
+    let quote: PricingQuote;
+    try {
+      quote = quoteFor(ids);
+    } catch {
+      return null;
+    }
+    const itemsCurrent = order.order_items.every((item) => {
+      const book = activeBooks.find((candidate) => candidate.id === item.product_id);
+      return (
+        !!book &&
+        item.quantity === 1 &&
+        item.unit_price === book.price_paise &&
+        item.storage_path === pdfPaths[book.id as ProductId]
+      );
+    });
+    return itemsCurrent &&
+      order.currency === "INR" &&
+      order.subtotal === quote.regular_total_inr * 100 &&
+      order.total === quote.total_inr * 100
+      ? quote
+      : null;
   }
 
   private assertProviderOrder(
@@ -327,7 +375,11 @@ export class CommerceService {
     return this.publicOrder(order, !!sessionToken);
   }
 
-  async resume(id: string, token?: string): Promise<CheckoutOrder> {
+  async resume(
+    id: string,
+    token?: string,
+    bookIds?: readonly string[],
+  ): Promise<CheckoutOrder> {
     const current = await this.reconcile(id, token);
     if (current.status === "paid" || current.status === "refunded")
       throw new HttpError(
@@ -336,6 +388,9 @@ export class CommerceService {
         "This order already has a payment. Open My purchases before paying again.",
       );
     const order = await this.authorizedCheckout(id, token);
+    // Never hand out a stale order or its Razorpay order; the client starts a fresh one.
+    const pricing = this.currentQuote(order, bookIds);
+    if (!pricing) throw priceChanged();
     const gatewayId = await this.ensureGateway(order);
     return {
       key_id: this.config.keyId,
@@ -345,7 +400,7 @@ export class CommerceService {
       razorpay_order_id: gatewayId,
       amount_paise: order.total,
       currency: order.currency,
-      pricing: order.pricing,
+      pricing,
       customer_name: order.customer_name,
       customer_email: order.customer_email,
       customer_mobile: order.customer_mobile,

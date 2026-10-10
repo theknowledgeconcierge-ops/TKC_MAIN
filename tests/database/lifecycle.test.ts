@@ -1735,3 +1735,122 @@ describe("post-purchase email delivery through real routes and PostgreSQL", () =
     expect(await snapshot(paid.id)).toMatchObject({ status: "paid", entitlements: 1 });
   });
 });
+
+describe("stale unpaid orders after a price change (real routes and PostgreSQL)", () => {
+  // Recreates production order 103e70bf: unpaid, stored at ₹999 with a 99,900 paise Razorpay order.
+  async function historical(ids = allIds) {
+    const started = await start(ids);
+    const id = started.checkout.internal_order_id;
+    await pool.query(
+      "update public.orders set total=99900, pricing = pricing || $2::jsonb where id=$1",
+      [
+        id,
+        JSON.stringify({
+          coupon_code: null,
+          coupon_discount_inr: 0,
+          total_inr: 999,
+          total_savings_inr: 246,
+          message: "The standard collection price applies to returning customers.",
+        }),
+      ],
+    );
+    gateways.find((gateway) => gateway.id === started.checkout.razorpay_order_id)!.amount = 99900;
+    return { ...started, id };
+  }
+  const orderRow = async (id: string) =>
+    (
+      await pool.query(
+        "select status, total, subtotal, pricing, razorpay_order_id, razorpay_payment_id, gateway_started_at, updated_at from public.orders where id=$1",
+        [id],
+      )
+    ).rows[0];
+
+  it("rejects the stale ₹999 order on every path, concurrently, and creates a fresh ₹499 order instead", async () => {
+    const stale = await historical();
+    const before = await orderRow(stale.id);
+    const oldGateway = structuredClone(gateways[0]);
+    const resumeBody = { order_id: stale.id, book_ids: allIds };
+    const attempts = await Promise.all([
+      ...Array.from({ length: 4 }, () =>
+        resume(request("orders/resume", resumeBody, stale.cookie)),
+      ),
+      ...Array.from({ length: 2 }, () => create(request("orders", stale.payload))),
+    ]);
+    for (const response of attempts) {
+      expect(response.status).toBe(409);
+      const text = await response.text();
+      expect(JSON.parse(text).error.code).toBe("CHECKOUT_PRICE_CHANGED");
+      // The stale Razorpay order is never handed out.
+      expect(text).not.toContain(oldGateway.id);
+      expect(text).not.toContain("99900");
+    }
+    expect(gateways).toEqual([oldGateway]);
+    expect(await orderRow(stale.id)).toEqual(before);
+
+    // The client's retry: same customer and cart, fresh checkout token.
+    const fresh = await create(
+      request("orders", {
+        ...stale.payload,
+        checkout_token: randomBytes(32).toString("base64url"),
+      }),
+    );
+    expect(fresh.status).toBe(201);
+    const checkout = (await fresh.json()) as CheckoutOrder;
+    expect(checkout.internal_order_id).not.toBe(stale.id);
+    expect(checkout.amount_paise).toBe(49900);
+    expect(checkout.pricing).toMatchObject({ total_inr: 499, coupon_discount_inr: 500 });
+    expect(gateways).toHaveLength(2);
+    expect(gateways[0]).toEqual(oldGateway);
+    expect(gateways[1]).toMatchObject({
+      amount: 49900,
+      currency: "INR",
+      notes: { internal_order_id: checkout.internal_order_id },
+    });
+    expect(await snapshot(checkout.internal_order_id)).toMatchObject({
+      total: 49900,
+      subtotal: 124500,
+      status: "payment_pending",
+    });
+    expect(await orderRow(stale.id)).toEqual(before);
+  });
+
+  it("resumes a current-price unpaid order normally and only with the same books", async () => {
+    const current = await start([allIds[0], allIds[1]]);
+    const id = current.checkout.internal_order_id;
+    const narrowed = await resume(
+      request("orders/resume", { order_id: id, book_ids: [allIds[0]] }, current.cookie),
+    );
+    expect(narrowed.status).toBe(409);
+    expect((await narrowed.json()).error.code).toBe("CHECKOUT_PRICE_CHANGED");
+    const resumed = await resume(
+      request("orders/resume", { order_id: id, book_ids: [allIds[1], allIds[0]] }, current.cookie),
+    );
+    expect(resumed.status).toBe(200);
+    expect(await resumed.json()).toMatchObject({
+      internal_order_id: id,
+      razorpay_order_id: gateways[0].id,
+      amount_paise: 39900,
+    });
+    expect(gateways).toHaveLength(1);
+  });
+
+  it("never reprices a paid historical ₹999 order", async () => {
+    const paid = await historical();
+    const payment = capture({
+      razorpay_order_id: paid.checkout.razorpay_order_id,
+      amount_paise: 99900,
+    });
+    expect((await notify(payment)).status).toBe(200);
+    for (const response of [
+      await resume(request("orders/resume", { order_id: paid.id, book_ids: allIds }, paid.cookie)),
+      await create(request("orders", paid.payload)),
+    ]) {
+      expect(response.status).toBe(409);
+      expect((await response.json()).error.code).toBe("ORDER_COMPLETED");
+    }
+    const row = await orderRow(paid.id);
+    expect(row).toMatchObject({ status: "paid", total: 99900, razorpay_payment_id: payment.id });
+    expect(row.pricing.total_inr).toBe(999);
+    expect(gateways).toHaveLength(1);
+  });
+});

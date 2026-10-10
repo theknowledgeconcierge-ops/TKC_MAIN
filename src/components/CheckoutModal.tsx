@@ -110,22 +110,35 @@ export default function CheckoutModal({
               order_id?: string;
             })
           : null;
-      if (attempt?.fingerprint === fingerprint && attempt.order_id)
-        return apiPost<CheckoutOrder>("/orders/resume", {
-          order_id: attempt.order_id,
+      const start = (token: string) => {
+        // This idempotency key can only continue checkout; it never authorizes a download.
+        writeStorage("tkc_checkout_attempt", { fingerprint, token });
+        return apiPost<CheckoutOrder>("/orders", {
+          ...payload,
+          checkout_token: token,
         });
-      const token =
-        attempt?.fingerprint === fingerprint &&
-        typeof attempt.token === "string" &&
-        /^[A-Za-z0-9_-]{43}$/.test(attempt.token)
-          ? attempt.token
-          : randomCheckoutToken();
-      // This idempotency key can only continue checkout; it never authorizes a download.
-      writeStorage("tkc_checkout_attempt", { fingerprint, token });
-      return apiPost<CheckoutOrder>("/orders", {
-        ...payload,
-        checkout_token: token,
-      });
+      };
+      try {
+        if (attempt?.fingerprint === fingerprint && attempt.order_id)
+          return await apiPost<CheckoutOrder>("/orders/resume", {
+            order_id: attempt.order_id,
+            book_ids: payload.book_ids,
+          });
+        return await start(
+          attempt?.fingerprint === fingerprint &&
+            typeof attempt.token === "string" &&
+            /^[A-Za-z0-9_-]{43}$/.test(attempt.token)
+            ? attempt.token
+            : randomCheckoutToken(),
+        );
+      } catch (error) {
+        if (!(error instanceof ApiError && error.code === "CHECKOUT_PRICE_CHANGED"))
+          throw error;
+        // The server refused a remembered order priced before a change: start afresh once.
+        const order = await start(randomCheckoutToken());
+        toast.info("Your order has been refreshed with the latest price.");
+        return order;
+      }
     },
     onSuccess: (order) => {
       setCheckoutOrder(order);

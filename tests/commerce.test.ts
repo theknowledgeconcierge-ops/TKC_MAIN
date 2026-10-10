@@ -830,3 +830,156 @@ describe("post-purchase email delivery boundaries", () => {
     expect(orders.get(id)!.status).toBe("paid");
   });
 });
+describe("stale unpaid orders after a price change", () => {
+  const collectionInput = () =>
+    createOrderSchema.parse({
+      ...input(),
+      book_ids: catalogue.map((book) => book.id),
+    });
+  // Recreates the production case: an unpaid order and Razorpay order priced at ₹999.
+  function makeHistorical(id: string) {
+    const order = orders.get(id)!;
+    order.total = 99900;
+    order.pricing = {
+      ...order.pricing,
+      coupon_code: null,
+      coupon_discount_inr: 0,
+      total_inr: 999,
+      total_savings_inr: 246,
+      message: "The standard collection price applies to returning customers.",
+    };
+    providerOrders.find((gateway) => gateway.id === order.razorpay_order_id)!.amount = 99900;
+    return {
+      order: structuredClone(order),
+      gateways: structuredClone(providerOrders),
+    };
+  }
+  const isPriceChanged = { status: 409, code: "CHECKOUT_PRICE_CHANGED" };
+
+  it("refuses to resume or reuse a stale ₹999 order and leaves it and its Razorpay order untouched", async () => {
+    const stale = await service.create(collectionInput());
+    const before = makeHistorical(stale.internal_order_id);
+    await expect(service.resume(stale.internal_order_id, token)).rejects.toMatchObject(
+      isPriceChanged,
+    );
+    await expect(service.create(collectionInput())).rejects.toMatchObject(isPriceChanged);
+    expect(orders.get(stale.internal_order_id)).toEqual(before.order);
+    expect(providerOrders).toEqual(before.gateways);
+    expect(provider.createOrder).toHaveBeenCalledTimes(1);
+  });
+  it("creates a fresh ₹499 order with a new 49,900 paise Razorpay order for the same customer", async () => {
+    const stale = await service.create(collectionInput());
+    makeHistorical(stale.internal_order_id);
+    const fresh = await service.create({
+      ...collectionInput(),
+      checkout_token: "c".repeat(43),
+    });
+    expect(fresh.internal_order_id).not.toBe(stale.internal_order_id);
+    expect(fresh.amount_paise).toBe(49900);
+    expect(fresh.pricing).toMatchObject({ total_inr: 499, coupon_discount_inr: 500 });
+    expect(provider.createOrder).toHaveBeenCalledTimes(2);
+    expect(provider.createOrder).toHaveBeenLastCalledWith(
+      expect.objectContaining({ id: fresh.internal_order_id, total: 49900 }),
+    );
+    expect(orders.get(stale.internal_order_id)!.total).toBe(99900);
+  });
+  it("resumes a current-price unpaid order normally, with today's price breakdown", async () => {
+    const order = await service.create(collectionInput());
+    // An older snapshot at the same total keeps its order, but shows current copy.
+    orders.get(order.internal_order_id)!.pricing.message =
+      "First50 applied for a first-time buyer.";
+    const resumed = await service.resume(order.internal_order_id, token, catalogue.map((book) => book.id));
+    expect(resumed).toMatchObject({
+      internal_order_id: order.internal_order_id,
+      razorpay_order_id: order.razorpay_order_id,
+      amount_paise: 49900,
+    });
+    expect(resumed.pricing.message).toBe("Promotional collection price applied.");
+    expect(provider.createOrder).toHaveBeenCalledTimes(1);
+  });
+  it("never reprices a paid historical ₹999 order", async () => {
+    const stale = await service.create(collectionInput());
+    makeHistorical(stale.internal_order_id);
+    const payment = {
+      id: "pay_historical",
+      order_id: stale.razorpay_order_id,
+      amount: 99900,
+      currency: "INR",
+      status: "captured",
+      captured: true,
+      amount_refunded: 0,
+    };
+    payments.push(payment);
+    await service.verify(
+      {
+        internal_order_id: stale.internal_order_id,
+        razorpay_order_id: payment.order_id,
+        razorpay_payment_id: payment.id,
+        razorpay_signature: signature(payment.order_id, payment.id),
+      },
+      token,
+    );
+    for (const attempt of [
+      () => service.resume(stale.internal_order_id, token),
+      () => service.create(collectionInput()),
+    ])
+      await expect(attempt()).rejects.toMatchObject({ status: 409, code: "ORDER_COMPLETED" });
+    const order = orders.get(stale.internal_order_id)!;
+    expect(order).toMatchObject({ status: "paid", total: 99900 });
+    expect(order.pricing.total_inr).toBe(999);
+    expect((await service.read(stale.internal_order_id, token)).pricing.total_inr).toBe(999);
+  });
+  it("reports a stale order already captured at Razorpay as completed instead of inviting a second payment", async () => {
+    const stale = await service.create(collectionInput());
+    makeHistorical(stale.internal_order_id);
+    payments.push({
+      id: "pay_unrecorded",
+      order_id: stale.razorpay_order_id,
+      amount: 99900,
+      currency: "INR",
+      status: "captured",
+      captured: true,
+      amount_refunded: 0,
+    });
+    await expect(service.create(collectionInput())).rejects.toMatchObject({
+      status: 409,
+      code: "ORDER_COMPLETED",
+    });
+    expect(orders.get(stale.internal_order_id)).toMatchObject({ status: "paid", total: 99900 });
+    expect(provider.createOrder).toHaveBeenCalledTimes(1);
+  });
+  it("refuses a remembered order whose books or catalogue composition no longer match", async () => {
+    const order = await service.create(
+      createOrderSchema.parse({ ...input(), book_ids: ["the-first-table", "the-full-table"] }),
+    );
+    await expect(
+      service.resume(order.internal_order_id, token, ["the-first-table"]),
+    ).rejects.toMatchObject(isPriceChanged);
+    await expect(
+      service.resume(order.internal_order_id, token, ["the-full-table", "the-first-table"]),
+    ).resolves.toMatchObject({ amount_paise: 39900 });
+    orders.get(order.internal_order_id)!.order_items[0].unit_price = 19900;
+    await expect(service.resume(order.internal_order_id, token)).rejects.toMatchObject(
+      isPriceChanged,
+    );
+    orders.get(order.internal_order_id)!.order_items[0].unit_price = 24900;
+    orders.get(order.internal_order_id)!.order_items[1].storage_path = "handbooks/other.pdf";
+    await expect(service.resume(order.internal_order_id, token)).rejects.toMatchObject(
+      isPriceChanged,
+    );
+  });
+  it("lets no concurrent stale attempt expose or use the stale Razorpay order", async () => {
+    const stale = await service.create(collectionInput());
+    const before = makeHistorical(stale.internal_order_id);
+    const results = await Promise.allSettled([
+      ...Array.from({ length: 3 }, () => service.resume(stale.internal_order_id, token)),
+      ...Array.from({ length: 3 }, () => service.create(collectionInput())),
+    ]);
+    for (const result of results) {
+      expect(result.status).toBe("rejected");
+      expect((result as PromiseRejectedResult).reason).toMatchObject(isPriceChanged);
+    }
+    expect(orders.get(stale.internal_order_id)).toEqual(before.order);
+    expect(provider.createOrder).toHaveBeenCalledTimes(1);
+  });
+});

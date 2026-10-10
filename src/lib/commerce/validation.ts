@@ -39,6 +39,11 @@ export const downloadSchema = z.object({
   entitlement_id: z.uuid(),
 });
 export const reconcileSchema = z.object({ order_id: orderIdSchema });
+// A remembered order resumes only if it still holds exactly the cart's current books.
+export const resumeSchema = z.object({
+  order_id: orderIdSchema,
+  book_ids: z.array(productIdSchema).min(1).max(5).optional(),
+});
 // Clients name only their order and, optionally, a corrected address; never files.
 export const deliverySchema = z.object({
   order_id: orderIdSchema,
