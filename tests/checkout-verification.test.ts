@@ -11,6 +11,19 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 describe("in-memory callback verification retry", () => {
+  it("bounds a hanging provider request at 30 seconds without claiming success", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("fetch", vi.fn(() => new Promise(() => {})));
+    const result = expect(verifyCheckoutPayment({ ...payload, internal_order_id: "timeout-fixture" })).rejects.toMatchObject({ code: "PAYMENT_PROCESSING" });
+    await vi.advanceTimersByTimeAsync(30001);
+    await result;
+  }, 1000);
+  it("deduplicates simultaneous verification calls with the same callback proof", async () => {
+    const fetcher = vi.fn(async () => Response.json({ status: "paid", download_authorized: true }));
+    vi.stubGlobal("fetch", fetcher);
+    await Promise.all(Array.from({ length: 5 }, () => verifyCheckoutPayment({ ...payload, internal_order_id: "concurrency-fixture" })));
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
   it("retries a lost response and delayed capture with the same provider proof", async () => {
     vi.useFakeTimers();
     const fetcher = vi

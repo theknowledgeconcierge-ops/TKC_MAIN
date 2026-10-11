@@ -269,17 +269,18 @@ test("checkout reviews server total and payment confirmation survives refresh (p
     download_authorized: true,
     entitlements: [{ id, product_id: ids[0] }],
   };
-  await page.route("**/api/orders", async (route) => {
-    const body = route.request().postDataJSON();
-    expect(body).not.toHaveProperty("total");
-    expect(body.checkout_token).toHaveLength(43);
+  let completed = false;
+  await page.route(/\/api\/orders(?:\/resume)?$/, async (route) => {
+    if (route.request().url().endsWith("/orders")) {
+      const body = route.request().postDataJSON();
+      expect(body).not.toHaveProperty("total");
+      expect(body.checkout_token).toHaveLength(43);
+    }
     await route.fulfill({ json: checkout });
   });
-  await page.route("**/api/payments/verify", (route) =>
-    route.fulfill({ json: order }),
-  );
+  await page.route("**/api/payments/verify", route => { completed = true; return route.fulfill({ json: order }); });
   await page.route("**/api/orders/reconcile", (route) =>
-    route.fulfill({ json: order }),
+    route.fulfill({ json: completed ? order : { ...order, status: "payment_pending", download_authorized: false, entitlements: [], payment_retry_allowed: true } }),
   );
   await page.route(`**/api/orders/${id}`, (route) =>
     route.fulfill({ json: order }),
@@ -490,10 +491,8 @@ for (const count of [1, 2, 3, 4, 5]) {
       download_authorized: settled,
       entitlements: settled ? entitlements : [],
     });
-    await page.route("**/api/orders", async (route) => {
-      expect(route.request().postDataJSON().book_ids).toEqual(
-        [...selected].sort(),
-      );
+    await page.route(/\/api\/orders(?:\/resume)?$/, async (route) => {
+      if (route.request().url().endsWith("/orders")) expect(route.request().postDataJSON().book_ids).toEqual([...selected].sort());
       await route.fulfill({
         json: {
           key_id: "rzp_test_fixture",
@@ -897,7 +896,8 @@ test("a remembered order priced before a change is replaced by a fresh ₹499 or
   await expect(page.getByTestId("razorpay-price-change-notice")).toHaveCount(0);
   await expect(page.getByText("Your order has been refreshed with the latest price.")).toBeVisible();
   await expect(page.getByTestId("razorpay-review-step")).not.toContainText("returning customers");
-  expect(resumed).toEqual([{ order_id: staleId, book_ids: [...ids].sort() }]);
+  // Automatic restore refuses the old price; explicit submission checks again before replacement.
+  expect(resumed).toEqual(Array.from({ length: 2 }, () => ({ order_id: staleId, book_ids: [...ids].sort() })));
   expect(created).toHaveLength(2);
   expect(created[1].checkout_token).toMatch(/^[A-Za-z0-9_-]{43}$/);
   expect(created[1].checkout_token).not.toBe(created[0].checkout_token);

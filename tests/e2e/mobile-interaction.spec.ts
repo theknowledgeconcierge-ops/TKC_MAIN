@@ -181,7 +181,7 @@ test("a persisted cross-tab update becomes the rollback baseline when writes fai
   await page.getByTestId(`book-card-add-btn-${first}`).click();
   await expect.poll(() => page.evaluate(() => localStorage.getItem("knowledge_concierge_bag_v1"))).toContain(first);
   const sibling = await page.context().newPage();
-  await sibling.goto("/books");
+  await ready(sibling);
   await page.evaluate(() => { Storage.prototype.setItem = () => { throw new DOMException("Full", "QuotaExceededError"); }; });
   await sibling.evaluate((id) => localStorage.setItem("knowledge_concierge_bag_v1", JSON.stringify([id])), second);
   await expect(page.getByTestId(`book-card-add-btn-${second}`)).toHaveAttribute("data-state", "in-bag");
@@ -203,11 +203,13 @@ test("checkout acknowledges slow and failed requests, rejects duplicate submissi
   const scriptGate = new Promise<void>((resolve) => { releaseScript = resolve; });
   const verifyGate = new Promise<void>((resolve) => { releaseVerify = resolve; });
   let requests = 0;
-  await page.route("**/api/orders", async (route) => {
+  const preparedCheckout = { key_id: "rzp_test_fixture", payment_mode: "test", internal_order_id: id, order_number: "TKC-mobile", razorpay_order_id: "order_mobile", amount_paise: 24900, currency: "INR", pricing, customer_name: "Test Buyer", customer_email: "buyer@example.com", customer_mobile: "9876543210", description: "One handbook" };
+  await page.route(/\/api\/orders(?:\/resume)?$/, async (route) => {
+    if (route.request().url().endsWith("/resume")) return route.fulfill({ json: preparedCheckout });
     requests++;
     await orderGate;
     if (requests === 1) return route.fulfill({ status: 503, json: { error: { code: "SERVICE_UNAVAILABLE", message: "Temporary outage. Please retry." } } });
-    return route.fulfill({ json: { key_id: "rzp_test_fixture", payment_mode: "test", internal_order_id: id, order_number: "TKC-mobile", razorpay_order_id: "order_mobile", amount_paise: 24900, currency: "INR", pricing, customer_name: "Test Buyer", customer_email: "buyer@example.com", customer_mobile: "9876543210", description: "One handbook" } });
+    return route.fulfill({ json: preparedCheckout });
   });
   await page.route("https://checkout.razorpay.com/v1/checkout.js", async (route) => {
     await scriptGate;

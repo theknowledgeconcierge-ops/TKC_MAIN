@@ -78,6 +78,10 @@ const priceChanged = () =>
     "CHECKOUT_PRICE_CHANGED",
     "Prices have changed since this checkout started. Start a new checkout to see the latest price.",
   );
+const paymentProcessing = () => new HttpError(
+  409, "PAYMENT_PROCESSING",
+  "We're still checking your payment. If your account was charged, please don't make another payment yet.",
+);
 export class CommerceService {
   constructor(
     readonly repo: Repository,
@@ -157,6 +161,11 @@ export class CommerceService {
         "This order already has a payment. Open your purchase page to check its status.",
       );
     if (order.status === "paid" || order.status === "refunded") throw completed();
+    if (order.razorpay_order_id || order.gateway_started_at) {
+      const current = await this.reconcile(order.id, input.checkout_token);
+      if (current.status === "paid" || current.status === "refunded") throw completed();
+      if (!current.payment_retry_allowed) throw paymentProcessing();
+    }
     const pricing = this.currentQuote(order);
     if (!pricing) {
       // A captured payment may not be recorded yet: never invite a second payment.
@@ -325,6 +334,7 @@ export class CommerceService {
       books: order.order_items.map((item) => item.product_id),
       pricing: order.pricing,
       created_at: order.created_at,
+      paid_at: order.paid_at,
       payment_mode: order.payment_mode,
       razorpay_payment_id: order.razorpay_payment_id,
       checkout_expires_at: order.checkout_expires_at,
@@ -392,6 +402,7 @@ export class CommerceService {
         "ORDER_COMPLETED",
         "This order already has a payment. Open My purchases before paying again.",
       );
+    if (!current.payment_retry_allowed) throw paymentProcessing();
     const order = await this.authorizedCheckout(id, token);
     // Never hand out a stale order or its Razorpay order; the client starts a fresh one.
     const pricing = this.currentQuote(order, bookIds);
@@ -502,11 +513,11 @@ export class CommerceService {
       }
     }
     if (!order.razorpay_order_id)
-      return this.publicOrder(order, !!sessionToken);
-    this.assertProviderOrder(
-      order,
-      await this.provider.getOrder(order.razorpay_order_id),
-    );
+      // No payment order was found. ensureGateway still enforces receipt recovery
+      // and the creation lease before creating anything at the provider.
+      return { ...await this.publicOrder(order, !!sessionToken), payment_retry_allowed: true };
+    const gateway = await this.provider.getOrder(order.razorpay_order_id);
+    this.assertProviderOrder(order, gateway);
     const payments = order.razorpay_payment_id
       ? [await this.provider.getPayment(order.razorpay_payment_id)]
       : await this.provider.listPayments(order.razorpay_order_id);
@@ -539,7 +550,13 @@ export class CommerceService {
         payments.find((payment) => payment.id === current.razorpay_payment_id),
         current.razorpay_payment_id,
       );
-    return current;
+    return {
+      ...current,
+      payment_retry_allowed: !["paid", "refunded"].includes(current.status) &&
+        ["created", "attempted"].includes(gateway.status) &&
+        (payments.length === 0 ? gateway.status === "created" : payments.every(payment =>
+          payment.status === "failed" && !payment.captured && payment.amount_refunded === 0)),
+    };
   }
   async download(id: string, entitlementId: string, sessionToken?: string) {
     // Checkout continuation credentials never enter this authorization path.
@@ -754,6 +771,8 @@ export class CommerceService {
       payload.payload.payment?.entity.id ??
       payload.payload.refund?.entity.payment_id;
     let payment = pid ? await this.provider.getPayment(pid) : undefined;
+    if (pid && payment?.id !== pid)
+      throw new HttpError(409, "PAYMENT_MISMATCH", "Payment reference mismatch.");
     const rid = payment?.order_id ?? payload.payload.order?.entity.id;
     if (!rid)
       throw new HttpError(

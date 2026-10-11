@@ -6,7 +6,7 @@ const entitlement = "99a3cb9b-6ef1-4fb7-a60e-87a758e9f613";
 const pricing = { book_count: 1, regular_total_inr: 249, automatic_discount_inr: 0, automatic_price_inr: 249, coupon_discount_inr: 0, total_inr: 249, total_savings_inr: 0, message: "Confirmed" };
 const checkout = { key_id: "rzp_test_fixture", payment_mode: "test", internal_order_id: id, order_number: "TKC-chaos", razorpay_order_id: "order_chaos", amount_paise: 24900, currency: "INR", pricing, customer_name: "Test Buyer", customer_email: "buyer@example.com", customer_mobile: "9876543210", description: "One handbook" };
 function purchase(status = "paid", deliveryStatus = "pending") {
-  return { id, order_number: "TKC-chaos", status, books: [book], pricing, payment_mode: "test", download_authorized: status === "paid", entitlements: status === "paid" ? [{ id: entitlement, product_id: book }] : [], delivery: status === "paid" ? { email: "buyer@example.com", status: deliveryStatus, locked: deliveryStatus === "sent", can_retry: deliveryStatus !== "sent", can_change_email: true, sent_at: deliveryStatus === "sent" ? "2026-10-10T18:00:00Z" : null, error: deliveryStatus === "failed" ? "provider_timeout" : null } : null };
+  return { id, order_number: "TKC-chaos", status, books: [book], pricing, payment_mode: "test", payment_retry_allowed: status === "failed", download_authorized: status === "paid", entitlements: status === "paid" ? [{ id: entitlement, product_id: book }] : [], delivery: status === "paid" ? { email: "buyer@example.com", status: deliveryStatus, locked: deliveryStatus === "sent", can_retry: deliveryStatus !== "sent", can_change_email: true, sent_at: deliveryStatus === "sent" ? "2026-10-10T18:00:00Z" : null, error: deliveryStatus === "failed" ? "provider_timeout" : null } : null };
 }
 function gate() {
   let release!: () => void;
@@ -120,6 +120,7 @@ test("five tabs, reload during Sending, Sent revisit, failed reload and Back/For
   await expect(page.getByTestId("delivery-sent")).toBeVisible();
   await page.goForward();
   await page.goBack();
+  await expect(page.getByTestId("delivery-sent")).toBeVisible();
   expect(requests).toBe(5);
   current = purchase("paid", "failed");
   await page.reload();
@@ -165,14 +166,14 @@ test("reloads in customer form, review and Razorpay opening reuse the checkout w
   await expect(page.getByTestId("razorpay-confirmed-total")).toHaveText("₹249");
   await page.reload();
   await openCheckout(page);
-  await details(page);
-  await page.getByTestId("razorpay-create-order-btn").click();
+  await expect(page.getByTestId("razorpay-confirmed-total")).toHaveText("₹249");
   await page.getByTestId("razorpay-open-btn").click();
   await expect(page.getByTestId("razorpay-open-btn")).toContainText("Opening Razorpay");
+  await expect.poll(() => resumes).toBe(2);
   await page.reload();
   pending.release();
   expect(creates).toBe(1);
-  expect(resumes).toBe(1);
+  expect(resumes).toBe(2);
 });
 
 test("lost create response and network recovery reuse the original checkout key", async ({ page, context }) => {
@@ -203,6 +204,7 @@ test("reload after callback and during verification preserves Paid without upgra
   let verifications = 0;
   await routePurchase(context, () => current);
   await context.route("**/api/orders", route => route.fulfill({ json: checkout }));
+  await context.route("**/api/orders/resume", route => route.fulfill({ json: checkout }));
   await context.route("https://checkout.razorpay.com/v1/checkout.js", route => route.fulfill({ contentType: "application/javascript", body: "window.Razorpay=class {constructor(o){this.o=o} on(){} open(){this.o.handler({razorpay_order_id:'order_chaos',razorpay_payment_id:'pay_chaos',razorpay_signature:'fixture'})}}" }));
   await context.route("**/api/payments/verify", async route => {
     verifications++;

@@ -70,13 +70,45 @@ export function loadRazorpayCheckout(): Promise<void> {
   return checkoutScript;
 }
 
-// Keep the provider callback proof only in memory while retrying a transient failure.
-export async function verifyCheckoutPayment(
-  payload: { internal_order_id: string } & RazorpaySuccess,
-): Promise<PublicOrder> {
+type CallbackProof = { internal_order_id: string } & RazorpaySuccess;
+// No callback proof in URLs or browser storage. Reload recovery uses cookies/webhooks/email.
+const pendingProofs = new Map<string, CallbackProof>();
+const checks = new Map<string, Promise<PublicOrder>>();
+export const hasPendingPaymentVerification = (id: string) => pendingProofs.has(id);
+export function retryPaymentVerification(id: string) {
+  const proof = pendingProofs.get(id);
+  if (!proof) throw new Error("No callback proof is available in this page.");
+  return verifyCheckoutPayment(proof);
+}
+export function verifyCheckoutPayment(payload: CallbackProof): Promise<PublicOrder> {
+  const key = JSON.stringify(payload);
+  const existing = checks.get(key);
+  if (existing) return existing;
+  pendingProofs.set(payload.internal_order_id, payload);
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      controller.abort();
+      reject(new ApiError(409, "PAYMENT_PROCESSING", "We're still checking your payment. If your account was charged, please don't make another payment yet."));
+    }, 30000);
+  });
+  const check = Promise.race([verifyWithRetries(payload, controller.signal), timeout])
+    .then(order => {
+      if (pendingProofs.get(payload.internal_order_id) === payload) pendingProofs.delete(payload.internal_order_id);
+      return order;
+    }).finally(() => {
+      clearTimeout(timer);
+      checks.delete(key);
+    });
+  checks.set(key, check);
+  return check;
+}
+async function verifyWithRetries(payload: CallbackProof, signal: AbortSignal): Promise<PublicOrder> {
   for (let attempt = 0; ; attempt++) {
+    if (signal.aborted) throw new ApiError(409, "PAYMENT_PROCESSING", "Payment confirmation is still processing.");
     try {
-      const order = await apiPost<PublicOrder>("/payments/verify", payload);
+      const order = await apiPost<PublicOrder>("/payments/verify", payload, signal);
       if (order.status !== "paid" && order.status !== "refunded")
         throw new ApiError(
           409,

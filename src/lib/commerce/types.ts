@@ -93,6 +93,9 @@ export interface PublicOrder {
   razorpay_payment_id: string | null;
   checkout_expires_at: string;
   download_authorized: boolean;
+  // Only fresh reconciliation can permit another payment attempt; absence is unknown.
+  payment_retry_allowed?: boolean;
+  paid_at?: string | null;
   entitlements: { id: string; product_id: string }[];
   // Present only for a verified purchase session on a paid order.
   delivery: PublicDelivery | null;
