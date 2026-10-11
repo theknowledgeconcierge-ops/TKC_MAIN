@@ -179,6 +179,19 @@ useEffect(() => {
   ) return;
 
   const storageKey = `tkc_meta_purchase_${order.id}`;
+  console.info("[TKC Purchase Debug]", {
+  orderPaid: order.status === "paid",
+  downloadAuthorized: order.download_authorized,
+  paymentMode: order.payment_mode,
+  pixelAvailable: typeof window.fbq === "function",
+  alreadyMarkedTracked: (() => {
+    try {
+      return !!localStorage.getItem(storageKey);
+    } catch {
+      return false;
+    }
+  })(),
+});
 
   try {
     if (localStorage.getItem(storageKey)) return;
