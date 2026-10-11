@@ -169,6 +169,58 @@ export default function ThankYou() {
   }, [id, ready, cache]);
   const order = query.data;
   const paid = order?.status === "paid" && order.download_authorized;
+  
+useEffect(() => {
+  if (
+    !order ||
+    !paid ||
+    order.payment_mode !== "live" ||
+    typeof window === "undefined"
+  ) return;
+
+  const storageKey = `tkc_meta_purchase_${order.id}`;
+
+  try {
+    if (localStorage.getItem(storageKey)) return;
+  } catch {
+    // Continue without persistent duplicate protection.
+  }
+
+  const fbq = (
+    window as Window & {
+      fbq?: (
+        command: string,
+        event: string,
+        parameters: Record<string, unknown>,
+        options?: Record<string, unknown>
+      ) => void;
+    }
+  ).fbq;
+
+  if (typeof fbq !== "function") return;
+
+  fbq(
+    "track",
+    "Purchase",
+    {
+      value: order.pricing.total_inr,
+      currency: "INR",
+      content_type: "product",
+      content_ids: order.books,
+      num_items: order.books.length,
+    },
+    {
+      eventID: `purchase_${order.id}`,
+    }
+  );
+
+  try {
+    localStorage.setItem(storageKey, "1");
+  } catch {
+    // Tracking still works if storage is unavailable.
+  }
+}, [order, paid]);
+
   useEffect(() => {
     if (order?.status === "paid" && cleared.current !== order.id) {
       cleared.current = order.id;
