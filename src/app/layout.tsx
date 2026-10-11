@@ -57,9 +57,6 @@ export default async function RootLayout({
     // Let Next suspend CSS smooth scrolling while restoring the route's scroll position.
     <html lang="en" data-scroll-behavior="smooth">
       <head>
-        <meta name="csp-nonce" content={nonce} />
-        
-<head>
   <meta name="csp-nonce" content={nonce} />
 
   <Script
