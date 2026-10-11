@@ -12,6 +12,27 @@ import { activeBooks } from "./catalog";
 import { quoteFor } from "./commerce/pricing";
 import { readStorage, writeStorage } from "./browser-storage";
 const BAG_STORAGE_KEY = "knowledge_concierge_bag_v1";
+function trackAddToCart(bookIds: string[], total: number) {
+  if (typeof window === "undefined" || bookIds.length === 0) return;
+
+  const pixel = window as Window & {
+    fbq?: (
+      command: string,
+      event: string,
+      parameters: Record<string, unknown>
+    ) => void;
+  };
+
+  if (typeof pixel.fbq !== "function") return;
+
+  pixel.fbq("track", "AddToCart", {
+    content_ids: bookIds,
+    content_type: "product",
+    value: total,
+    currency: "INR",
+    num_items: bookIds.length,
+  });
+}
 interface BagSummary {
   count: number;
   regularTotal: number;
@@ -77,6 +98,7 @@ const BagOpenContext = createContext<boolean | null>(null);
 const ActionsContext = createContext<CartActions | null>(null);
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const previousCartIds = useRef<string[]>([]);
   const [hydrated, setHydrated] = useState(false);
   const [bagOpen, setBagOpen] = useState(false);
   const [announcement, setAnnouncement] = useState("");
@@ -86,12 +108,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const saved = readStorage(BAG_STORAGE_KEY);
     const ids = sanitizeBag(saved);
     if (Array.isArray(saved)) savedIds.current = ids;
+    previousCartIds.current = ids;
     setSelectedIds(ids);
     setHydrated(true);
     const sync = (event: StorageEvent) => {
       if (event.key === BAG_STORAGE_KEY || event.key === null) {
         const ids = sanitizeBag(readStorage(BAG_STORAGE_KEY));
         savedIds.current = ids;
+        previousCartIds.current = ids;
         setSelectedIds(ids);
       }
     };
@@ -116,6 +140,19 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       );
     }
   }, [selectedIds, hydrated]);
+  useEffect(() => {
+  if (!hydrated) return;
+
+  const previous = previousCartIds.current;
+  const addedIds = selectedIds.filter((id) => !previous.includes(id));
+
+  previousCartIds.current = selectedIds;
+
+  if (addedIds.length === 0) return;
+
+  const total = summaryFor(addedIds).total;
+  trackAddToCart(addedIds, total);
+}, [selectedIds, hydrated]);
   const cart = useMemo<Cart>(
     () => ({ selectedIds, summary: summaryFor(selectedIds), persistenceError }),
     [selectedIds, persistenceError],
@@ -123,9 +160,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const actions = useMemo<CartActions>(
     () => ({
       setBagOpen,
-      addBook: (id) => setSelectedIds((ids) => sanitizeBag([...ids, id])),
-      addBooks: (ids) =>
-        setSelectedIds((current) => sanitizeBag([...current, ...ids])),
+    addBook: (id) => {
+  setSelectedIds((current) => sanitizeBag([...current, id]));
+},
+addBooks: (ids) => {
+  setSelectedIds((current) => sanitizeBag([...current, ...ids]));
+},
       removeBook: (id) =>
         setSelectedIds((ids) => ids.filter((value) => value !== id)),
       removePurchased: (purchased) =>
