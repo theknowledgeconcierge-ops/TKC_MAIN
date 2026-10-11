@@ -413,7 +413,27 @@ export default function SmartBag() {
               <Button
                 className="h-11 w-full sm:h-8"
                 disabled={summary.count === 0}
-                onClick={() => setCheckoutOpen(true)}
+                onClick={() => {
+  const pixel = window as Window & {
+    fbq?: (
+      command: string,
+      event: string,
+      parameters: Record<string, unknown>
+    ) => void;
+  };
+
+  if (typeof pixel.fbq === "function") {
+    pixel.fbq("track", "InitiateCheckout", {
+      content_ids: selectedIds,
+      content_type: "product",
+      value: summary.total,
+      currency: "INR",
+      num_items: selectedIds.length,
+    });
+  }
+
+  setCheckoutOpen(true);
+}}
                 data-testid="smart-bag-checkout-btn"
               >
                 {summary.count === 5
