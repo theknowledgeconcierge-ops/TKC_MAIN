@@ -2,6 +2,8 @@
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { PAYMENT_LEAVE_COPY, PAYMENT_SUPPORT_EMAIL, PAYMENT_WAIT_COPY } from "@/lib/payment-support";
+import ConnectivityNotice from "@/components/ConnectivityNotice";
+import { useConnectivity } from "@/lib/connectivity";
 
 export function PaymentSupport({ mode = "uncertain" }: { mode?: "uncertain" | "paid" | "email" }) {
   return <aside className="mt-5 text-left text-sm leading-relaxed text-[#6e655e]" data-testid="payment-support">
@@ -17,6 +19,7 @@ export function VerificationRecovery({ pending, confirmLeave, onContinue, onLeav
   pending: boolean; confirmLeave: boolean; onContinue: () => void; onLeave: () => void; onCheckAgain: () => void;
 }) {
   const [slow, setSlow] = useState(false);
+  const online = useConnectivity();
   useEffect(() => {
     if (!pending) return;
     const timer = setTimeout(() => setSlow(true), 10000);
@@ -24,6 +27,7 @@ export function VerificationRecovery({ pending, confirmLeave, onContinue, onLeav
   }, [pending]);
   return <section className="flex max-h-[calc(94dvh-8rem)] flex-col p-5 sm:p-6" data-testid="verification-recovery" aria-live="polite">
     <div className="min-h-0 overflow-y-auto overscroll-contain">
+    <ConnectivityNotice />
     <h3 className="font-serif text-2xl text-[#29231f]">{confirmLeave ? "Payment verification is still in progress" : pending && !slow ? "Verifying payment…" : "We're still checking your payment."}</h3>
     <p className="mt-3 text-sm leading-relaxed text-[#6e655e]">{confirmLeave ? PAYMENT_LEAVE_COPY : pending && !slow ? "Please wait while we confirm your payment with Razorpay." : PAYMENT_WAIT_COPY}</p>
     {(confirmLeave || slow || !pending) && <PaymentSupport />}
@@ -33,7 +37,7 @@ export function VerificationRecovery({ pending, confirmLeave, onContinue, onLeav
         <Button className="min-h-11" onClick={onContinue} data-testid="verification-continue">Continue verification</Button>
         <Button className="min-h-11" variant="outline" onClick={onLeave} data-testid="verification-leave">Leave this page</Button>
       </> : !pending && <>
-        <Button className="min-h-11" onClick={onCheckAgain} data-testid="verification-check-again">Check again</Button>
+        <Button className="min-h-11" disabled={!online} onClick={onCheckAgain} data-testid="verification-check-again">Check again</Button>
         <Button className="min-h-11" variant="outline" onClick={onLeave}>Leave this page</Button>
       </>}
     </div>

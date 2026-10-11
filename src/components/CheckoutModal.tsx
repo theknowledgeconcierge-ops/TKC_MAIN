@@ -14,11 +14,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import Modal from "@/components/Modal";
 import { PaymentSupport, VerificationRecovery } from "@/components/PaymentRecovery";
+import ConnectivityNotice from "@/components/ConnectivityNotice";
+import { isOnline, useConnectivity, useRecoveryEvents } from "@/lib/connectivity";
+import { getCheckoutAttempt, saveCheckoutAttempt, getPaymentAttempt, markPaymentAttempt, clearPaymentAttempt } from "@/lib/checkout-recovery";
 import { ApiError, apiPost } from "@/lib/api";
 import { formatInr } from "@/lib/catalog";
 import {
-  readStorage,
-  writeStorage,
   randomCheckoutToken,
   rememberOrder,
 } from "@/lib/browser-storage";
@@ -29,6 +30,7 @@ import {
 } from "@/lib/razorpay-checkout";
 import type { CheckoutOrder, PublicOrder } from "@/lib/commerce/types";
 import { useCart, useCartActions } from "@/lib/store";
+import { mergePurchaseState } from "@/lib/commerce/purchase-state";
 function errorMessage(error: unknown, fallback: string) {
   return error instanceof ApiError ? error.message : fallback;
 }
@@ -50,6 +52,7 @@ export default function CheckoutModal({
   const { setBagOpen } = useCartActions();
   const router = useRouter();
   const cache = useQueryClient();
+  const online = useConnectivity();
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [mobile, setMobile] = useState("");
@@ -62,9 +65,11 @@ export default function CheckoutModal({
   const [verificationStarted, setVerificationStarted] = useState(false);
   const [confirmLeave, setConfirmLeave] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
+  const [unavailableCheckout, setUnavailableCheckout] = useState<string | null>(null);
   const checkoutDialog = useRef<HTMLDialogElement>(null);
   const busy = useRef(false);
   const submitting = useRef(false);
+  const editingDetails = useRef(false);
   const paymentFailed = useRef(false);
   const callbackReceived = useRef(false);
   const leftVerification = useRef(false);
@@ -75,6 +80,7 @@ export default function CheckoutModal({
     setCheckoutOrder(null);
     setGatewayLoading(false);
     setNotice(null);
+    setUnavailableCheckout(null);
     onClose();
   };
   const goToPurchase = (id: string) => {
@@ -85,16 +91,19 @@ export default function CheckoutModal({
     setGatewayActive(false);
     setVerificationStarted(false);
     setConfirmLeave(false);
+    setUnavailableCheckout(null);
     onClose();
     setBagOpen(false);
     router.push("/thank-you?order=" + id);
   };
   const verifyMutation = useMutation({
+    networkMode: "always",
     mutationFn: (payload: { internal_order_id: string } & RazorpaySuccess) =>
       verifyCheckoutPayment(payload),
     onSuccess: async (order) => {
+      clearPaymentAttempt(order.id);
       await cache.cancelQueries({ queryKey: ["purchase", order.id], exact: true });
-      cache.setQueryData(["purchase", order.id], order);
+      cache.setQueryData(["purchase", order.id], (current: PublicOrder | undefined) => mergePurchaseState(current, order));
       if (!leftVerification.current) goToPurchase(order.id);
     },
     onError: () => {
@@ -103,10 +112,12 @@ export default function CheckoutModal({
     },
   });
   const orderMutation = useMutation({
+    networkMode: "always",
     onSettled: () => {
       submitting.current = false;
     },
-    mutationFn: async () => {
+    mutationFn: async (recoverId?: string) => {
+      if (recoverId) return apiPost<CheckoutOrder>("/orders/resume", { order_id: recoverId, book_ids: [...selectedIds].sort() });
       const payload = {
         book_ids: [...selectedIds].sort(),
         full_name: fullName.trim(),
@@ -125,18 +136,10 @@ export default function CheckoutModal({
         .map((byte) => byte.toString(16).padStart(2, "0"))
         .join("");
       const continueCheckout = async () => {
-        const stored = readStorage("tkc_checkout_attempt");
-        const attempt =
-          stored && typeof stored === "object"
-            ? (stored as {
-                fingerprint?: string;
-                token?: string;
-                order_id?: string;
-              })
-            : null;
+        const attempt = getCheckoutAttempt();
         const start = (token: string) => {
           // This idempotency key can only continue checkout; it never authorizes a download.
-          writeStorage("tkc_checkout_attempt", { fingerprint, token });
+          saveCheckoutAttempt({ fingerprint, token, book_ids: payload.book_ids });
           return apiPost<CheckoutOrder>("/orders", {
             ...payload,
             checkout_token: token,
@@ -166,9 +169,10 @@ export default function CheckoutModal({
             title: "Your order has been refreshed with the latest price.",
           });
         }
-        const latest = readStorage("tkc_checkout_attempt") as { fingerprint?: string; token?: string } | null;
-        writeStorage("tkc_checkout_attempt", {
+        const latest = getCheckoutAttempt();
+        saveCheckoutAttempt({
           fingerprint,
+          book_ids: payload.book_ids,
           ...(latest?.fingerprint === fingerprint ? { token: latest.token } : {}),
           order_id: order.internal_order_id,
         });
@@ -180,10 +184,19 @@ export default function CheckoutModal({
         : continueCheckout();
     },
     onSuccess: (order) => {
+      editingDetails.current = false;
       setCheckoutOrder(order);
+      setFullName(order.customer_name);
+      setEmail(order.customer_email ?? "");
+      setMobile(order.customer_mobile);
       rememberOrder(order.internal_order_id);
     },
-    onError: (error) =>
+    onError: (error, recoverId) => {
+      if (recoverId) {
+        if (error instanceof ApiError && error.status === 404) { setUnavailableCheckout(recoverId); return; }
+        if (!(error instanceof ApiError && error.code === "CHECKOUT_PRICE_CHANGED")) { goToPurchase(recoverId); return; }
+        editingDetails.current = true;
+      }
       setNotice({
         tone: "error",
         title: "Checkout could not start",
@@ -192,21 +205,42 @@ export default function CheckoutModal({
           "Check your connection and retry the same checkout.",
         ),
         paymentIssue: error instanceof ApiError && ["ORDER_COMPLETED", "PAYMENT_PROCESSING"].includes(error.code),
-      }),
+      });
+    },
   });
+  const recoverCheckout = () => {
+    if (!open || unavailableCheckout || busy.current || submitting.current || verificationStarted || gatewayActive) return;
+    const payment = getPaymentAttempt();
+    if (payment) {
+      if (isOnline()) goToPurchase(payment.order_id);
+      else setNotice({ tone: "info", title: "We're checking your payment. Please don't make another payment yet.", description: "We'll check this checkout when your connection returns." });
+      return;
+    }
+    const previous = getCheckoutAttempt();
+    if (!editingDetails.current && isOnline() && previous?.order_id && JSON.stringify(previous.book_ids) === JSON.stringify([...selectedIds].sort())) {
+      submitting.current = true;
+      orderMutation.mutate(previous.order_id);
+    }
+  };
+  const recoveryRef = useRef(recoverCheckout);
+  recoveryRef.current = recoverCheckout;
+  useEffect(() => { if (open) recoveryRef.current(); }, [open]);
+  useRecoveryEvents(recoverCheckout, open);
   useEffect(() => {
     // Fetch Razorpay while the buyer reviews, so Pay does not wait on the network.
-    if (checkoutOrder) loadRazorpayCheckout().catch(() => {});
-  }, [checkoutOrder]);
+    if (checkoutOrder && online) loadRazorpayCheckout().catch(() => {});
+  }, [checkoutOrder, online]);
   const openRazorpay = async () => {
-    if (!checkoutOrder || busy.current) return;
+    if (!checkoutOrder || busy.current || !isOnline()) return;
     busy.current = true;
     paymentFailed.current = false;
     setNotice(null);
     setGatewayLoading(true);
+    let preflightComplete = false;
     try {
       // The order may have been paid in another tab since Review was rendered.
       await apiPost<CheckoutOrder>("/orders/resume", { order_id: checkoutOrder.internal_order_id });
+      preflightComplete = true;
       await loadRazorpayCheckout();
       if (!window.Razorpay)
         throw new Error("Razorpay Checkout is unavailable.");
@@ -239,6 +273,7 @@ export default function CheckoutModal({
             try {
               const current = await apiPost<PublicOrder>("/orders/reconcile", { order_id: checkoutOrder.internal_order_id });
               if (!current.payment_retry_allowed) { goToPurchase(checkoutOrder.internal_order_id); return; }
+              clearPaymentAttempt(checkoutOrder.internal_order_id);
             } catch { goToPurchase(checkoutOrder.internal_order_id); return; }
             setGatewayLoading(false);
             setNotice(
@@ -284,12 +319,20 @@ export default function CheckoutModal({
       checkoutDialog.current?.close();
       callbackReceived.current = false;
       setGatewayActive(true);
+      markPaymentAttempt(checkoutOrder.internal_order_id);
       razorpay.open();
     } catch (error) {
+      if (getPaymentAttempt()?.order_id === checkoutOrder.internal_order_id) {
+        try {
+          const current = await apiPost<PublicOrder>("/orders/reconcile", { order_id: checkoutOrder.internal_order_id });
+          if (!current.payment_retry_allowed) { goToPurchase(checkoutOrder.internal_order_id); return; }
+          clearPaymentAttempt(checkoutOrder.internal_order_id);
+        } catch { goToPurchase(checkoutOrder.internal_order_id); return; }
+      }
       busy.current = false;
       setGatewayLoading(false);
       setGatewayActive(false);
-      if (error instanceof ApiError && ["ORDER_COMPLETED", "PAYMENT_PROCESSING"].includes(error.code)) {
+      if (!preflightComplete || getPaymentAttempt()?.order_id === checkoutOrder.internal_order_id || error instanceof ApiError && ["ORDER_COMPLETED", "PAYMENT_PROCESSING"].includes(error.code)) {
         goToPurchase(checkoutOrder.internal_order_id);
         return;
       }
@@ -330,7 +373,7 @@ export default function CheckoutModal({
                 className={`${verificationStarted ? "text-2xl" : "mt-3 text-3xl"} font-serif text-[#29231f]`}
                 data-testid="razorpay-checkout-title"
               >
-                {verificationStarted ? "Payment verification" : checkoutOrder ? "Review your order" : "Complete your order"}
+                {verificationStarted ? "Payment verification" : unavailableCheckout ? "Checkout recovery" : checkoutOrder ? "Review your order" : "Complete your order"}
               </h2>
             </div>
             <Button
@@ -345,6 +388,7 @@ export default function CheckoutModal({
               <X />
             </Button>
           </div>
+          {!verificationStarted && <div className="px-5 sm:px-6"><ConnectivityNotice stage={checkoutOrder || unavailableCheckout ? "payment" : "details"} /></div>}
           {notice && (
             <div
               role={notice.tone === "error" ? "alert" : "status"}
@@ -358,7 +402,13 @@ export default function CheckoutModal({
               {notice.paymentIssue && <PaymentSupport />}
             </div>
           )}
-          {verificationStarted && checkoutOrder ? <>
+          {unavailableCheckout ? <section className="p-5 sm:p-6" data-testid="checkout-unavailable">
+            <h3 className="font-serif text-2xl">This checkout is unavailable or expired.</h3>
+            <p className="mt-3 text-sm leading-relaxed">Expiry does not mean a payment failed. Please check your saved purchase and checkout email before making another payment.</p>
+            <PaymentSupport />
+            <Button className="mt-5 min-h-11 w-full" disabled={!online} onClick={() => goToPurchase(unavailableCheckout)}>Check saved purchase</Button>
+            <Button className="mt-3 min-h-11 w-full" variant="outline" onClick={close}>Return to store</Button>
+          </section> : verificationStarted && checkoutOrder ? <>
             <VerificationRecovery pending={verifyMutation.isPending} confirmLeave={confirmLeave}
               onContinue={() => setConfirmLeave(false)}
               onLeave={() => { leftVerification.current = true; goToPurchase(checkoutOrder.internal_order_id); }}
@@ -446,7 +496,7 @@ export default function CheckoutModal({
               <Button
                 className="h-11 w-full sm:h-8"
                 onClick={openRazorpay}
-                disabled={gatewayLoading || verifyMutation.isPending}
+                disabled={!online || orderMutation.isPending || gatewayLoading || verifyMutation.isPending}
                 aria-busy={gatewayLoading || verifyMutation.isPending}
                 data-testid="razorpay-open-btn"
               >
@@ -469,6 +519,7 @@ export default function CheckoutModal({
                 className="h-11 w-full sm:h-8"
                 onClick={() => {
                   setNotice(null);
+                  editingDetails.current = true;
                   setCheckoutOrder(null);
                 }}
                 disabled={gatewayLoading || verifyMutation.isPending}
@@ -483,10 +534,10 @@ export default function CheckoutModal({
               className="space-y-5 p-5 sm:p-6"
               onSubmit={(event) => {
                 event.preventDefault();
-                if (submitting.current) return;
+                if (submitting.current || !isOnline()) return;
                 submitting.current = true;
                 setNotice(null);
-                orderMutation.mutate();
+                orderMutation.mutate(undefined);
               }}
             >
               <div className="grid gap-4 sm:grid-cols-2">
@@ -497,10 +548,11 @@ export default function CheckoutModal({
                   Full name <span aria-hidden="true">*</span>
                   <Input
                     id="checkout-name"
+                    disabled={orderMutation.isPending}
                     required
                     minLength={2}
                     value={fullName}
-                    onChange={(event) => setFullName(event.target.value)}
+                    onChange={(event) => { editingDetails.current = true; setFullName(event.target.value); }}
                     className="mt-2 h-11 sm:h-8"
                     autoComplete="name"
                     data-testid="razorpay-checkout-name-input"
@@ -513,10 +565,11 @@ export default function CheckoutModal({
                   Mobile number <span aria-hidden="true">*</span>
                   <Input
                     id="checkout-mobile"
+                    disabled={orderMutation.isPending}
                     required
                     minLength={7}
                     value={mobile}
-                    onChange={(event) => setMobile(event.target.value)}
+                    onChange={(event) => { editingDetails.current = true; setMobile(event.target.value); }}
                     className="mt-2 h-11 sm:h-8"
                     inputMode="tel"
                     autoComplete="tel"
@@ -531,11 +584,12 @@ export default function CheckoutModal({
                 Email address <span aria-hidden="true">*</span>
                 <Input
                   id="checkout-email"
+                  disabled={orderMutation.isPending}
                   required
                   type="email"
                   maxLength={254}
                   value={email}
-                  onChange={(event) => setEmail(event.target.value)}
+                  onChange={(event) => { editingDetails.current = true; setEmail(event.target.value); }}
                   className="mt-2 h-11 sm:h-8"
                   autoComplete="email"
                   aria-describedby="checkout-email-note"
@@ -556,8 +610,9 @@ export default function CheckoutModal({
                   Coupon code
                   <Input
                     id="checkout-coupon"
+                    disabled={orderMutation.isPending}
                     value={coupon}
-                    onChange={(event) => setCoupon(event.target.value)}
+                    onChange={(event) => { editingDetails.current = true; setCoupon(event.target.value); }}
                     className="mt-2 h-11 uppercase sm:h-8"
                     placeholder="First50"
                     data-testid="razorpay-checkout-coupon-input"
@@ -606,7 +661,7 @@ export default function CheckoutModal({
               <Button
                 type="submit"
                 className="h-11 w-full sm:h-8"
-                disabled={orderMutation.isPending}
+                disabled={!online || orderMutation.isPending}
                 aria-busy={orderMutation.isPending}
                 data-testid="razorpay-create-order-btn"
               >

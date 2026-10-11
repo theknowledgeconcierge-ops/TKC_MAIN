@@ -896,7 +896,8 @@ test("a remembered order priced before a change is replaced by a fresh ₹499 or
   await expect(page.getByTestId("razorpay-price-change-notice")).toHaveCount(0);
   await expect(page.getByText("Your order has been refreshed with the latest price.")).toBeVisible();
   await expect(page.getByTestId("razorpay-review-step")).not.toContainText("returning customers");
-  expect(resumed).toEqual([{ order_id: staleId, book_ids: [...ids].sort() }]);
+  // Automatic restore refuses the old price; explicit submission checks again before replacement.
+  expect(resumed).toEqual(Array.from({ length: 2 }, () => ({ order_id: staleId, book_ids: [...ids].sort() })));
   expect(created).toHaveLength(2);
   expect(created[1].checkout_token).toMatch(/^[A-Za-z0-9_-]{43}$/);
   expect(created[1].checkout_token).not.toBe(created[0].checkout_token);

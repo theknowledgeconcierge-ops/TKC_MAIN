@@ -8,6 +8,8 @@ export class ApiError extends Error {
   }
 }
 async function request<T>(path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
+  if (typeof navigator !== "undefined" && navigator.onLine === false)
+    throw new ApiError(0, "CLIENT_OFFLINE", "You're offline. Reconnect and check again; an interrupted request may already have completed.");
   const response = await fetch(`/api${path}`, {
     method: body === undefined ? "GET" : "POST",
     credentials: "same-origin",

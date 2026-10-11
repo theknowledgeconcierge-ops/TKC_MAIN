@@ -6,6 +6,7 @@ import { activeBooks as books, formatInr } from "@/lib/catalog";
 import { useBagOpen, useCart, useCartActions } from "@/lib/store";
 import Modal from "@/components/Modal";
 import CheckoutModal from "@/components/CheckoutModal";
+import ConnectivityNotice from "@/components/ConnectivityNotice";
 import BookCover from "@/components/BookCover";
 
 const milestones = [
@@ -119,6 +120,7 @@ export default function SmartBag() {
               </div>
             </div>
             <div className="flex-1 overflow-y-auto overscroll-contain px-4 pb-6 sm:px-6">
+              {!checkoutOpen && <ConnectivityNotice stage="details" />}
               {persistenceError && <p role="alert" className="my-4 border border-[#9b3d32]/40 p-3 text-sm text-[#9b3d32]" data-testid="cart-storage-error">{persistenceError}</p>}
               <div
                 className="relative top-0 z-20 -mx-4 mb-6 border-b border-[#2e241f]/10 bg-[#fbf9f5]/95 px-4 py-5 shadow-[0_8px_18px_rgba(24,20,18,0.04)] backdrop-blur-xl sm:sticky sm:-mx-6 sm:px-6"

@@ -56,6 +56,8 @@ let faults: {
   bind: number;
   apply: number;
   lostCommit: number;
+  lostInternalCommit: number;
+  providerRead: number;
   storage: number;
   lostCreate: number;
   rejectedCreate: number;
@@ -193,6 +195,8 @@ beforeEach(() => {
     bind: 0,
     apply: 0,
     lostCommit: 0,
+    lostInternalCommit: 0,
+    providerRead: 0,
     storage: 0,
     lostCreate: 0,
     rejectedCreate: 0,
@@ -243,6 +247,8 @@ beforeEach(() => {
         return Response.json({ id: accepted.id });
       }
       if (url.origin === "https://api.razorpay.com") {
+        if (init?.method !== "POST" && faults.providerRead-- > 0)
+          return Response.json({ error: "fixture_provider_unavailable" }, { status: 503 });
         expect(headers.get("authorization")).toBe(
           `Basic ${Buffer.from(`${keyId}:${secret}`).toString("base64")}`,
         );
@@ -329,6 +335,7 @@ beforeEach(() => {
             ])
           ).rows[0].result;
           if (
+            (rpc === "tkc_create_order" && faults.lostInternalCommit-- > 0) ||
             (rpc === "tkc_apply_payment" && faults.lostCommit-- > 0) ||
             (rpc === "tkc_create_purchase_session" &&
               faults.lostSessionCommit-- > 0) ||
@@ -773,6 +780,32 @@ describe("real routes → SDK/adapters → PostgreSQL purchase lifecycle (extern
       [payload.email],
     );
     expect(rows[0].n).toBe(1);
+  });
+
+  it("recovers an internal order commit whose response was lost using the same checkout identity", async () => {
+    const payload = input(allIds);
+    faults.lostInternalCommit = 1;
+    expect((await create(request("orders", payload))).status).toBe(503);
+    expect((await pool.query("select count(*)::int n from public.orders where customer_email=$1", [payload.email])).rows[0].n).toBe(1);
+    const retry = await create(request("orders", payload));
+    expect(retry.status).toBe(201);
+    expect(gateways).toHaveLength(1);
+    expect((await pool.query("select count(*)::int n from public.orders where customer_email=$1", [payload.email])).rows[0].n).toBe(1);
+  });
+
+  it("fails closed during provider outage, then converges failed/captured/order-paid redeliveries without a browser", async () => {
+    const started = await start(allIds);
+    faults.providerRead = 1;
+    const blocked = await resume(request("orders/resume", { order_id: started.checkout.internal_order_id }, started.cookie));
+    expect(blocked.status).toBeGreaterThanOrEqual(500);
+    const payment = capture(started.checkout);
+    const responses = await Promise.all([
+      notify(payment, "payment.failed"), notify(payment), notifyOrder(started.checkout), notify(payment), notifyOrder(started.checkout),
+    ]);
+    expect(responses.map(response => response.status)).toEqual([200, 200, 200, 200, 200]);
+    expect(await snapshot(started.checkout.internal_order_id)).toMatchObject({ status: "paid", payments: 1, entitlements: 5 });
+    expect((await pool.query("select count(*)::int n from public.purchase_sessions where order_id=$1", [started.checkout.internal_order_id])).rows[0].n).toBe(0);
+    expect(gateways).toHaveLength(1);
   });
 
   it("converges through ten concurrent resumes, duplicate webhooks and repeated downloads", async () => {

@@ -166,8 +166,7 @@ test("reloads in customer form, review and Razorpay opening reuse the checkout w
   await expect(page.getByTestId("razorpay-confirmed-total")).toHaveText("₹249");
   await page.reload();
   await openCheckout(page);
-  await details(page);
-  await page.getByTestId("razorpay-create-order-btn").click();
+  await expect(page.getByTestId("razorpay-confirmed-total")).toHaveText("₹249");
   await page.getByTestId("razorpay-open-btn").click();
   await expect(page.getByTestId("razorpay-open-btn")).toContainText("Opening Razorpay");
   await expect.poll(() => resumes).toBe(2);
