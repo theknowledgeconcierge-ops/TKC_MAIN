@@ -58,6 +58,7 @@ let faults: {
   lostCommit: number;
   storage: number;
   lostCreate: number;
+  rejectedCreate: number;
   session: number;
   lostSessionCommit: number;
   wrongPaymentReference: number;
@@ -160,6 +161,12 @@ function notify(
     }),
   );
 }
+function notifyOrder(checkout: CheckoutOrder) {
+  const raw = JSON.stringify({ event: "order.paid", payload: { order: { entity: { id: checkout.razorpay_order_id, amount_paid: 1, status: "untrusted" } } } });
+  return webhook(new NextRequest(`${origin}/api/webhooks/razorpay`, {
+    method: "POST", body: raw, headers: { "x-razorpay-signature": hmac(raw, webhookSecret) },
+  }));
+}
 async function snapshot(id: string) {
   return (
     await pool.query(
@@ -188,6 +195,7 @@ beforeEach(() => {
     lostCommit: 0,
     storage: 0,
     lostCreate: 0,
+    rejectedCreate: 0,
     session: 0,
     lostSessionCommit: 0,
     wrongPaymentReference: 0,
@@ -250,6 +258,7 @@ beforeEach(() => {
             status: "created",
           });
           expect(body.partial_payment).toBe(false);
+          if (faults.rejectedCreate-- > 0) return Response.json({ error: "fixture_rejected_before_acceptance" }, { status: 503 });
           const gateway = {
             ...body,
             id: `order_${randomUUID().replaceAll("-", "")}`,
@@ -440,6 +449,48 @@ afterEach(() => {
 afterAll(() => pool.end());
 
 describe("real routes → SDK/adapters → PostgreSQL purchase lifecycle (external HTTP fixtures)", () => {
+  it("recovers a gateway creation rejected before provider acceptance after its claim lease expires", async () => {
+    const payload = input(allIds);
+    faults.rejectedCreate = 1;
+    expect((await create(request("orders", payload))).status).toBe(502);
+    const id = (await pool.query("select id from public.orders where customer_email=$1", [payload.email])).rows[0].id;
+    await pool.query("update public.orders set gateway_started_at=now()-interval '2 minutes' where id=$1", [id]);
+    const retried = await create(request("orders", payload));
+    expect(retried.status).toBe(201);
+    expect((await retried.json()).internal_order_id).toBe(id);
+    expect(gateways).toHaveLength(1);
+  });
+  it.each(["authorized", "created", "unknown"])("refuses repeat checkout and resume while a provider payment is %s", async status => {
+    const started = await start(allIds);
+    capture(started.checkout, { status, captured: false });
+    const checked = await reconcile(request("orders/reconcile", { order_id: started.checkout.internal_order_id }, started.cookie));
+    expect(await checked.json()).toMatchObject({ download_authorized: false, payment_retry_allowed: false });
+    for (const response of await Promise.all([
+      resume(request("orders/resume", { order_id: started.checkout.internal_order_id }, started.cookie)),
+      create(request("orders", started.payload, started.cookie)),
+    ])) {
+      expect(response.status).toBe(409);
+      expect(await response.json()).toMatchObject({ error: { code: "PAYMENT_PROCESSING" } });
+    }
+    expect(gateways).toHaveLength(1);
+    expect(await snapshot(started.checkout.internal_order_id)).toMatchObject({ entitlements: 0 });
+  });
+  it("refuses another payment when the provider order is paid but payment evidence is delayed", async () => {
+    const started = await start();
+    gateways[0].status = "paid";
+    const response = await resume(request("orders/resume", { order_id: started.checkout.internal_order_id }, started.cookie));
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ error: { code: "PAYMENT_PROCESSING" } });
+  });
+  it("allows a definitely failed attempt to retry on the same gateway after fresh reconciliation", async () => {
+    const started = await start();
+    capture(started.checkout, { status: "failed", captured: false });
+    const response = await reconcile(request("orders/reconcile", { order_id: started.checkout.internal_order_id }, started.cookie));
+    expect(await response.json()).toMatchObject({ status: "failed", payment_retry_allowed: true });
+    const continued = await resume(request("orders/resume", { order_id: started.checkout.internal_order_id }, started.cookie));
+    expect(continued.status).toBe(200);
+    expect(await continued.json()).toMatchObject({ razorpay_order_id: started.checkout.razorpay_order_id });
+  });
   it("keeps five first callback sessions valid, then reuses an existing session on repeated verification", async () => {
     const started = await start();
     const payment = capture(started.checkout);
@@ -786,6 +837,16 @@ describe("real routes → SDK/adapters → PostgreSQL purchase lifecycle (extern
       events: 0,
       entitlements: 0,
     });
+  });
+
+  it("rejects webhook provider evidence for a different payment reference", async () => {
+    const { checkout } = await start(allIds);
+    const payment = capture(checkout);
+    faults.wrongPaymentReference = 1;
+    const response = await notify(payment);
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ error: { code: "PAYMENT_MISMATCH" } });
+    expect(await snapshot(checkout.internal_order_id)).toMatchObject({ status: "payment_pending", payments: 0, entitlements: 0 });
   });
 
   it("recovers creation after provider acceptance and failed database binding", async () => {
@@ -1425,6 +1486,109 @@ describe("post-purchase email delivery through real routes and PostgreSQL", () =
       `update public.orders set paid_at = now() - interval '${interval}' where id = any($1::uuid[])`,
       [ids],
     );
+
+  it.each(["never-called", "session-response-lost", "verification-failed", "delayed-webhook"])("fulfills ₹499 without browser cooperation (%s), then emails exactly once", async interruption => {
+    const started = await start(allIds);
+    expect(started.checkout.amount_paise).toBe(49900);
+    const payment = capture(started.checkout);
+    const id = started.checkout.internal_order_id;
+    if (interruption === "session-response-lost" || interruption === "verification-failed") {
+      if (interruption === "session-response-lost") faults.lostSessionCommit = 1;
+      else faults.apply = 1;
+      const response = await verify(request("payments/verify", verification(started.checkout, payment), started.cookie));
+      expect(response.status).toBe(503);
+      expect(response.cookies.get(`tkc_session_${id}`)).toBeUndefined();
+    }
+    if (interruption === "delayed-webhook") {
+      await pool.query("update public.orders set created_at=now()-interval '7 minutes' where id=$1", [id]);
+      await runFallback();
+      expect(emailRequests).toHaveLength(0);
+    }
+    // The order-only webhook ignores payload amount/status and fetches provider evidence.
+    const notified = await Promise.all([
+      ...Array.from({ length: 5 }, () => notifyOrder(started.checkout)),
+      ...Array.from({ length: 5 }, () => notify(payment)),
+    ]);
+    expect(notified.every(response => response.status === 200)).toBe(true);
+    expect(await snapshot(id)).toMatchObject({ status: "paid", payments: 1, entitlements: 5, total: 49900 });
+    const paidAt = (await pool.query("select paid_at from public.orders where id=$1", [id])).rows[0].paid_at;
+    await notify(payment, "payment.failed"); // Stale event label cannot downgrade fresh captured evidence.
+    expect((await pool.query("select paid_at from public.orders where id=$1", [id])).rows[0].paid_at).toEqual(paidAt);
+    expect((await pool.query("select count(*)::int as n from public.purchase_sessions where order_id=$1", [id])).rows[0].n).toBe(interruption === "session-response-lost" ? 1 : 0);
+    const noSession = await orderRead(id, started.cookie);
+    expect(await noSession.json()).toMatchObject({ status: "paid", download_authorized: false, entitlements: [], delivery: null });
+    await runFallback();
+    expect(emailRequests).toHaveLength(0); // Grace starts when capture is durably confirmed.
+    await backdate([id], "6 minutes");
+    await Promise.all([runFallback(), runFallback()]);
+    expect(acceptedEmails.size).toBe(1);
+    expect(emailRequests).toHaveLength(1);
+    expect(emailRequests[0].body.to).toEqual([started.payload.email]);
+    expect(emailRequests[0].body.attachments).toHaveLength(5);
+    expect(await deliveryRow(id)).toMatchObject({ status: "sent", email_version: 1, attempt_count: 1 });
+    expect((await orderRead(id, "")).status).toBe(404);
+  });
+
+  it("a cancelled browser request cannot prevent independent webhook fulfillment and fallback", async () => {
+    const started = await start(allIds);
+    const payment = capture(started.checkout);
+    const id = started.checkout.internal_order_id;
+    let release!: () => void;
+    let reached!: () => void;
+    const paused = new Promise<void>(resolve => { release = resolve; });
+    const reading = new Promise<void>(resolve => { reached = resolve; });
+    const fetcher = globalThis.fetch;
+    let first = true;
+    vi.stubGlobal("fetch", async (url: RequestInfo | URL, init?: RequestInit) => {
+      if (first && String(url).includes(`/v1/payments/${payment.id}`)) { first = false; reached(); await paused; }
+      return fetcher(url, init);
+    });
+    const controller = new AbortController();
+    const pending = verify(new NextRequest(request("payments/verify", verification(started.checkout, payment), started.cookie), { signal: controller.signal }));
+    try {
+      await reading;
+      controller.abort();
+      expect((await notifyOrder(started.checkout)).status).toBe(200);
+      expect(await snapshot(id)).toMatchObject({ status: "paid", entitlements: 5, payments: 1 });
+      expect((await pool.query("select count(*)::int as n from public.purchase_sessions where order_id=$1", [id])).rows[0].n).toBe(0);
+      await backdate([id], "6 minutes");
+      await Promise.all([runFallback(), runFallback()]);
+      expect(acceptedEmails.size).toBe(1);
+    } finally { release(); }
+    await pending; // A surviving handler may finish; its lost cookie is never used by this test.
+    expect(await snapshot(id)).toMatchObject({ status: "paid", entitlements: 5, payments: 1 });
+  });
+
+  it.each(["webhook-first", "verify-first"])("converges browser verification and both webhook types (%s) with one manual/fallback delivery", async ordering => {
+    const started = await start(allIds);
+    const payment = capture(started.checkout);
+    if (ordering === "webhook-first") expect((await notifyOrder(started.checkout)).status).toBe(200);
+    const response = await verify(request("payments/verify", verification(started.checkout, payment), started.cookie));
+    expect(response.status).toBe(200);
+    const id = started.checkout.internal_order_id;
+    const session = cookieFrom(response, id, "session");
+    await Promise.all(Array.from({ length: 5 }, () => notify(payment)));
+    await Promise.all(Array.from({ length: 5 }, () => notifyOrder(started.checkout)));
+    expect(await snapshot(id)).toMatchObject({ status: "paid", entitlements: 5, payments: 1 });
+    await backdate([id], "6 minutes");
+    await Promise.all([send(id, session), runFallback(), runFallback()]);
+    expect(acceptedEmails.size).toBe(1);
+    expect(emailRequests).toHaveLength(1);
+  });
+
+  it("screenshots, references and payment-failed notifications never authorize a session or trigger fallback", async () => {
+    const started = await start(allIds);
+    const payment = capture(started.checkout, { status: "failed", captured: false });
+    const id = started.checkout.internal_order_id;
+    expect((await notify(payment, "payment.failed")).status).toBe(200);
+    const response = await verify(request("payments/verify", { ...verification(started.checkout, payment), razorpay_signature: "0".repeat(64), screenshot: "payment-proof.png", payment_reference: payment.id }, started.cookie));
+    expect(response.status).toBe(400);
+    await backdate([id], "6 minutes");
+    await runFallback();
+    expect(emailRequests).toHaveLength(0);
+    expect(await snapshot(id)).toMatchObject({ status: "failed", entitlements: 0 });
+    expect((await pool.query("select count(*)::int as n from public.purchase_sessions where order_id=$1", [id])).rows[0].n).toBe(0);
+  });
 
   it("shows and sends delivery only to the verified purchase session; a copied URL controls nothing", async () => {
     const paid = await paidPurchase([allIds[0], allIds[2]]);

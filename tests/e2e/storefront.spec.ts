@@ -269,17 +269,18 @@ test("checkout reviews server total and payment confirmation survives refresh (p
     download_authorized: true,
     entitlements: [{ id, product_id: ids[0] }],
   };
-  await page.route("**/api/orders", async (route) => {
-    const body = route.request().postDataJSON();
-    expect(body).not.toHaveProperty("total");
-    expect(body.checkout_token).toHaveLength(43);
+  let completed = false;
+  await page.route(/\/api\/orders(?:\/resume)?$/, async (route) => {
+    if (route.request().url().endsWith("/orders")) {
+      const body = route.request().postDataJSON();
+      expect(body).not.toHaveProperty("total");
+      expect(body.checkout_token).toHaveLength(43);
+    }
     await route.fulfill({ json: checkout });
   });
-  await page.route("**/api/payments/verify", (route) =>
-    route.fulfill({ json: order }),
-  );
+  await page.route("**/api/payments/verify", route => { completed = true; return route.fulfill({ json: order }); });
   await page.route("**/api/orders/reconcile", (route) =>
-    route.fulfill({ json: order }),
+    route.fulfill({ json: completed ? order : { ...order, status: "payment_pending", download_authorized: false, entitlements: [], payment_retry_allowed: true } }),
   );
   await page.route(`**/api/orders/${id}`, (route) =>
     route.fulfill({ json: order }),
@@ -490,10 +491,8 @@ for (const count of [1, 2, 3, 4, 5]) {
       download_authorized: settled,
       entitlements: settled ? entitlements : [],
     });
-    await page.route("**/api/orders", async (route) => {
-      expect(route.request().postDataJSON().book_ids).toEqual(
-        [...selected].sort(),
-      );
+    await page.route(/\/api\/orders(?:\/resume)?$/, async (route) => {
+      if (route.request().url().endsWith("/orders")) expect(route.request().postDataJSON().book_ids).toEqual([...selected].sort());
       await route.fulfill({
         json: {
           key_id: "rzp_test_fixture",

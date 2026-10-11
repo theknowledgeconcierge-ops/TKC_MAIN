@@ -8,12 +8,12 @@ import {
   ShieldCheck,
   X,
 } from "lucide-react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
-import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import Modal from "@/components/Modal";
+import { PaymentSupport, VerificationRecovery } from "@/components/PaymentRecovery";
 import { ApiError, apiPost } from "@/lib/api";
 import { formatInr } from "@/lib/catalog";
 import {
@@ -27,7 +27,7 @@ import {
   verifyCheckoutPayment,
   type RazorpaySuccess,
 } from "@/lib/razorpay-checkout";
-import type { CheckoutOrder } from "@/lib/commerce/types";
+import type { CheckoutOrder, PublicOrder } from "@/lib/commerce/types";
 import { useCart, useCartActions } from "@/lib/store";
 function errorMessage(error: unknown, fallback: string) {
   return error instanceof ApiError ? error.message : fallback;
@@ -37,6 +37,7 @@ interface Notice {
   tone: "error" | "info";
   title: string;
   description?: string;
+  paymentIssue?: boolean;
 }
 export default function CheckoutModal({
   open,
@@ -48,6 +49,7 @@ export default function CheckoutModal({
   const { selectedIds, summary } = useCart();
   const { setBagOpen } = useCartActions();
   const router = useRouter();
+  const cache = useQueryClient();
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [mobile, setMobile] = useState("");
@@ -57,12 +59,18 @@ export default function CheckoutModal({
   );
   const [gatewayLoading, setGatewayLoading] = useState(false);
   const [gatewayActive, setGatewayActive] = useState(false);
+  const [verificationStarted, setVerificationStarted] = useState(false);
+  const [confirmLeave, setConfirmLeave] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
   const checkoutDialog = useRef<HTMLDialogElement>(null);
   const busy = useRef(false);
   const submitting = useRef(false);
   const paymentFailed = useRef(false);
+  const callbackReceived = useRef(false);
+  const leftVerification = useRef(false);
+  const callbackProof = useRef<({ internal_order_id: string } & RazorpaySuccess) | null>(null);
   const close = () => {
+    if (verificationStarted) { setConfirmLeave(true); return; }
     if (busy.current || submitting.current) return;
     setCheckoutOrder(null);
     setGatewayLoading(false);
@@ -75,6 +83,8 @@ export default function CheckoutModal({
     setNotice(null);
     setGatewayLoading(false);
     setGatewayActive(false);
+    setVerificationStarted(false);
+    setConfirmLeave(false);
     onClose();
     setBagOpen(false);
     router.push("/thank-you?order=" + id);
@@ -82,17 +92,14 @@ export default function CheckoutModal({
   const verifyMutation = useMutation({
     mutationFn: (payload: { internal_order_id: string } & RazorpaySuccess) =>
       verifyCheckoutPayment(payload),
-    onSuccess: (order) => {
-      goToPurchase(order.id);
+    onSuccess: async (order) => {
+      await cache.cancelQueries({ queryKey: ["purchase", order.id], exact: true });
+      cache.setQueryData(["purchase", order.id], order);
+      if (!leftVerification.current) goToPurchase(order.id);
     },
-    onError: (error) => {
-      toast.info("Checking your payment", {
-        description: errorMessage(
-          error,
-          "The payment may have succeeded. Check its status before trying again.",
-        ),
-      });
-      if (checkoutOrder) goToPurchase(checkoutOrder.internal_order_id);
+    onError: () => {
+      busy.current = false;
+      setGatewayLoading(false);
     },
   });
   const orderMutation = useMutation({
@@ -184,6 +191,7 @@ export default function CheckoutModal({
           error,
           "Check your connection and retry the same checkout.",
         ),
+        paymentIssue: error instanceof ApiError && ["ORDER_COMPLETED", "PAYMENT_PROCESSING"].includes(error.code),
       }),
   });
   useEffect(() => {
@@ -197,6 +205,8 @@ export default function CheckoutModal({
     setNotice(null);
     setGatewayLoading(true);
     try {
+      // The order may have been paid in another tab since Review was rendered.
+      await apiPost<CheckoutOrder>("/orders/resume", { order_id: checkoutOrder.internal_order_id });
       await loadRazorpayCheckout();
       if (!window.Razorpay)
         throw new Error("Razorpay Checkout is unavailable.");
@@ -222,10 +232,15 @@ export default function CheckoutModal({
         retry: { enabled: true },
         modal: {
           confirm_close: true,
-          ondismiss: () => {
+          ondismiss: async () => {
+            if (callbackReceived.current) return;
             busy.current = false;
-            setGatewayLoading(false);
             setGatewayActive(false);
+            try {
+              const current = await apiPost<PublicOrder>("/orders/reconcile", { order_id: checkoutOrder.internal_order_id });
+              if (!current.payment_retry_allowed) { goToPurchase(checkoutOrder.internal_order_id); return; }
+            } catch { goToPurchase(checkoutOrder.internal_order_id); return; }
+            setGatewayLoading(false);
             setNotice(
               paymentFailed.current
                 ? {
@@ -246,12 +261,19 @@ export default function CheckoutModal({
         handler: (response: RazorpaySuccess) => {
           // Razorpay has closed: show verification progress rather than a bare page.
           setGatewayActive(false);
+          setGatewayLoading(false);
+          callbackReceived.current = true;
+          leftVerification.current = false;
+          setVerificationStarted(true);
           if (checkoutDialog.current && !checkoutDialog.current.open)
             checkoutDialog.current.showModal();
-          verifyMutation.mutate({
+          callbackProof.current = {
             internal_order_id: checkoutOrder.internal_order_id,
             ...response,
-          });
+          };
+          verifyMutation.mutate(callbackProof.current);
+          // Refresh now returns to recovery; this URL still cannot authorize downloads.
+          router.replace("/thank-you?order=" + checkoutOrder.internal_order_id);
         },
       });
       // The provider keeps its iframe open for retries after payment.failed.
@@ -260,12 +282,17 @@ export default function CheckoutModal({
       });
       // Native top-layer dialogs would otherwise hide/inert Razorpay's body-mounted iframe.
       checkoutDialog.current?.close();
+      callbackReceived.current = false;
       setGatewayActive(true);
       razorpay.open();
     } catch (error) {
       busy.current = false;
       setGatewayLoading(false);
       setGatewayActive(false);
+      if (error instanceof ApiError && ["ORDER_COMPLETED", "PAYMENT_PROCESSING"].includes(error.code)) {
+        goToPurchase(checkoutOrder.internal_order_id);
+        return;
+      }
       // A synchronous open() failure can batch true/false state together, so restore explicitly.
       if (checkoutDialog.current && !checkoutDialog.current.open)
         checkoutDialog.current.showModal();
@@ -292,18 +319,18 @@ export default function CheckoutModal({
         data-testid="razorpay-checkout-modal"
       >
         <div className="animate-modal-in max-h-[94dvh] w-full max-w-lg overflow-y-auto overscroll-contain bg-[#fbf9f5] shadow-2xl">
-          <div className="flex items-start justify-between border-b border-[#2e241f]/10 px-5 py-5 sm:px-6">
+          <div className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-[#2e241f]/10 bg-[#fbf9f5] px-5 py-5 sm:px-6">
             <div>
-              <p className="mock-pill" data-testid="razorpay-mode-badge">
+              {!verificationStarted && <p className="mock-pill" data-testid="razorpay-mode-badge">
                 {checkoutOrder
                   ? `RAZORPAY · ${checkoutOrder.payment_mode.toUpperCase()} MODE`
                   : "RAZORPAY SECURE CHECKOUT"}
-              </p>
+              </p>}
               <h2
-                className="mt-3 font-serif text-3xl text-[#29231f]"
+                className={`${verificationStarted ? "text-2xl" : "mt-3 text-3xl"} font-serif text-[#29231f]`}
                 data-testid="razorpay-checkout-title"
               >
-                {checkoutOrder ? "Review your order" : "Complete your order"}
+                {verificationStarted ? "Payment verification" : checkoutOrder ? "Review your order" : "Complete your order"}
               </h2>
             </div>
             <Button
@@ -311,7 +338,7 @@ export default function CheckoutModal({
               size="icon"
               className="size-11 sm:size-8"
               onClick={close}
-              disabled={orderMutation.isPending || gatewayLoading || verifyMutation.isPending}
+              disabled={orderMutation.isPending || gatewayLoading}
               data-testid="razorpay-checkout-close-btn"
               aria-label="Close checkout"
             >
@@ -328,9 +355,17 @@ export default function CheckoutModal({
               {notice.description && (
                 <p className="mt-1 leading-relaxed">{notice.description}</p>
               )}
+              {notice.paymentIssue && <PaymentSupport />}
             </div>
           )}
-          {checkoutOrder ? (
+          {verificationStarted && checkoutOrder ? <>
+            <VerificationRecovery pending={verifyMutation.isPending} confirmLeave={confirmLeave}
+              onContinue={() => setConfirmLeave(false)}
+              onLeave={() => { leftVerification.current = true; goToPurchase(checkoutOrder.internal_order_id); }}
+              onCheckAgain={() => { if (callbackProof.current && !busy.current) { busy.current = true; verifyMutation.mutate(callbackProof.current); } }}
+            />
+            {verifyMutation.isPending && !confirmLeave && <Button className="mx-5 mb-5 min-h-11" disabled aria-busy="true" data-testid="razorpay-open-btn">Verifying payment…</Button>}
+          </> : checkoutOrder ? (
             <div
               className="space-y-5 p-5 sm:p-6"
               data-testid="razorpay-review-step"
