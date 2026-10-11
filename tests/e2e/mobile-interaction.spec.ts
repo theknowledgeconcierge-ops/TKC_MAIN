@@ -153,7 +153,7 @@ for (const persistent of [true, false]) test(`cart ${persistent ? "persistent" :
     const original = Storage.prototype.setItem;
     let failed = false;
     Storage.prototype.setItem = function (key, value) {
-      if (persistent || !failed) {
+      if (key === "knowledge_concierge_bag_v1" && (persistent || !failed)) {
         failed = true;
         throw new DOMException("Full", "QuotaExceededError");
       }
@@ -256,7 +256,7 @@ for (const width of widths) {
   test(`journey has no horizontal overflow and mobile controls are comfortable at ${width}px`, async ({ page }, info) => {
     test.skip(info.project.name !== "mobile", "Mobile viewport matrix");
     await page.setViewportSize({ width, height: width === 320 ? 568 : 844 });
-    for (const path of ["/", "/books", `/books/${first}`, "/restaurant-business-collection", "/about", "/faq", "/thank-you"]) {
+    for (const path of ["/", "/books", `/books/${first}`, "/restaurant-business-collection", "/about", "/faq", "/disclaimer", "/contact-us", "/shipping-delivery-policy", "/refund-cancellation-policy", "/thank-you"]) {
       await page.goto(path);
       await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
       expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth), path).toBeLessThanOrEqual(1);

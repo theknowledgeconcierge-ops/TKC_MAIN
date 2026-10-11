@@ -222,6 +222,21 @@ function Footer() {
           </Link>
         </div>
       </div>
+      <nav
+        aria-label="Policies and contact"
+        className="mx-auto flex max-w-7xl flex-wrap gap-x-6 gap-y-1 px-4 pb-8 text-sm text-[#c5b7a8] sm:px-6 lg:px-8"
+      >
+        {[
+          ["/contact-us", "Contact Us"],
+          ["/shipping-delivery-policy", "Shipping & Delivery Policy"],
+          ["/refund-cancellation-policy", "Refund & Cancellation Policy"],
+          ["/disclaimer", "Disclaimer"],
+        ].map(([href, label]) => (
+          <Link key={href} href={href} className="inline-flex min-h-11 items-center hover:text-white">
+            {label}
+          </Link>
+        ))}
+      </nav>
       <div
         className="border-t border-[#c5a880]/20 px-4 py-5 text-center text-xs text-[#9f9082]"
         data-testid="footer-copyright"

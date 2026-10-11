@@ -60,6 +60,30 @@ export const publicPages = {
     description:
       "Answers about restaurant PDF handbooks, individual books, collection savings, payment confirmation, reading on your phone, purchase access and refund requests.",
   },
+  disclaimer: {
+    path: "/disclaimer",
+    title: "Disclaimer",
+    description:
+      "Read The Knowledge Concierge's educational disclaimer, including independent business decisions, accuracy, professional advice and limitations of liability.",
+  },
+  contact: {
+    path: "/contact-us",
+    title: "Contact Us",
+    description:
+      "Contact The Knowledge Concierge for book, payment, order and download support. Find customer support hours, business details and consumer grievance information.",
+  },
+  shipping: {
+    path: "/shipping-delivery-policy",
+    title: "Shipping & Delivery Policy",
+    description:
+      "Learn how The Knowledge Concierge delivers digital PDF books, when downloads become available, and how to get help with missing or delayed access.",
+  },
+  refunds: {
+    path: "/refund-cancellation-policy",
+    title: "Refund & Cancellation Policy",
+    description:
+      "Read The Knowledge Concierge's digital product refund and cancellation policy, including support for duplicate charges, missing downloads and technical problems.",
+  },
 } as const;
 
 type SeoPage = { path: string; title: string; description: string };

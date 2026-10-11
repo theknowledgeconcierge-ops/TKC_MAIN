@@ -19,6 +19,10 @@ test("all routes, five covers, responsive layout and product contents", async ({
     "/restaurant-business-collection",
     "/about",
     "/faq",
+    "/disclaimer",
+    "/contact-us",
+    "/shipping-delivery-policy",
+    "/refund-cancellation-policy",
     "/thank-you",
   ]) {
     const response = await page.goto(path);
