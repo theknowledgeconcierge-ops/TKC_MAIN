@@ -1,6 +1,6 @@
 "use client";
-import { ArrowRight, Check, Plus, Sparkles, Trash2, Undo2, X } from "lucide-react";
-import { useState } from "react";
+import { ArrowRight, Check, Plus, Sparkles, Trash2, X } from "lucide-react";
+import { useRef, useState, type MouseEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { activeBooks as books, formatInr } from "@/lib/catalog";
 import { useBagOpen, useCart, useCartActions } from "@/lib/store";
@@ -23,13 +23,9 @@ export default function SmartBag() {
   const { setBagOpen, addBook, removeBook, clearBag } = useCartActions();
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
-  // Removed rows stay in place as an Undo line so the next row never slides under the finger.
-  const [removedIds, setRemovedIds] = useState<string[]>([]);
+  const lastRemovalTap = useRef<{ x: number; y: number; at: number } | null>(null);
   const [addedRecommendationIds, setAddedRecommendationIds] = useState<string[]>([]);
   const selected = books.filter((book) => selectedIds.includes(book.id));
-  const rows = books.filter(
-    (book) => selectedIds.includes(book.id) || removedIds.includes(book.id),
-  );
   // Retain an acknowledged recommendation so its neighbour cannot slide under a repeat tap.
   const recommendations = books.filter(
     (book) => !selectedIds.includes(book.id) || addedRecommendationIds.includes(book.id),
@@ -49,13 +45,26 @@ export default function SmartBag() {
               : "Complete collection unlocked: ₹499 promotional price (regular ₹999).";
   const closeBag = () => {
     setConfirmClear(false);
-    setRemovedIds([]);
+    lastRemovalTap.current = null;
     setAddedRecommendationIds([]);
     setBagOpen(false);
   };
-  const remove = (id: string) => {
+  const remove = (id: string, event: MouseEvent<HTMLButtonElement>) => {
+    if (event.detail > 0) {
+      const previous = lastRemovalTap.current;
+      lastRemovalTap.current = {
+        x: event.clientX,
+        y: event.clientY,
+        at: event.timeStamp,
+      };
+      // Absorb a tap burst where the next row slides under the finger, without delaying removal.
+      if (
+        previous && event.timeStamp - previous.at < 400 &&
+        Math.abs(event.clientX - previous.x) < 24 &&
+        Math.abs(event.clientY - previous.y) < 24
+      ) return;
+    }
     removeBook(id);
-    setRemovedIds((ids) => (ids.includes(id) ? ids : [...ids, id]));
   };
 
   return (
@@ -249,7 +258,7 @@ export default function SmartBag() {
                       className="h-11 sm:h-7"
                       onClick={() => {
                         clearBag();
-                        setRemovedIds([]);
+                        lastRemovalTap.current = null;
                         setConfirmClear(false);
                       }}
                       data-testid="smart-bag-clear-confirm-btn"
@@ -260,7 +269,7 @@ export default function SmartBag() {
                 </div>
               )}
 
-              {rows.length === 0 ? (
+              {selected.length === 0 ? (
                 <div
                   className="border border-dashed border-[#b49a6a]/60 bg-[#f5f0e6] p-6 text-center"
                   data-testid="smart-bag-empty-state"
@@ -296,76 +305,35 @@ export default function SmartBag() {
                     className="space-y-2"
                     data-testid="smart-bag-selected-items"
                   >
-                    {rows.map((book) =>
-                      selectedIds.includes(book.id) ? (
-                        <div
-                          className="flex gap-4 border border-[#b49a6a]/45 bg-[#cfc0ae] p-3 shadow-[0_3px_10px_rgba(46,36,31,0.06)]"
-                          key={book.id}
-                          data-testid={`smart-bag-item-${book.slug}`}
-                        >
-                          <div className="h-20 w-14 shrink-0 overflow-hidden">
-                            <BookCover book={book} compact />
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <p className="font-serif text-base text-[#29231f]">
-                              {book.title}
-                            </p>
-                            <p className="mt-1 font-mono text-xs text-[#584b42]">
-                              {formatInr(book.selling_price_inr)} · {book.pages}{" "}
-                              pages
-                            </p>
-                            <button
-                              type="button"
-                              className="-ml-2 mt-0.5 inline-flex h-11 items-center px-2 text-xs font-medium uppercase tracking-[0.14em] text-[#6d4f2d] underline-offset-4 hover:text-[#29231f] hover:underline sm:mt-1 sm:h-8"
-                              onClick={() => remove(book.id)}
-                              aria-label={`Remove ${book.title}`}
-                              data-testid={`smart-bag-remove-${book.slug}`}
-                            >
-                              Remove
-                            </button>
-                          </div>
+                    {selected.map((book) => (
+                      <div
+                        className="flex gap-4 border border-[#b49a6a]/45 bg-[#cfc0ae] p-3 shadow-[0_3px_10px_rgba(46,36,31,0.06)]"
+                        key={book.id}
+                        data-testid={`smart-bag-item-${book.slug}`}
+                      >
+                        <div className="h-20 w-14 shrink-0 overflow-hidden">
+                          <BookCover book={book} compact />
                         </div>
-                      ) : (
-                        <div
-                          className="flex gap-4 border border-dashed border-[#b49a6a]/60 bg-[#e6dccf] p-3"
-                          key={book.id}
-                          data-testid={`smart-bag-removed-${book.slug}`}
-                        >
-                          <div className="h-20 w-14 shrink-0 overflow-hidden opacity-40">
-                            <BookCover book={book} compact />
-                          </div>
-                          <div className="flex min-w-0 flex-1 flex-col">
-                            <p className="font-serif text-base text-[#6a584c] line-through">
-                              {book.title}
-                            </p>
-                            <output
-                              className="mt-1 text-xs text-[#584b42]"
-                            >
-                              Removed from your bag
-                            </output>
-                            {/* Undo sits away from where Remove was, so extra taps land on nothing. */}
-                            <div className="mt-0.5 flex h-11 items-center justify-end sm:mt-1 sm:h-8">
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="h-11 sm:h-8"
-                                onClick={() => {
-                                  addBook(book.id);
-                                  setRemovedIds((ids) =>
-                                    ids.filter((id) => id !== book.id),
-                                  );
-                                }}
-                                aria-label={`Undo removing ${book.title}`}
-                                data-testid={`smart-bag-undo-${book.slug}`}
-                              >
-                                <Undo2 className="mr-1 size-3.5" />
-                                Undo
-                              </Button>
-                            </div>
-                          </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="font-serif text-base text-[#29231f]">
+                            {book.title}
+                          </p>
+                          <p className="mt-1 font-mono text-xs text-[#584b42]">
+                            {formatInr(book.selling_price_inr)} · {book.pages}{" "}
+                            pages
+                          </p>
+                          <button
+                            type="button"
+                            className="-ml-2 mt-0.5 inline-flex h-11 items-center px-2 text-xs font-medium uppercase tracking-[0.14em] text-[#6d4f2d] underline-offset-4 hover:text-[#29231f] hover:underline sm:mt-1 sm:h-8"
+                            onClick={(event) => remove(book.id, event)}
+                            aria-label={`Remove ${book.title}`}
+                            data-testid={`smart-bag-remove-${book.slug}`}
+                          >
+                            Remove
+                          </button>
                         </div>
-                      ),
-                    )}
+                      </div>
+                    ))}
                   </div>
                 </div>
               )}
@@ -396,6 +364,7 @@ export default function SmartBag() {
                           className="size-11 sm:size-6"
                           disabled={selectedIds.includes(book.id)}
                           onClick={() => {
+                            lastRemovalTap.current = null;
                             addBook(book.id);
                             setAddedRecommendationIds((ids) => ids.includes(book.id) ? ids : [...ids, book.id]);
                           }}
