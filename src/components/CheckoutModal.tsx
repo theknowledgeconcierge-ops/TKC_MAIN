@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   LoaderCircle,
   LockKeyhole,
@@ -15,7 +15,8 @@ import ConnectivityNotice from "@/components/ConnectivityNotice";
 import { isOnline, useConnectivity, useRecoveryEvents } from "@/lib/connectivity";
 import { getCheckoutAttempt, saveCheckoutAttempt, getPaymentAttempt, markPaymentAttempt, clearPaymentAttempt } from "@/lib/checkout-recovery";
 import { ApiError, apiPost } from "@/lib/api";
-import { formatInr } from "@/lib/catalog";
+import { activeBooks, formatInr } from "@/lib/catalog";
+import BundleUpsell from "@/components/BundleUpsell";
 import {
   randomCheckoutToken,
   rememberOrder,
@@ -29,6 +30,7 @@ import type { CheckoutOrder, PublicOrder, PricingQuote } from "@/lib/commerce/ty
 import { useCart, useCartActions } from "@/lib/store";
 import { mergePurchaseState } from "@/lib/commerce/purchase-state";
 import { createOrderSchema } from "@/lib/commerce/validation";
+const bundleIds = activeBooks.map(book => book.id).sort();
 function errorMessage(error: unknown, fallback: string) {
   return error instanceof ApiError ? error.message : fallback;
 }
@@ -46,8 +48,8 @@ export default function CheckoutModal({
   open: boolean;
   onClose: () => void;
 }) {
-  const { selectedIds, summary } = useCart();
-  const { setBagOpen } = useCartActions();
+  const { selectedIds, summary, persistenceError } = useCart();
+  const { setBagOpen, addBooks } = useCartActions();
   const router = useRouter();
   const cache = useQueryClient();
   const online = useConnectivity();
@@ -58,7 +60,20 @@ export default function CheckoutModal({
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [paymentUncertain, setPaymentUncertain] = useState(false);
   const [checkingPayment, setCheckingPayment] = useState(false);
-  const bookIds = [...selectedIds].sort();
+  const [upsellOpen, setUpsellOpen] = useState(false);
+  const [upgradePending, setUpgradePending] = useState(false);
+  const seenOffers = useRef(new Set<string>());
+  const latestCart = useRef({ selectedIds, persistenceError });
+  latestCart.current = { selectedIds, persistenceError };
+  const bookIds = useMemo(() => [...selectedIds].sort(), [selectedIds]);
+  const selectionKey = bookIds.join(",");
+  const bundleQuote = useQuery({
+    queryKey: ["checkout-quote", bundleIds, ""],
+    queryFn: () => apiPost<PricingQuote>("/orders/quote", { book_ids: bundleIds }),
+    enabled: open && online && bookIds.length > 0 && bookIds.length < bundleIds.length,
+    retry: 1,
+    staleTime: 30000,
+  });
   const quote = useQuery({
     queryKey: ["checkout-quote", bookIds, selectedIds.length === 5 ? coupon.trim() : ""],
     queryFn: () => apiPost<PricingQuote>("/orders/quote", {
@@ -242,7 +257,36 @@ export default function CheckoutModal({
   };
   const recoveryRef = useRef(recoverCheckout);
   recoveryRef.current = recoverCheckout;
+  const startOrder = orderMutation.mutate;
   useEffect(() => { if (open) recoveryRef.current(); }, [open]);
+  useEffect(() => {
+    if (!open || bookIds.length === bundleIds.length) { setUpsellOpen(false); return; }
+    if (!bookIds.length || getPaymentAttempt() || verificationStarted || paymentUncertain || unavailableCheckout) return;
+    const attempt = getCheckoutAttempt();
+    if (attempt?.order_id && JSON.stringify(attempt.book_ids) === JSON.stringify(bookIds)) return;
+    const key = `tkc_bundle_upsell_seen_${selectionKey}`;
+    let seen = seenOffers.current.has(key);
+    try { seen ||= sessionStorage.getItem(key) === "1"; } catch { /* Memory still prevents repeat offers. */ }
+    if (seen) return;
+    seenOffers.current.add(key);
+    try { sessionStorage.setItem(key, "1"); } catch { /* No contact details are persisted. */ }
+    setUpsellOpen(true);
+  }, [open, bookIds, selectionKey, verificationStarted, paymentUncertain, unavailableCheckout]);
+  useEffect(() => {
+    if (!upgradePending) return;
+    if (persistenceError) { setUpgradePending(false); return; }
+    if (bookIds.length !== bundleIds.length || !quote.data || !online) return;
+    // Let the cart's persistence/rollback effect settle before automatic payment.
+    const timer = setTimeout(() => {
+      setUpgradePending(false);
+      const current = latestCart.current;
+      if (current.persistenceError || current.selectedIds.length !== bundleIds.length ||
+        busy.current || submitting.current || getPaymentAttempt()) return;
+      submitting.current = true;
+      startOrder(undefined);
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [upgradePending, bookIds.length, quote.data, online, persistenceError, startOrder]);
   useRecoveryEvents(recoverCheckout, open);
   useEffect(() => {
     // Fetch Razorpay while details are entered; Pay still waits for a verified order.
@@ -395,7 +439,7 @@ export default function CheckoutModal({
   if (!open) return null;
   const pricing = checkoutOrder?.pricing ?? quote.data;
   const total = pricing?.total_inr;
-  const paymentBusy = orderMutation.isPending || gatewayLoading || checkingPayment;
+  const paymentBusy = orderMutation.isPending || gatewayLoading || checkingPayment || upgradePending;
   return (
     <Modal
       open={open && !gatewayActive}
@@ -410,16 +454,16 @@ export default function CheckoutModal({
         <div className="animate-modal-in max-h-[94dvh] w-full max-w-lg overflow-y-auto overscroll-contain bg-[#fbf9f5] shadow-2xl">
           <div className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-[#2e241f]/10 bg-[#fbf9f5] px-5 py-5 sm:px-6">
             <div>
-              {!verificationStarted && <p className="mock-pill" data-testid="razorpay-mode-badge">
+              {!verificationStarted && !upsellOpen && <p className="mock-pill" data-testid="razorpay-mode-badge">
                 {checkoutOrder
                   ? `RAZORPAY · ${checkoutOrder.payment_mode.toUpperCase()} MODE`
                   : "RAZORPAY SECURE CHECKOUT"}
               </p>}
               <h2
-                className={`${verificationStarted ? "text-2xl" : "mt-3 text-3xl"} font-serif text-[#29231f]`}
+                className={`${upsellOpen ? "text-xl" : verificationStarted ? "text-2xl" : "mt-3 text-3xl"} font-serif text-[#29231f]`}
                 data-testid="razorpay-checkout-title"
               >
-                {verificationStarted ? "Payment verification" : unavailableCheckout ? "Checkout recovery" : "Complete your order"}
+                {verificationStarted ? "Payment verification" : unavailableCheckout ? "Checkout recovery" : upsellOpen ? "The complete toolkit" : "Complete your order"}
               </h2>
             </div>
             <Button
@@ -461,7 +505,22 @@ export default function CheckoutModal({
               onCheckAgain={() => { if (callbackProof.current && !busy.current) { busy.current = true; verifyMutation.mutate(callbackProof.current); } }}
             />
             {verifyMutation.isPending && !confirmLeave && <Button className="mx-5 mb-5 min-h-11" disabled aria-busy="true" data-testid="razorpay-open-btn">Verifying payment…</Button>}
-          </> : (
+          </> : upsellOpen ? <BundleUpsell ids={bookIds} current={quote.isError ? undefined : quote.data}
+            bundle={bundleQuote.isError ? undefined : bundleQuote.data} loading={quote.isPending || bundleQuote.isPending || !online}
+            onDecline={() => setUpsellOpen(false)}
+            onRetry={() => { void quote.refetch(); void bundleQuote.refetch(); }}
+            onUpgrade={() => {
+              if (!bundleQuote.data || busy.current || submitting.current || !isOnline()) return;
+              const valid = createOrderSchema.pick({ full_name: true, email: true, mobile: true }).safeParse({
+                full_name: fullName.trim(), email: email.trim(), mobile: mobile.trim(),
+              });
+              editingDetails.current = true;
+              setCheckoutOrder(null);
+              setCoupon("");
+              setUpsellOpen(false);
+              setUpgradePending(valid.success);
+              addBooks(bundleIds);
+            }} /> : (
             <form
               className="space-y-5 p-5 sm:p-6"
               noValidate

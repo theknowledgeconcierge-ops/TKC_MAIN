@@ -55,6 +55,7 @@ async function openForm(page: Page, books: string[] = [first]) {
   for (const book of books) await page.getByRole("main").getByTestId(`book-card-add-btn-${book}`).click();
   await page.getByTestId("nav-bag-toggle-btn").click();
   await page.getByTestId("smart-bag-checkout-btn").click();
+  if (books.length < catalogue.length) await page.getByTestId("bundle-upsell-decline").click();
 }
 async function fill(page: Page) {
   await page.getByTestId("razorpay-checkout-name-input").fill("Test Buyer");

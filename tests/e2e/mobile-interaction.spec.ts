@@ -2,6 +2,13 @@ import { expect, test, type Page } from "@playwright/test";
 
 // Keep fixture runs isolated from the production advertising dataset.
 test.beforeEach(async ({ context }) => {
+  // These regressions exercise checkout after the offer has already been declined.
+  await context.addInitScript((books: string[]) => {
+    for (let mask=1; mask < (1 << books.length); mask++) {
+      const selection = books.filter((_, index) => mask & (1 << index)).sort().join(",");
+      sessionStorage.setItem(`tkc_bundle_upsell_seen_${selection}`, "1");
+    }
+  }, [first, second]);
   await context.route("https://connect.facebook.net/**", route => route.abort());
   await context.route("https://www.facebook.com/**", route => route.abort());
 });
