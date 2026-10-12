@@ -1,14 +1,11 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import {
-  ArrowLeft,
-  ExternalLink,
   LoaderCircle,
   LockKeyhole,
-  ShieldCheck,
   X,
 } from "lucide-react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -28,9 +25,10 @@ import {
   verifyCheckoutPayment,
   type RazorpaySuccess,
 } from "@/lib/razorpay-checkout";
-import type { CheckoutOrder, PublicOrder } from "@/lib/commerce/types";
+import type { CheckoutOrder, PublicOrder, PricingQuote } from "@/lib/commerce/types";
 import { useCart, useCartActions } from "@/lib/store";
 import { mergePurchaseState } from "@/lib/commerce/purchase-state";
+import { createOrderSchema } from "@/lib/commerce/validation";
 function errorMessage(error: unknown, fallback: string) {
   return error instanceof ApiError ? error.message : fallback;
 }
@@ -57,6 +55,20 @@ export default function CheckoutModal({
   const [email, setEmail] = useState("");
   const [mobile, setMobile] = useState("");
   const [coupon, setCoupon] = useState("");
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [paymentUncertain, setPaymentUncertain] = useState(false);
+  const [checkingPayment, setCheckingPayment] = useState(false);
+  const bookIds = [...selectedIds].sort();
+  const quote = useQuery({
+    queryKey: ["checkout-quote", bookIds, selectedIds.length === 5 ? coupon.trim() : ""],
+    queryFn: () => apiPost<PricingQuote>("/orders/quote", {
+      book_ids: bookIds,
+      ...(selectedIds.length === 5 && coupon.trim() ? { coupon_code: coupon.trim() } : {}),
+    }),
+    enabled: open && online && bookIds.length > 0,
+    retry: 1,
+    staleTime: 30000,
+  });
   const [checkoutOrder, setCheckoutOrder] = useState<CheckoutOrder | null>(
     null,
   );
@@ -81,6 +93,7 @@ export default function CheckoutModal({
     setGatewayLoading(false);
     setNotice(null);
     setUnavailableCheckout(null);
+    setPaymentUncertain(false);
     onClose();
   };
   const goToPurchase = (id: string) => {
@@ -92,6 +105,7 @@ export default function CheckoutModal({
     setVerificationStarted(false);
     setConfirmLeave(false);
     setUnavailableCheckout(null);
+    setPaymentUncertain(false);
     onClose();
     setBagOpen(false);
     router.push("/thank-you?order=" + id);
@@ -183,19 +197,23 @@ export default function CheckoutModal({
         ? navigator.locks.request("tkc-checkout", continueCheckout)
         : continueCheckout();
     },
-    onSuccess: (order) => {
+    onSuccess: async (order, recoverId) => {
       editingDetails.current = false;
       setCheckoutOrder(order);
       setFullName(order.customer_name);
       setEmail(order.customer_email ?? "");
       setMobile(order.customer_mobile);
       rememberOrder(order.internal_order_id);
+      if (!recoverId) await openRazorpay(order);
     },
     onError: (error, recoverId) => {
       if (recoverId) {
         if (error instanceof ApiError && error.status === 404) { setUnavailableCheckout(recoverId); return; }
-        if (!(error instanceof ApiError && error.code === "CHECKOUT_PRICE_CHANGED")) { goToPurchase(recoverId); return; }
-        editingDetails.current = true;
+        if (error instanceof ApiError && error.code === "ORDER_COMPLETED") { goToPurchase(recoverId); return; }
+        if (error instanceof ApiError && error.code === "CHECKOUT_PRICE_CHANGED") {
+          editingDetails.current = true;
+          setCheckoutOrder(null);
+        }
       }
       setNotice({
         tone: "error",
@@ -209,7 +227,7 @@ export default function CheckoutModal({
     },
   });
   const recoverCheckout = () => {
-    if (!open || unavailableCheckout || busy.current || submitting.current || verificationStarted || gatewayActive) return;
+    if (!open || unavailableCheckout || busy.current || submitting.current || verificationStarted || gatewayActive || paymentUncertain) return;
     const payment = getPaymentAttempt();
     if (payment) {
       if (isOnline()) goToPurchase(payment.order_id);
@@ -227,20 +245,20 @@ export default function CheckoutModal({
   useEffect(() => { if (open) recoveryRef.current(); }, [open]);
   useRecoveryEvents(recoverCheckout, open);
   useEffect(() => {
-    // Fetch Razorpay while the buyer reviews, so Pay does not wait on the network.
-    if (checkoutOrder && online) loadRazorpayCheckout().catch(() => {});
-  }, [checkoutOrder, online]);
-  const openRazorpay = async () => {
-    if (!checkoutOrder || busy.current || !isOnline()) return;
+    // Fetch Razorpay while details are entered; Pay still waits for a verified order.
+    if (open && online) loadRazorpayCheckout().catch(() => {});
+  }, [open, online]);
+  const openRazorpay = async (preparedOrder: CheckoutOrder) => {
+    if (busy.current || !isOnline()) return;
+    let checkoutOrder = preparedOrder;
     busy.current = true;
     paymentFailed.current = false;
     setNotice(null);
     setGatewayLoading(true);
-    let preflightComplete = false;
     try {
-      // The order may have been paid in another tab since Review was rendered.
-      await apiPost<CheckoutOrder>("/orders/resume", { order_id: checkoutOrder.internal_order_id });
-      preflightComplete = true;
+      // Recheck across tabs and use the freshly returned authoritative amount/prefill.
+      checkoutOrder = await apiPost<CheckoutOrder>("/orders/resume", { order_id: checkoutOrder.internal_order_id });
+      setCheckoutOrder(checkoutOrder);
       await loadRazorpayCheckout();
       if (!window.Razorpay)
         throw new Error("Razorpay Checkout is unavailable.");
@@ -268,13 +286,14 @@ export default function CheckoutModal({
           confirm_close: true,
           ondismiss: async () => {
             if (callbackReceived.current) return;
-            busy.current = false;
             setGatewayActive(false);
             try {
               const current = await apiPost<PublicOrder>("/orders/reconcile", { order_id: checkoutOrder.internal_order_id });
-              if (!current.payment_retry_allowed) { goToPurchase(checkoutOrder.internal_order_id); return; }
+              if (current.status === "paid" || current.status === "refunded") { goToPurchase(checkoutOrder.internal_order_id); return; }
+              if (!current.payment_retry_allowed) { showUncertainPayment(); return; }
               clearPaymentAttempt(checkoutOrder.internal_order_id);
-            } catch { goToPurchase(checkoutOrder.internal_order_id); return; }
+            } catch { showUncertainPayment(); return; }
+            busy.current = false;
             setGatewayLoading(false);
             setNotice(
               paymentFailed.current
@@ -307,8 +326,7 @@ export default function CheckoutModal({
             ...response,
           };
           verifyMutation.mutate(callbackProof.current);
-          // Refresh now returns to recovery; this URL still cannot authorize downloads.
-          router.replace("/thank-you?order=" + checkoutOrder.internal_order_id);
+          // Keep the verification state here until the server confirms capture.
         },
       });
       // The provider keeps its iframe open for retries after payment.failed.
@@ -322,20 +340,21 @@ export default function CheckoutModal({
       markPaymentAttempt(checkoutOrder.internal_order_id);
       razorpay.open();
     } catch (error) {
-      if (getPaymentAttempt()?.order_id === checkoutOrder.internal_order_id) {
+      setGatewayActive(false);
+      // Failed preflight/open is recoverable here. Uncertain charge outcomes never
+      // enable another Pay until the existing server reconciliation permits it.
+      if (getPaymentAttempt()?.order_id === checkoutOrder.internal_order_id ||
+        error instanceof ApiError && ["ORDER_COMPLETED", "PAYMENT_PROCESSING"].includes(error.code)) {
         try {
           const current = await apiPost<PublicOrder>("/orders/reconcile", { order_id: checkoutOrder.internal_order_id });
-          if (!current.payment_retry_allowed) { goToPurchase(checkoutOrder.internal_order_id); return; }
+          if (["paid", "refunded"].includes(current.status)) { goToPurchase(checkoutOrder.internal_order_id); return; }
+          if (!current.payment_retry_allowed) { showUncertainPayment(); return; }
           clearPaymentAttempt(checkoutOrder.internal_order_id);
-        } catch { goToPurchase(checkoutOrder.internal_order_id); return; }
+        } catch { showUncertainPayment(); return; }
       }
       busy.current = false;
       setGatewayLoading(false);
       setGatewayActive(false);
-      if (!preflightComplete || getPaymentAttempt()?.order_id === checkoutOrder.internal_order_id || error instanceof ApiError && ["ORDER_COMPLETED", "PAYMENT_PROCESSING"].includes(error.code)) {
-        goToPurchase(checkoutOrder.internal_order_id);
-        return;
-      }
       // A synchronous open() failure can batch true/false state together, so restore explicitly.
       if (checkoutDialog.current && !checkoutDialog.current.open)
         checkoutDialog.current.showModal();
@@ -346,10 +365,37 @@ export default function CheckoutModal({
       });
     }
   };
+  const showUncertainPayment = () => {
+    busy.current = false;
+    setGatewayLoading(false);
+    setPaymentUncertain(true);
+    if (checkoutDialog.current && !checkoutDialog.current.open) checkoutDialog.current.showModal();
+    setNotice({ tone: "info", title: "We're still checking your payment. Please don't pay again yet.", paymentIssue: true });
+  };
+  const checkUncertainPayment = async () => {
+    if (!checkoutOrder || busy.current || !isOnline()) return;
+    busy.current = true;
+    setCheckingPayment(true);
+    try {
+      const current = await apiPost<PublicOrder>("/orders/reconcile", { order_id: checkoutOrder.internal_order_id });
+      if (["paid", "refunded"].includes(current.status)) { goToPurchase(checkoutOrder.internal_order_id); return; }
+      if (current.payment_retry_allowed) {
+        clearPaymentAttempt(checkoutOrder.internal_order_id);
+        setPaymentUncertain(false);
+        setNotice({ tone: "info", title: "No payment was completed. You can safely retry this checkout." });
+      }
+    } catch { showUncertainPayment(); }
+    finally { busy.current = false; setCheckingPayment(false); }
+  };
+  const editField = (field: string) => {
+    editingDetails.current = true;
+    setCheckoutOrder(null);
+    setFieldErrors(current => ({ ...current, [field]: "" }));
+  };
   if (!open) return null;
-  const confirmedTotal = checkoutOrder?.pricing.total_inr;
-  const priceChanged =
-    confirmedTotal !== undefined && confirmedTotal !== summary.total;
+  const pricing = checkoutOrder?.pricing ?? quote.data;
+  const total = pricing?.total_inr;
+  const paymentBusy = orderMutation.isPending || gatewayLoading || checkingPayment;
   return (
     <Modal
       open={open && !gatewayActive}
@@ -373,7 +419,7 @@ export default function CheckoutModal({
                 className={`${verificationStarted ? "text-2xl" : "mt-3 text-3xl"} font-serif text-[#29231f]`}
                 data-testid="razorpay-checkout-title"
               >
-                {verificationStarted ? "Payment verification" : unavailableCheckout ? "Checkout recovery" : checkoutOrder ? "Review your order" : "Complete your order"}
+                {verificationStarted ? "Payment verification" : unavailableCheckout ? "Checkout recovery" : "Complete your order"}
               </h2>
             </div>
             <Button
@@ -381,7 +427,7 @@ export default function CheckoutModal({
               size="icon"
               className="size-11 sm:size-8"
               onClick={close}
-              disabled={orderMutation.isPending || gatewayLoading}
+              disabled={paymentBusy}
               data-testid="razorpay-checkout-close-btn"
               aria-label="Close checkout"
             >
@@ -415,129 +461,32 @@ export default function CheckoutModal({
               onCheckAgain={() => { if (callbackProof.current && !busy.current) { busy.current = true; verifyMutation.mutate(callbackProof.current); } }}
             />
             {verifyMutation.isPending && !confirmLeave && <Button className="mx-5 mb-5 min-h-11" disabled aria-busy="true" data-testid="razorpay-open-btn">Verifying payment…</Button>}
-          </> : checkoutOrder ? (
-            <div
-              className="space-y-5 p-5 sm:p-6"
-              data-testid="razorpay-review-step"
-            >
-              {priceChanged && (
-                <div
-                  className="border border-[#b49a6a]/55 bg-[#eadfcd] p-4"
-                  data-testid="razorpay-price-change-notice"
-                >
-                  <p className="font-medium text-[#7a5c32]">
-                    Your payable amount was updated after server
-                    verification.
-                  </p>
-                  <p className="mt-2 text-sm leading-relaxed text-[#6e655e]">
-                    Please confirm the revised amount below before opening
-                    Razorpay. You will never be charged more without this
-                    confirmation.
-                  </p>
-                </div>
-              )}
-              <div
-                className="border border-[#b49a6a]/40 bg-[#f5f0e6] p-5"
-                data-testid="razorpay-confirmed-summary"
-              >
-                <div className="flex justify-between text-sm text-[#6e655e]">
-                  <span>Regular price</span>
-                  <span>
-                    {formatInr(checkoutOrder.pricing.regular_total_inr)}
-                  </span>
-                </div>
-                <div className="mt-2 flex justify-between text-sm text-[#8c6d46]">
-                  <span>Collection discount</span>
-                  <span>
-                    −{formatInr(checkoutOrder.pricing.automatic_discount_inr)}
-                  </span>
-                </div>
-                {checkoutOrder.pricing.coupon_discount_inr > 0 && (
-                  <div className="mt-2 flex justify-between text-sm text-[#8c6d46]">
-                    <span>Promotional discount</span>
-                    <span>
-                      −{formatInr(checkoutOrder.pricing.coupon_discount_inr)}
-                    </span>
-                  </div>
-                )}
-                <div className="mt-4 flex justify-between border-t border-[#2e241f]/10 pt-4 font-serif text-3xl text-[#29231f]">
-                  <span>Payable</span>
-                  <span data-testid="razorpay-confirmed-total">
-                    {formatInr(checkoutOrder.pricing.total_inr)}
-                  </span>
-                </div>
-                <p className="mt-3 text-xs leading-relaxed text-[#8c6d46]">
-                  {checkoutOrder.pricing.message}
-                </p>
-              </div>
-              {checkoutOrder.customer_email && (
-                <div
-                  className="text-sm text-[#6e655e]"
-                  data-testid="razorpay-delivery-email"
-                >
-                  Delivery email:
-                  <span className="mt-1 block break-all font-medium text-[#29231f]">
-                    {checkoutOrder.customer_email}
-                  </span>
-                </div>
-              )}
-              <div className="flex items-start gap-3 text-sm leading-relaxed text-[#6e655e]">
-                <ShieldCheck className="mt-0.5 size-5 shrink-0 text-[#b49a6a]" />
-                <span>
-                  Razorpay will show the payment methods enabled for your
-                  account. The amount is locked to order{" "}
-                  {checkoutOrder.order_number}.
-                </span>
-              </div>
-              <p className="text-xs text-[#6e655e]">
-                Downloads become available in this browser only after your
-                payment is verified.
-              </p>
-              <Button
-                className="h-11 w-full sm:h-8"
-                onClick={openRazorpay}
-                disabled={!online || orderMutation.isPending || gatewayLoading || verifyMutation.isPending}
-                aria-busy={gatewayLoading || verifyMutation.isPending}
-                data-testid="razorpay-open-btn"
-              >
-                {gatewayLoading || verifyMutation.isPending ? (
-                  <>
-                    <LoaderCircle className="mr-2 size-4 animate-spin" />
-                    {verifyMutation.isPending
-                      ? "Verifying payment…"
-                      : "Opening Razorpay…"}
-                  </>
-                ) : (
-                  <>
-                    Pay {formatInr(checkoutOrder.pricing.total_inr)} with
-                    Razorpay <ExternalLink className="ml-2 size-4" />
-                  </>
-                )}
-              </Button>
-              <Button
-                variant="ghost"
-                className="h-11 w-full sm:h-8"
-                onClick={() => {
-                  setNotice(null);
-                  editingDetails.current = true;
-                  setCheckoutOrder(null);
-                }}
-                disabled={gatewayLoading || verifyMutation.isPending}
-                data-testid="razorpay-edit-details-btn"
-              >
-                <ArrowLeft className="mr-2 size-4" />
-                Edit customer details
-              </Button>
-            </div>
-          ) : (
+          </> : (
             <form
               className="space-y-5 p-5 sm:p-6"
+              noValidate
               onSubmit={(event) => {
                 event.preventDefault();
-                if (submitting.current || !isOnline()) return;
+                if (submitting.current || busy.current || paymentUncertain || !isOnline() || !pricing) return;
+                const valid = createOrderSchema.pick({ full_name: true, email: true, mobile: true }).safeParse({
+                  full_name: fullName.trim(), email: email.trim(), mobile: mobile.trim(),
+                });
+                if (!valid.success) {
+                  const errors: Record<string, string> = {};
+                  for (const issue of valid.error.issues) {
+                    const field = String(issue.path[0]);
+                    errors[field] = field === "full_name" ? "Enter your full name (at least 2 characters)." : field === "email" ? "Enter a valid email address." : "Enter a valid mobile number (7–20 characters).";
+                  }
+                  setFieldErrors(errors);
+                  const first = Object.keys(errors)[0];
+                  document.getElementById(first === "full_name" ? "checkout-name" : first === "email" ? "checkout-email" : "checkout-mobile")?.focus();
+                  return;
+                }
+                setFieldErrors({});
                 submitting.current = true;
                 setNotice(null);
-                orderMutation.mutate(undefined);
+                if (checkoutOrder) void openRazorpay(checkoutOrder).finally(() => { submitting.current = false; });
+                else orderMutation.mutate(undefined);
               }}
             >
               <div className="grid gap-4 sm:grid-cols-2">
@@ -548,15 +497,18 @@ export default function CheckoutModal({
                   Full name <span aria-hidden="true">*</span>
                   <Input
                     id="checkout-name"
-                    disabled={orderMutation.isPending}
+                    disabled={paymentBusy || paymentUncertain}
                     required
                     minLength={2}
                     value={fullName}
-                    onChange={(event) => { editingDetails.current = true; setFullName(event.target.value); }}
+                    onChange={(event) => { editField("full_name"); setFullName(event.target.value); }}
                     className="mt-2 h-11 sm:h-8"
                     autoComplete="name"
+                    aria-invalid={!!fieldErrors.full_name}
+                    aria-describedby={fieldErrors.full_name ? "checkout-name-error" : undefined}
                     data-testid="razorpay-checkout-name-input"
                   />
+                  {fieldErrors.full_name && <span id="checkout-name-error" className="mt-1 block text-xs text-[#9b3d32]" role="alert">{fieldErrors.full_name}</span>}
                 </label>
                 <label
                   className="text-sm text-[#6e655e]"
@@ -565,16 +517,19 @@ export default function CheckoutModal({
                   Mobile number <span aria-hidden="true">*</span>
                   <Input
                     id="checkout-mobile"
-                    disabled={orderMutation.isPending}
+                    disabled={paymentBusy || paymentUncertain}
                     required
                     minLength={7}
                     value={mobile}
-                    onChange={(event) => { editingDetails.current = true; setMobile(event.target.value); }}
+                    onChange={(event) => { editField("mobile"); setMobile(event.target.value); }}
                     className="mt-2 h-11 sm:h-8"
                     inputMode="tel"
                     autoComplete="tel"
+                    aria-invalid={!!fieldErrors.mobile}
+                    aria-describedby={fieldErrors.mobile ? "checkout-mobile-error" : undefined}
                     data-testid="razorpay-checkout-mobile-input"
                   />
+                  {fieldErrors.mobile && <span id="checkout-mobile-error" className="mt-1 block text-xs text-[#9b3d32]" role="alert">{fieldErrors.mobile}</span>}
                 </label>
               </div>
               <label
@@ -584,17 +539,19 @@ export default function CheckoutModal({
                 Email address <span aria-hidden="true">*</span>
                 <Input
                   id="checkout-email"
-                  disabled={orderMutation.isPending}
+                  disabled={paymentBusy || paymentUncertain}
                   required
                   type="email"
                   maxLength={254}
                   value={email}
-                  onChange={(event) => { editingDetails.current = true; setEmail(event.target.value); }}
+                  onChange={(event) => { editField("email"); setEmail(event.target.value); }}
                   className="mt-2 h-11 sm:h-8"
                   autoComplete="email"
-                  aria-describedby="checkout-email-note"
+                  aria-invalid={!!fieldErrors.email}
+                  aria-describedby={fieldErrors.email ? "checkout-email-note checkout-email-error" : "checkout-email-note"}
                   data-testid="razorpay-checkout-email-input"
                 />
+                {fieldErrors.email && <span id="checkout-email-error" className="mt-1 block text-xs text-[#9b3d32]" role="alert">{fieldErrors.email}</span>}
                 <span
                   id="checkout-email-note"
                   className="mt-1.5 block text-xs text-[#8c6d46]"
@@ -610,9 +567,9 @@ export default function CheckoutModal({
                   Coupon code
                   <Input
                     id="checkout-coupon"
-                    disabled={orderMutation.isPending}
+                    disabled={paymentBusy || paymentUncertain}
                     value={coupon}
-                    onChange={(event) => { editingDetails.current = true; setCoupon(event.target.value); }}
+                    onChange={(event) => { editField("coupon"); setCoupon(event.target.value); }}
                     className="mt-2 h-11 uppercase sm:h-8"
                     placeholder="First50"
                     data-testid="razorpay-checkout-coupon-input"
@@ -625,7 +582,7 @@ export default function CheckoutModal({
               >
                 <div className="flex justify-between text-sm text-[#6e655e]">
                   <span>Selected books</span>
-                  <span>{selectedIds.length}</span>
+                  <span>{pricing?.book_count ?? selectedIds.length}</span>
                 </div>
                 <div className="mt-2 flex justify-between text-sm text-[#6e655e]">
                   <span>
@@ -633,21 +590,21 @@ export default function CheckoutModal({
                       ? "Regular collection price"
                       : "Regular price"}
                   </span>
-                  <span>{formatInr(summary.regularTotal)}</span>
+                  <span>{formatInr(pricing?.regular_total_inr ?? summary.regularTotal)}</span>
                 </div>
                 <div className="mt-2 flex justify-between text-sm text-[#8c6d46]">
                   <span>Collection discount</span>
-                  <span>−{formatInr(summary.automaticDiscount)}</span>
+                  <span>−{formatInr(pricing?.automatic_discount_inr ?? summary.automaticDiscount)}</span>
                 </div>
-                {summary.couponDiscount > 0 && (
+                {(pricing?.coupon_discount_inr ?? summary.couponDiscount) > 0 && (
                   <div className="mt-2 flex justify-between text-sm text-[#8c6d46]">
                     <span>Promotional discount</span>
-                    <span>−{formatInr(summary.couponDiscount)}</span>
+                    <span>−{formatInr(pricing?.coupon_discount_inr ?? summary.couponDiscount)}</span>
                   </div>
                 )}
                 <div className="mt-3 flex justify-between border-t border-[#2e241f]/10 pt-3 font-serif text-2xl text-[#29231f]">
-                  <span>Estimated total</span>
-                  <span>{formatInr(summary.total)}</span>
+                  <span>Payable</span>
+                  <span data-testid="razorpay-confirmed-total">{total === undefined ? "Checking…" : formatInr(total)}</span>
                 </div>
                 <p className="mt-2 text-xs leading-relaxed text-[#8c6d46]">
                   Your products and payable amount are verified securely before
@@ -656,24 +613,30 @@ export default function CheckoutModal({
               </div>
               <div className="flex items-center gap-2 text-xs text-[#6e655e]">
                 <LockKeyhole className="size-4 text-[#b49a6a]" />
-                The configured payment mode is shown before you open Razorpay.
+                Your payment details are handled securely by Razorpay.
               </div>
-              <Button
+              {quote.isError && !checkoutOrder && <div role="alert" className="text-sm text-[#9b3d32]">
+                {errorMessage(quote.error, "We couldn't check your total. Please retry.")}
+                <Button type="button" variant="ghost" onClick={() => { void quote.refetch(); }}>Retry price check</Button>
+              </div>}
+              {paymentUncertain ? <Button type="button" className="min-h-11 w-full" disabled={!online || checkingPayment}
+                onClick={() => { void checkUncertainPayment(); }} aria-busy={checkingPayment}>Check payment status</Button> : <Button
                 type="submit"
-                className="h-11 w-full sm:h-8"
-                disabled={!online || orderMutation.isPending}
-                aria-busy={orderMutation.isPending}
+                className="min-h-11 w-full bg-black text-white hover:bg-black/85 active:bg-black/75"
+                disabled={!online || paymentBusy || total === undefined || (!checkoutOrder && quote.isError)}
+                aria-busy={paymentBusy || quote.isPending}
                 data-testid="razorpay-create-order-btn"
               >
-                {orderMutation.isPending ? (
+                {paymentBusy ? (
                   <>
                     <LoaderCircle className="mr-2 size-4 animate-spin" />
-                    Creating secure order…
+                    {gatewayLoading ? "Opening Razorpay…" : "Creating secure order…"}
                   </>
                 ) : (
-                  "Review order"
+                  total === undefined ? "Checking total…" : `Pay ${formatInr(total)} with Razorpay`
                 )}
-              </Button>
+              </Button>}
+              <p className="text-center text-xs leading-relaxed text-[#6e655e]">Secure payment powered by Razorpay. Your books will be delivered to your email after successful payment.</p>
             </form>
           )}
         </div>

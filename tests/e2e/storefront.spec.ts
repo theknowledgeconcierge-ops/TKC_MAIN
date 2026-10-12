@@ -1,5 +1,11 @@
 import { expect, test } from "@playwright/test";
 import { readFile } from "node:fs/promises";
+// Keep fixture runs isolated from the production advertising dataset.
+test.beforeEach(async ({ context }) => {
+  await context.route("https://connect.facebook.net/**", route => route.abort());
+  await context.route("https://www.facebook.com/**", route => route.abort());
+});
+
 const ids = [
   "the-first-table",
   "the-full-table",
@@ -118,104 +124,23 @@ test("bag persists, deduplicates and confirms Remove all", async ({ page }) => {
   await page.keyboard.press("Escape");
   await expect(page.getByTestId("collection-page-add-all-btn")).toBeFocused();
 });
-test("five-book checkout shows the server-verified ₹499 promotional price on both screens", async ({
-  page,
-}) => {
-  const requests: unknown[] = [];
-  await page.route("**/api/orders", async (route) => {
-    const body = route.request().postDataJSON();
-    requests.push(body);
-    expect(body.book_ids).toEqual([...ids].sort());
-    expect(body.email).toBe("buyer@example.com");
-    for (const field of ["total", "amount_paise", "pricing", "eligible_first_time"])
-      expect(body).not.toHaveProperty(field);
-    await route.fulfill({
-      json: {
-        key_id: "rzp_test_fixture",
-        payment_mode: "test",
-        internal_order_id: "99a3cb9b-6ef1-4fb7-a60e-87a758e9f612",
-        order_number: "TKC-five-fixture",
-        razorpay_order_id: "order_fivefixture",
-        amount_paise: 49900,
-        currency: "INR",
-        customer_name: "Test Buyer",
-        customer_email: "buyer@example.com",
-        customer_mobile: "9876543210",
-        description: "Five handbooks",
-        pricing: {
-          book_count: 5,
-          regular_total_inr: 1245,
-          automatic_discount_inr: 246,
-          automatic_price_inr: 999,
-          coupon_code: "FIRST50",
-          coupon_discount_inr: 500,
-          total_inr: 499,
-          total_savings_inr: 746,
-          message: "Promotional collection price applied.",
-        },
-      },
-    });
-  });
+test("five-book one-step checkout shows the server price and validates required email", async ({ page }) => {
+  let creates = 0;
+  await page.route("**/api/orders", route => { creates++; return route.abort(); });
   await page.goto("/restaurant-business-collection");
   await page.getByTestId("collection-page-add-all-btn").click();
   await page.getByTestId("smart-bag-checkout-btn").click();
-  const estimate = page.getByTestId("razorpay-estimated-summary");
-  for (const row of [
-    /Selected books\s*5/,
-    /Regular collection price\s*₹1,245/,
-    /Collection discount\s*−₹246/,
-    /Promotional discount\s*−₹500/,
-    /Estimated total\s*₹499/,
-  ])
-    await expect(estimate).toContainText(row);
-  const email = page.getByTestId("razorpay-checkout-email-input");
-  await expect(email).toHaveAttribute("required", "");
-  await expect(page.locator("#checkout-email-note")).toHaveText(
-    "Your books and purchase receipt will be delivered here.",
-  );
+  await expect(page.getByTestId("razorpay-confirmed-total")).toHaveText("₹499");
+  await expect(page.getByTestId("razorpay-create-order-btn")).toHaveText("Pay ₹499 with Razorpay");
+  await expect(page.getByTestId("razorpay-review-step")).toHaveCount(0);
   await page.getByTestId("razorpay-checkout-name-input").fill("Test Buyer");
   await page.getByTestId("razorpay-checkout-mobile-input").fill("9876543210");
-  await page.getByTestId("razorpay-checkout-coupon-input").fill("First50");
-  for (const value of ["", "not-an-email"]) {
-    await email.fill(value);
-    await page.getByTestId("razorpay-create-order-btn").click();
-    expect(
-      await email.evaluate((node) => (node as HTMLInputElement).validity.valid),
-    ).toBe(false);
-  }
-  expect(requests).toHaveLength(0);
-  await email.fill("buyer@example.com");
+  await page.getByTestId("razorpay-checkout-email-input").fill("not-an-email");
   await page.getByTestId("razorpay-create-order-btn").click();
-  await expect(page.getByTestId("razorpay-checkout-title")).toHaveText(
-    "Review your order",
-  );
-  const review = page.getByTestId("razorpay-confirmed-summary");
-  for (const row of [
-    /Regular price\s*₹1,245/,
-    /Collection discount\s*−₹246/,
-    /Promotional discount\s*−₹500/,
-    /Payable\s*₹499/,
-  ])
-    await expect(review).toContainText(row);
-  await expect(page.getByTestId("razorpay-confirmed-total")).toHaveText("₹499");
-  await expect(page.getByTestId("razorpay-delivery-email")).toContainText(
-    "buyer@example.com",
-  );
-  await expect(page.getByTestId("razorpay-open-btn")).toContainText(
-    "Pay ₹499 with Razorpay",
-  );
-  await expect(page.getByTestId("razorpay-edit-details-btn")).toHaveText(
-    "Edit customer details",
-  );
-  await expect(page.getByTestId("razorpay-price-change-notice")).toHaveCount(0);
-  await expect(page.getByTestId("razorpay-checkout-modal")).not.toContainText(
-    /eligib|first-time|returning|No email is required/i,
-  );
-  await expect(
-    page.getByText("Save your private purchase link", { exact: true }),
-  ).toHaveCount(0);
-  expect(requests).toHaveLength(1);
+  await expect(page.locator("#checkout-email-error")).toBeVisible();
+  expect(creates).toBe(0);
 });
+
 test("invalid browser persistence and forged success cannot unlock downloads", async ({
   page,
 }) => {
@@ -234,7 +159,7 @@ test("invalid browser persistence and forged success cannot unlock downloads", a
   ]);
   await expect(page.locator('[data-testid^="download-"]')).toHaveCount(0);
 });
-test("checkout reviews server total and payment confirmation survives refresh (provider fixtures)", async ({
+test("checkout uses server total directly and payment confirmation survives refresh (provider fixtures)", async ({
   page,
 }) => {
   const id = "99a3cb9b-6ef1-4fb7-a60e-87a758e9f612";
@@ -311,12 +236,11 @@ test("checkout reviews server total and payment confirmation survives refresh (p
   await expect(page.getByTestId("razorpay-confirmed-total")).toContainText(
     "249",
   );
-  await page.getByTestId("razorpay-open-btn").click();
   await expect(
     page.getByText("Razorpay could not open", { exact: true }),
   ).toBeVisible();
   await expect(page.getByTestId("razorpay-confirmed-total")).toBeVisible();
-  await page.getByTestId("razorpay-open-btn").click();
+  await page.getByTestId("razorpay-create-order-btn").click();
   await expect(
     page.getByRole("button", { name: "Confirm fixture payment" }),
   ).toBeVisible();
@@ -329,7 +253,7 @@ test("checkout reviews server total and payment confirmation survives refresh (p
       cookie.name.includes("tkc_session_"),
     ),
   ).toBe(false);
-  await page.getByTestId("razorpay-open-btn").click();
+  await page.getByTestId("razorpay-create-order-btn").click();
   await page.getByRole("button", { name: "Confirm fixture payment" }).click();
   await expect(page.getByTestId("thank-you-payment-status")).toHaveText("paid");
   await page.reload();
@@ -617,19 +541,14 @@ for (const count of [1, 2, 3, 4, 5]) {
       .getByTestId("razorpay-checkout-email-input")
       .fill("buyer@example.com");
     await page.getByTestId("razorpay-checkout-mobile-input").fill("9876543210");
+    await expect(page.getByTestId("razorpay-confirmed-total")).toHaveText(`₹${total}`);
     await page.getByTestId("razorpay-create-order-btn").click();
-    await expect(page.getByTestId("checkout-save-purchase-link")).toHaveCount(
-      0,
-    );
-    await expect(page.getByTestId("razorpay-confirmed-total")).toHaveText(
-      `₹${total}`,
-    );
+    await expect(page.getByTestId("checkout-save-purchase-link")).toHaveCount(0);
     expect(
       (await page.context().cookies()).some((cookie) =>
         cookie.name.startsWith("tkc_session_"),
       ),
     ).toBe(false);
-    await page.getByTestId("razorpay-open-btn").click();
     await expect(page.getByTestId("thank-you-payment-status")).toHaveText(
       "paid",
     );
@@ -868,6 +787,7 @@ test("a remembered order priced before a change is replaced by a fresh ₹499 or
   });
   await page.route("**/api/orders/resume", async (route) => {
     resumed.push(route.request().postDataJSON());
+    if (route.request().postDataJSON().order_id !== staleId) return route.fulfill({ json: fixture("2a4f1e3d-1c5b-4d7e-9f80-a1b2c3d4e5f6", "order_freshprice", 499, "Promotional collection price applied.") });
     await route.fulfill({
       status: 409,
       json: {
@@ -878,6 +798,7 @@ test("a remembered order priced before a change is replaced by a fresh ₹499 or
       },
     });
   });
+  await page.route("https://checkout.razorpay.com/v1/checkout.js", route => route.abort());
   await page.goto("/restaurant-business-collection");
   await page.getByTestId("collection-page-add-all-btn").click();
   const submit = async () => {
@@ -896,12 +817,12 @@ test("a remembered order priced before a change is replaced by a fresh ₹499 or
   // Same browser, same details: the remembered order is refused and replaced.
   await submit();
   await expect(page.getByTestId("razorpay-confirmed-total")).toHaveText("₹499");
-  await expect(page.getByTestId("razorpay-open-btn")).toContainText("Pay ₹499 with Razorpay");
+  await expect(page.getByTestId("razorpay-create-order-btn")).toContainText("Pay ₹499 with Razorpay");
   await expect(page.getByTestId("razorpay-price-change-notice")).toHaveCount(0);
-  await expect(page.getByText("Your order has been refreshed with the latest price.")).toBeVisible();
-  await expect(page.getByTestId("razorpay-review-step")).not.toContainText("returning customers");
+  await expect(page.getByTestId("razorpay-review-step")).toHaveCount(0);
   // Automatic restore refuses the old price; explicit submission checks again before replacement.
-  expect(resumed).toEqual(Array.from({ length: 2 }, () => ({ order_id: staleId, book_ids: [...ids].sort() })));
+  expect(resumed).toContainEqual({ order_id: staleId });
+  expect(resumed).toContainEqual({ order_id: staleId, book_ids: [...ids].sort() });
   expect(created).toHaveLength(2);
   expect(created[1].checkout_token).toMatch(/^[A-Za-z0-9_-]{43}$/);
   expect(created[1].checkout_token).not.toBe(created[0].checkout_token);

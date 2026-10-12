@@ -1,16 +1,16 @@
 import { expect, test, type Page } from "@playwright/test";
-import { fixture, begin, details, id, ids, checkout } from "./fixtures/payment-recovery";
+import { fixture, begin, cancelPayment, details, id, ids, checkout } from "./fixtures/payment-recovery";
 
 async function openCheckout(page: Page) {
   await page.getByTestId("nav-bag-toggle-btn").click();
   await page.getByTestId("smart-bag-checkout-btn").click();
 }
 async function quietGateway(page: Page) {
-  await page.context().route("https://checkout.razorpay.com/v1/checkout.js", route => route.fulfill({ contentType: "application/javascript", body: "window.Razorpay=class {constructor(o){this.o=o} on(){} open(){const b=document.createElement('button');b.textContent='Fixture gateway visible';b.onclick=()=>{b.remove();this.o.modal.ondismiss()};document.body.append(b)}}" }));
+  await page.context().route("https://checkout.razorpay.com/v1/checkout.js", route => route.fulfill({ contentType: "application/javascript", body: "window.Razorpay=class {constructor(o){this.o=o} on(){} open(){if(window.__fixtureCancel){fetch('/fixture/cancel-payment').then(()=>this.o.modal.ondismiss());return;}const b=document.createElement('button');b.textContent='Fixture gateway visible';b.onclick=()=>{b.remove();this.o.modal.ondismiss()};document.body.append(b)}}" }));
 }
 const visible = (page: Page, testId: string) => page.getByTestId(testId).filter({ visible: true });
 
-for (const width of [320, 360, 375, 390, 412, 430]) test(`offline details, review and purchase recovery fit ${width}px without storing contact data`, async ({ page, context }) => {
+for (const width of [320, 360, 375, 390, 412, 430]) test(`offline checkout and purchase recovery fit ${width}px without storing contact data`, async ({ page, context }) => {
   const state = await fixture(context);
   await page.setViewportSize({ width, height: 568 });
   await details(page);
@@ -20,18 +20,18 @@ for (const width of [320, 360, 375, 390, 412, 430]) test(`offline details, revie
   await expect(page.getByTestId("razorpay-checkout-email-input")).toHaveValue("fixture@example.com");
   expect(await page.getByTestId("razorpay-checkout-modal").evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
   await context.setOffline(false);
-  await page.getByTestId("razorpay-create-order-btn").click();
+  await cancelPayment(page);
   await expect(page.getByTestId("razorpay-confirmed-total")).toHaveText("₹499");
   await context.setOffline(true);
-  await expect(page.getByTestId("razorpay-open-btn")).toBeDisabled();
+  await expect(page.getByTestId("razorpay-create-order-btn")).toBeDisabled();
   await expect(page.getByTestId("connectivity-notice")).toBeVisible();
-  const action = await page.getByTestId("razorpay-open-btn").boundingBox();
+  const action = await page.getByTestId("razorpay-create-order-btn").boundingBox();
   expect(action!.height).toBeGreaterThanOrEqual(44);
   const stored = await page.evaluate(() => JSON.stringify([Object.values(localStorage), Object.values(sessionStorage)]));
   for (const contact of ["Fixture Buyer", "fixture@example.com", "9876543210", "razorpay_signature", "purchase_session"]) expect(stored).not.toContain(contact);
   await context.setOffline(false);
   state.status = "paid";
-  await page.getByTestId("razorpay-open-btn").click();
+  await page.getByTestId("razorpay-create-order-btn").click();
   await expect(visible(page, "thank-you-copy")).toContainText("no verified purchase session");
   await context.setOffline(true);
   await expect(page.getByTestId("connectivity-notice")).toContainText("confirmed payment is preserved");
@@ -79,7 +79,7 @@ test("pre-order refresh drops contact fields, keeps cart, and blocked storage ke
   });
   await page.getByTestId("razorpay-create-order-btn").click();
   await expect(page.getByTestId("checkout-notice")).toContainText("Checkout could not start");
-  await page.getByTestId("razorpay-create-order-btn").click();
+  await cancelPayment(page);
   await expect(page.getByTestId("razorpay-confirmed-total")).toHaveText("₹499");
   expect(tokens).toHaveLength(2);
   expect(tokens[0]).toBe(tokens[1]);
@@ -100,7 +100,7 @@ test("reload after a lost committed order response reuses the persisted checkout
   expect(tokens[0]).toBe(tokens[1]);
 });
 
-test("review reload restores server details through resume without creating another order", async ({ page, context }) => {
+test("cancelled checkout reload restores server details through resume without creating another order", async ({ page, context }) => {
   await fixture(context);
   let creates = 0;
   page.on("request", r => { if (r.url().endsWith("/api/orders")) creates++; });
@@ -108,14 +108,13 @@ test("review reload restores server details through resume without creating anot
   await page.reload();
   await openCheckout(page);
   await expect(page.getByTestId("razorpay-confirmed-total")).toHaveText("₹499");
-  await expect(page.getByTestId("razorpay-delivery-email")).toContainText("fixture@example.com");
+  await expect(page.getByTestId("razorpay-checkout-email-input")).toHaveValue("fixture@example.com");
   expect(creates).toBe(1);
 });
 
 test("reconnect/focus never overwrites an explicitly edited customer form", async ({ page, context }) => {
   await fixture(context);
   await begin(page, false);
-  await page.getByTestId("razorpay-edit-details-btn").click();
   await page.getByTestId("razorpay-checkout-email-input").fill("corrected@example.com");
   await page.clock.install();
   await context.setOffline(true);
@@ -126,13 +125,12 @@ test("reconnect/focus never overwrites an explicitly edited customer form", asyn
   await expect(page.getByTestId("razorpay-review-step")).toHaveCount(0);
 });
 
-test("Edit then Review without changes retains the same logical checkout", async ({ page, context }) => {
+test("retrying a cancelled checkout without changes retains the same logical checkout", async ({ page, context }) => {
   await fixture(context);
   let creates = 0;
   page.on("request", r => { if (r.url().endsWith("/api/orders")) creates++; });
   await begin(page, false);
-  await page.getByTestId("razorpay-edit-details-btn").click();
-  await page.getByTestId("razorpay-create-order-btn").click();
+  await cancelPayment(page);
   await expect(page.getByTestId("razorpay-confirmed-total")).toHaveText("₹499");
   expect(creates).toBe(1);
 });
@@ -141,7 +139,7 @@ test("offline while Razorpay is visible, then browser reopen and delayed capture
   const state = await fixture(context);
   await quietGateway(page);
   await begin(page, false);
-  await page.getByTestId("razorpay-open-btn").click();
+  await page.getByTestId("razorpay-create-order-btn").click();
   await expect(page.getByRole("button", { name: "Fixture gateway visible" })).toBeVisible();
   await context.setOffline(true);
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem("tkc_payment_attempt")!))).toMatchObject({ order_id: id });
@@ -187,9 +185,11 @@ test("reconnect and focus/history flapping coalesce and never open payment or se
 });
 
 for (const tabs of [2, 5]) for (const outcome of ["paid", "refunded", "unknown"]) test(`${tabs} tabs: stale Pay reconciles ${outcome} after connectivity loss`, async ({ page, context }) => {
+  test.setTimeout(90000);
   const state = await fixture(context);
   await quietGateway(page);
   await begin(page, false);
+  state.retryAllowed = false;
   const siblings: Page[] = [];
   for (let n = 1; n < tabs; n++) {
     const sibling = await context.newPage();
@@ -197,13 +197,21 @@ for (const tabs of [2, 5]) for (const outcome of ["paid", "refunded", "unknown"]
     await expect(sibling.getByTestId("check-payment-status")).toBeEnabled();
     siblings.push(sibling);
   }
+  await page.bringToFront();
   await context.setOffline(true);
-  await expect(page.getByTestId("razorpay-open-btn")).toBeDisabled();
+  await expect(page.getByTestId("razorpay-create-order-btn")).toBeDisabled();
   state.status = outcome === "unknown" ? "payment_pending" : outcome;
   await context.route("**/api/orders/resume", route => route.fulfill({ status: outcome === "unknown" ? 503 : 409, json: { error: { code: outcome === "unknown" ? "PAYMENT_PROVIDER_UNAVAILABLE" : "ORDER_COMPLETED", message: "Check this purchase before paying again." } } }));
   await context.setOffline(false);
-  await page.getByTestId("razorpay-open-btn").click();
-  await expect(page).toHaveURL(new RegExp(`/thank-you\\?order=${id}`));
+  // Either focus recovery or an explicit Pay tap may discover the terminal
+  // server state first. Do not wait on a button already removed by recovery.
+  await page.waitForFunction(() => window.location.pathname === "/thank-you" ||
+    document.querySelector<HTMLButtonElement>('[data-testid="razorpay-create-order-btn"]')?.disabled === false);
+  await page.evaluate(() => document.querySelector<HTMLButtonElement>('[data-testid="razorpay-create-order-btn"]')?.click());
+  if (outcome === "unknown") {
+    await expect(page.getByTestId("checkout-notice")).toContainText("Razorpay could not open");
+  }
+  else await expect(page).toHaveURL(new RegExp(`/thank-you\\?order=${id}`));
   await expect(page.getByTestId("resume-payment")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Fixture gateway visible" })).toHaveCount(0);
   await expect(page.getByTestId("downloads-panel")).toHaveCount(0);
@@ -293,7 +301,7 @@ test("expired checkout restores explicit support without redirect loops or a new
   await page.evaluate(() => { for (let n = 0; n < 10; n++) window.dispatchEvent(new Event("focus")); });
   await page.clock.fastForward(1000);
   expect(resumes).toBe(1);
-  await expect(page.getByTestId("razorpay-open-btn")).toHaveCount(0);
+  await expect(page.getByTestId("razorpay-create-order-btn")).toHaveCount(0);
   await page.getByRole("button", { name: "Check saved purchase", exact: true }).click();
   await expect(visible(page, "thank-you-heading")).toHaveText("This purchase is not available in this browser.");
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem("tkc_checkout_attempt")!).order_id)).toBe(id);

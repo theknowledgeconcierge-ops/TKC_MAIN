@@ -10,8 +10,11 @@ export async function assertSafePublicAssets(directory: string): Promise<void> {
   }
   for (const entry of await readdir(directory, { withFileTypes: true })) {
     const path = join(directory, entry.name);
+    // OneDrive placeholders can have a symlink Dirent type despite being ordinary
+    // directories. lstat identifies actual links without following their targets.
+    const stat = await lstat(path);
     if (
-      entry.isSymbolicLink() ||
+      stat.isSymbolicLink() ||
       /^(?:\.env(?:\.|$)|\.credentials$)/i.test(entry.name) ||
       /\.env$/i.test(entry.name) ||
       /credentials|token\.json/i.test(entry.name) ||
@@ -22,11 +25,11 @@ export async function assertSafePublicAssets(directory: string): Promise<void> {
     ) {
       throw new Error(`Unsafe public asset: ${path}`);
     }
-    if (entry.isDirectory()) {
+    if (stat.isDirectory()) {
       await assertSafePublicAssets(path);
       continue;
     }
-    if (!entry.isFile()) throw new Error(`Unsafe public asset: ${path}`);
+    if (!stat.isFile()) throw new Error(`Unsafe public asset: ${path}`);
     const file = await open(path, "r");
     try {
       const header = Buffer.alloc(1024);

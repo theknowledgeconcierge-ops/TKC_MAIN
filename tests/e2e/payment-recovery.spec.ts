@@ -53,8 +53,10 @@ test("verification timeout offers Check again and support, never another Pay but
 test("refresh and Back/Forward during verification recover paid state without granting URL access", async ({ page, context }) => {
   const state = await fixture(context);
   await begin(page);
-  await expect(page).toHaveURL(new RegExp(`/thank-you\\?order=${id}`));
+  await expect(page).toHaveURL(/\/books$/);
   await page.reload();
+  await page.getByTestId("nav-bag-toggle-btn").click();
+  await page.getByTestId("smart-bag-checkout-btn").click();
   await expect(page.getByTestId("thank-you-payment-status")).toHaveText("paid");
   await expect(page.getByTestId("downloads-panel")).toHaveCount(0);
   await page.getByTestId("thank-you-explore-btn").filter({ visible: true }).click();
@@ -128,10 +130,10 @@ test("browser verification error with independent paid state offers recovery wit
   await expect(page.getByTestId("verification-check-again")).toBeVisible({ timeout: 10000 });
   await expect(page.getByTestId("verification-recovery")).toContainText(support);
   await expect(page.getByRole("button", { name: /Pay ₹499/ })).toHaveCount(0);
+  expect(state.verifies).toBe(4);
   await page.getByRole("button", { name: "Leave this page", exact: true }).click();
   await expect(page.getByTestId("thank-you-copy").filter({ visible: true })).toContainText("no verified purchase session");
   await expect(page.getByTestId("downloads-panel")).toHaveCount(0);
-  expect(state.verifies).toBe(4);
 });
 
 test("delayed confirmed email shows support without automatically sending from the browser", async ({ page, context }) => {
@@ -166,6 +168,8 @@ test("a pre-session purchase read cannot overwrite successful browser verificati
   const state = await fixture(context);
   state.holdRead = true;
   await begin(page);
+  await page.getByTestId("razorpay-checkout-close-btn").click();
+  await page.getByTestId("verification-leave").click();
   await expect.poll(() => state.heldReads).toBeGreaterThan(0);
   state.release();
   await expect(page.getByTestId("downloads-panel")).toBeVisible();

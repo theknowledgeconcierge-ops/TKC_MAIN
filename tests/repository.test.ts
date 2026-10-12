@@ -69,7 +69,7 @@ describe("public deployment assets", () => {
   it("rejects symlinks instead of following private files outside the public tree", async () => {
     const directory = await fixture();
     const privateDirectory = await fixture();
-    await symlink(privateDirectory, join(directory, "private"));
+    await symlink(privateDirectory, join(directory, "private"), process.platform === "win32" ? "junction" : "dir");
     await expect(assertSafePublicAssets(directory)).rejects.toThrow(
       "Unsafe public asset",
     );
@@ -84,7 +84,7 @@ describe("public deployment assets", () => {
     const target = await fixture();
     await writeFile(join(target, "innocent.jpg"), "private staging input");
     const publicRoot = join(directory, "public");
-    await symlink(target, publicRoot);
+    await symlink(target, publicRoot, process.platform === "win32" ? "junction" : "dir");
     await expect(assertSafePublicAssets(publicRoot)).rejects.toThrow(
       "Unsafe public asset",
     );

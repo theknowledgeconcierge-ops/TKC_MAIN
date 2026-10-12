@@ -13,6 +13,8 @@ function gate() {
   return { promise, release };
 }
 export async function fixture(context: BrowserContext) {
+  await context.route("https://connect.facebook.net/**", route => route.abort());
+  await context.route("https://www.facebook.com/**", route => route.abort());
   const response = gate();
   const readResponse = gate();
   const reconcileResponse = gate();
@@ -49,7 +51,8 @@ export async function fixture(context: BrowserContext) {
     await route.fulfill(failVerify ? { status: 502, json: { error: { code: "PAYMENT_PROVIDER_UNAVAILABLE", message: "Still checking" } } } : { json: purchase(true), headers: { "set-cookie": "fixture_session=yes; Path=/; HttpOnly; SameSite=Strict" } }).catch(() => {});
   });
   await context.route("**/api/downloads", route => { downloads++; return route.fulfill({ status: 503, json: { error: { code: "STORAGE_UNAVAILABLE", message: "Download temporarily unavailable" } } }); });
-  await context.route("https://checkout.razorpay.com/v1/checkout.js", route => route.fulfill({ contentType: "application/javascript", body: "window.Razorpay=class {constructor(o){this.o=o} on(){} open(){this.o.handler({razorpay_order_id:'order_recovery',razorpay_payment_id:'pay_recovery',razorpay_signature:'fixture'})}}" }));
+  await context.route("**/fixture/cancel-payment", route => { retryAllowed = true; return route.fulfill({ body: "ok" }); });
+  await context.route("https://checkout.razorpay.com/v1/checkout.js", route => route.fulfill({ contentType: "application/javascript", body: "window.Razorpay=class {constructor(o){this.o=o} on(){} open(){if(window.__fixtureCancel){fetch('/fixture/cancel-payment').then(()=>this.o.modal.ondismiss());return;}this.o.handler({razorpay_order_id:'order_recovery',razorpay_payment_id:'pay_recovery',razorpay_signature:'fixture'})}}" }));
   return { release: response.release, releaseRead: readResponse.release, releaseReconcile: reconcileResponse.release, purchase, get verifies() { return verifies; }, get downloads() { return downloads; }, get heldReads() { return heldReads; }, get heldReconciles() { return heldReconciles; }, set status(value: string) { status = value; }, set delivery(value: string) { delivery = value; }, set retryAllowed(value: boolean) { retryAllowed = value; }, set failVerify(value: boolean) { failVerify = value; }, set paidAt(value: string) { paidAt = value; }, set holdRead(value: boolean) { holdRead = value; }, set holdReconcile(value: boolean) { holdReconcile = value; } };
 }
 export async function details(page: Page) {
@@ -65,11 +68,15 @@ export async function details(page: Page) {
   await page.getByTestId("razorpay-checkout-email-input").fill("fixture@example.com");
   await page.getByTestId("razorpay-checkout-mobile-input").fill("9876543210");
 }
+export async function cancelPayment(page: Page) {
+  await page.evaluate(() => { (window as Window & { __fixtureCancel?: boolean }).__fixtureCancel = true; });
+  await page.getByTestId("razorpay-create-order-btn").click();
+  await expect(page.getByTestId("checkout-notice")).toContainText("Payment window closed");
+  await page.evaluate(() => { (window as Window & { __fixtureCancel?: boolean }).__fixtureCancel = false; });
+}
 export async function begin(page: Page, openGateway = true) {
   await details(page);
+  if (!openGateway) { await cancelPayment(page); return; }
   await page.getByTestId("razorpay-create-order-btn").click();
-  await expect(page.getByTestId("razorpay-confirmed-total")).toHaveText("₹499");
-  if (!openGateway) return;
-  await page.getByTestId("razorpay-open-btn").click();
   await expect(page.getByTestId("razorpay-open-btn")).toHaveText("Verifying payment…");
 }

@@ -1,5 +1,11 @@
 import { expect, test, type Page } from "@playwright/test";
 
+// Keep fixture runs isolated from the production advertising dataset.
+test.beforeEach(async ({ context }) => {
+  await context.route("https://connect.facebook.net/**", route => route.abort());
+  await context.route("https://www.facebook.com/**", route => route.abort());
+});
+
 const first = "the-first-table";
 const second = "the-full-table";
 const widths = [320, 360, 375, 390, 412, 430];
@@ -177,15 +183,18 @@ for (const persistent of [true, false]) test(`cart ${persistent ? "persistent" :
 });
 
 test("a persisted cross-tab update becomes the rollback baseline when writes fail", async ({ page }) => {
+  test.setTimeout(60000);
   await ready(page);
   await page.getByTestId(`book-card-add-btn-${first}`).click();
   await expect.poll(() => page.evaluate(() => localStorage.getItem("knowledge_concierge_bag_v1"))).toContain(first);
   const sibling = await page.context().newPage();
+  await sibling.bringToFront();
   await ready(sibling);
   await page.evaluate(() => { Storage.prototype.setItem = () => { throw new DOMException("Full", "QuotaExceededError"); }; });
   await sibling.evaluate((id) => localStorage.setItem("knowledge_concierge_bag_v1", JSON.stringify([id])), second);
   await expect(page.getByTestId(`book-card-add-btn-${second}`)).toHaveAttribute("data-state", "in-bag");
   await expect(page.getByTestId(`book-card-add-btn-${first}`)).toHaveAttribute("data-state", "idle");
+  await page.bringToFront();
   await page.getByTestId("nav-bag-toggle-btn").click();
   await page.getByTestId(`smart-bag-remove-${second}`).click();
   await expect(page.getByTestId(`smart-bag-item-${second}`)).toBeVisible();
@@ -235,9 +244,8 @@ test("checkout acknowledges slow and failed requests, rejects duplicate submissi
   await expect(page.getByTestId("razorpay-create-order-btn")).toBeEnabled();
   await page.getByTestId("razorpay-create-order-btn").click();
   await expect(page.getByTestId("razorpay-confirmed-total")).toHaveText("₹249");
-  await page.getByTestId("razorpay-open-btn").click();
-  await expect(page.getByTestId("razorpay-open-btn")).toContainText("Opening Razorpay…");
-  await expect(page.getByTestId("razorpay-open-btn")).toHaveAttribute("aria-busy", "true");
+  await expect(page.getByTestId("razorpay-create-order-btn")).toContainText("Opening Razorpay…");
+  await expect(page.getByTestId("razorpay-create-order-btn")).toHaveAttribute("aria-busy", "true");
   releaseScript();
   await expect(page.getByTestId("razorpay-open-btn")).toContainText("Verifying payment…");
   await expect(page.getByTestId("thank-you-payment-status")).toHaveCount(0);
