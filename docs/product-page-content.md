@@ -26,7 +26,7 @@ Assets are 1600 pixels on their longest edge, WebP quality 88, approximately 67-
 
 ## Reviews
 
-The owner supplied a new `Book reviews.pdf` and explicitly confirmed its reviews are real. `src/lib/review-data.ts` imports all 59 reviews: The First Table (10), The Full Table (12), Behind the Kitchen Door (8), The Math Behind the Menu (14), and the original four-book collection (15). Source names, wording and ratings are preserved; PDF line wraps are joined with spaces. No dates or purchase-verification badges were supplied, so none are displayed. Empty Tables to Full House has no supplied reviews and keeps its honest empty state.
+The owner supplied a new `Book reviews.pdf` and explicitly confirmed its reviews are real. `src/lib/review-data.ts` imports all 59 reviews: The First Table (10), The Full Table (12), Behind the Kitchen Door (8), The Math Behind the Menu (14), and the original four-book collection (15). Source names, wording and ratings are preserved; PDF line wraps are joined with spaces. No dates or purchase-verification badges were supplied, so none are displayed. The separately supplied `Empty tables to full house reviews.pdf` adds 20 reviews for that title (4.3/5), bringing the total to 79. Its nineteenth review continues onto page 3; the complete text is preserved.
 
 The collection reviews refer to the original four-book edition. The collection page and rating summary identify that context and explain that the current five-book bundle additionally includes Empty Tables to Full House. Reviews are not reassigned to this fifth book.
 

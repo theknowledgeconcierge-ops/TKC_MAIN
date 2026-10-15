@@ -51,9 +51,10 @@ for (const book of activeBooks) {
       await expect(section.locator("article")).toHaveCount(6);
       await expect(section.locator("article").first()).toContainText(reviews[0].name!);
       await expect(section.locator("article").first()).toContainText(reviews[0].text);
-      await section.getByRole("button", { name: "Load more reviews" }).click();
-      await expect(section.locator("article")).toHaveCount(Math.min(12, reviews.length));
-      if (reviews.length > 12) await section.getByRole("button", { name: "Load more reviews" }).click();
+      for (let visible = 6; visible < reviews.length; visible += 6) {
+        await section.getByRole("button", { name: "Load more reviews" }).click();
+        await expect(section.locator("article")).toHaveCount(Math.min(visible + 6, reviews.length));
+      }
       await expect(section.locator("article")).toHaveCount(reviews.length);
       await expect(section.getByRole("button", { name: "Load more reviews" })).toHaveCount(0);
     } else {

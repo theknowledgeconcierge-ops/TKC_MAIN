@@ -1,4 +1,4 @@
-// Source: Book reviews.pdf, supplied and confirmed as real reader feedback by the owner.
+// Sources: owner-supplied Book reviews.pdf and Empty tables to full house reviews.pdf.
 // Preserve source wording and ratings; bundle reviews refer to the original four-book edition.
 export const suppliedReaderReviews = [
   {
@@ -529,6 +529,186 @@ export const suppliedReaderReviews = [
     "name": "Farhan Ali",
     "rating": 4,
     "text": "A sensible option for anyone building their knowledge of the restaurant industry. The books cover different but connected challenges, and the combined price feels accessible.",
+    "status": "published",
+    "provenance": "reader-feedback"
+  },
+  {
+    "id": "empty-tables-to-full-house-1",
+    "productId": "empty-tables-to-full-house",
+    "name": "Rajesh Sharma",
+    "rating": 5,
+    "text": "A worthwhile read for restaurant owners. It made me think about why good food alone may not be enough to keep tables occupied and why customer attraction needs a deliberate plan.",
+    "status": "published",
+    "provenance": "reader-feedback"
+  },
+  {
+    "id": "empty-tables-to-full-house-2",
+    "productId": "empty-tables-to-full-house",
+    "name": "Priya Verma",
+    "rating": 4,
+    "text": "I liked the focus on a real challenge in the restaurant business: bringing customers in consistently. It gave me useful ideas to reflect on and discuss with my team.",
+    "status": "published",
+    "provenance": "reader-feedback"
+  },
+  {
+    "id": "empty-tables-to-full-house-3",
+    "productId": "empty-tables-to-full-house",
+    "name": "Amit Gupta",
+    "rating": 5,
+    "text": "The book encouraged me to look beyond daily operations and pay more attention to marketing. I found the overall message relevant to anyone trying to grow a restaurant.",
+    "status": "published",
+    "provenance": "reader-feedback"
+  },
+  {
+    "id": "empty-tables-to-full-house-4",
+    "productId": "empty-tables-to-full-house",
+    "name": "Neha Agarwal",
+    "rating": 3,
+    "text": "The subject is very relevant, and I found parts of it useful. I would have liked more detailed examples, but it still prompted me to think more carefully about how I attract diners.",
+    "status": "published",
+    "provenance": "reader-feedback"
+  },
+  {
+    "id": "empty-tables-to-full-house-5",
+    "productId": "empty-tables-to-full-house",
+    "name": "Vikram Singh",
+    "rating": 4,
+    "text": "An approachable read about a problem many restaurant owners face. It reminded me that customers need a reason to discover and choose your restaurant, not just a good menu.",
+    "status": "published",
+    "provenance": "reader-feedback"
+  },
+  {
+    "id": "empty-tables-to-full-house-6",
+    "productId": "empty-tables-to-full-house",
+    "name": "Pooja Mishra",
+    "rating": 5,
+    "text": "I enjoyed the focus on restaurant growth rather than general business advice. It made me reflect on how consistently we promote our restaurant and communicate what makes it different.",
+    "status": "published",
+    "provenance": "reader-feedback"
+  },
+  {
+    "id": "empty-tables-to-full-house-7",
+    "productId": "empty-tables-to-full-house",
+    "name": "Rahul Yadav",
+    "rating": 4,
+    "text": "A useful read for anyone managing a food business. I especially appreciated the reminder to think about customer attraction as an ongoing effort, not just something to focus on during slow periods.",
+    "status": "published",
+    "provenance": "reader-feedback"
+  },
+  {
+    "id": "empty-tables-to-full-house-8",
+    "productId": "empty-tables-to-full-house",
+    "name": "Kavita Sharma",
+    "rating": 5,
+    "text": "The central idea is easy to relate to if you run a restaurant. It encouraged me to think more strategically about visibility, customer experience and giving people a reason to visit.",
+    "status": "published",
+    "provenance": "reader-feedback"
+  },
+  {
+    "id": "empty-tables-to-full-house-9",
+    "productId": "empty-tables-to-full-house",
+    "name": "Sandeep Kumar",
+    "rating": 3,
+    "text": "I found the topic worthwhile and relevant to the industry. Some sections could have gone deeper, but the book gave me a good reason to review my current approach to marketing.",
+    "status": "published",
+    "provenance": "reader-feedback"
+  },
+  {
+    "id": "empty-tables-to-full-house-10",
+    "productId": "empty-tables-to-full-house",
+    "name": "Anjali Joshi",
+    "rating": 4,
+    "text": "This book helped me think about the business side of running a restaurant. The focus on attracting customers is practical and relevant, especially for places that depend heavily on walk -ins.",
+    "status": "published",
+    "provenance": "reader-feedback"
+  },
+  {
+    "id": "empty-tables-to-full-house-11",
+    "productId": "empty-tables-to-full-house",
+    "name": "Manish Tiwari",
+    "rating": 5,
+    "text": "I bought this because I wanted to understand restaurant marketing better. It reminded me that serving good food is only one part of the equation; people also need to discover and choose your restaurant.",
+    "status": "published",
+    "provenance": "reader-feedback"
+  },
+  {
+    "id": "empty-tables-to-full-house-12",
+    "productId": "empty-tables-to-full-house",
+    "name": "Sneha Kapoor",
+    "rating": 4,
+    "text": "A worthwhile addition to a restaurant owner's reading list. I liked the focus on customer attraction and the importance of having a more deliberate plan for growth.",
+    "status": "published",
+    "provenance": "reader-feedback"
+  },
+  {
+    "id": "empty-tables-to-full-house-13",
+    "productId": "empty-tables-to-full-house",
+    "name": "Deepak Chauhan",
+    "rating": 5,
+    "text": "The book gave me a fresh perspective on restaurant marketing. It encouraged me to review which activities might be helping customers discover us and where we could be more consistent.",
+    "status": "published",
+    "provenance": "reader-feedback"
+  },
+  {
+    "id": "empty-tables-to-full-house-14",
+    "productId": "empty-tables-to-full-house",
+    "name": "Meena Kumari",
+    "rating": 3,
+    "text": "I found the book easy to relate to and the topic important. I would have liked more detailed case studies, but it still raised useful questions about how restaurants attract diners.",
+    "status": "published",
+    "provenance": "reader-feedback"
+  },
+  {
+    "id": "empty-tables-to-full-house-15",
+    "productId": "empty-tables-to-full-house",
+    "name": "Arjun Malhotra",
+    "rating": 4,
+    "text": "If you're running a restaurant and feel marketing could be better, this is worth considering. It got me thinking about visibility and what might make customers choose us over nearby places.",
+    "status": "published",
+    "provenance": "reader-feedback"
+  },
+  {
+    "id": "empty-tables-to-full-house-16",
+    "productId": "empty-tables-to-full-house",
+    "name": "Nisha Patel",
+    "rating": 5,
+    "text": "I liked the focus on restaurant growth and the practical business challenge behind the title. It reminded me not to wait for business to slow down before thinking about marketing.",
+    "status": "published",
+    "provenance": "reader-feedback"
+  },
+  {
+    "id": "empty-tables-to-full-house-17",
+    "productId": "empty-tables-to-full-house",
+    "name": "Mohit Bansal",
+    "rating": 4,
+    "text": "A relevant read for aspiring restaurant owners as well as people already in the industry. It highlights a challenge many restaurants face: getting noticed even when the food is good.",
+    "status": "published",
+    "provenance": "reader-feedback"
+  },
+  {
+    "id": "empty-tables-to-full-house-18",
+    "productId": "empty-tables-to-full-house",
+    "name": "Ritu Saxena",
+    "rating": 5,
+    "text": "The book made me think about marketing as something that needs regular attention. I found that perspective useful because restaurant growth depends on more than occasional promotions.",
+    "status": "published",
+    "provenance": "reader-feedback"
+  },
+  {
+    "id": "empty-tables-to-full-house-19",
+    "productId": "empty-tables-to-full-house",
+    "name": "Gaurav Pandey",
+    "rating": 4,
+    "text": "A useful starting point for thinking about restaurant growth. I appreciated the focus on customer attraction and the business decisions that support a more consistent flow of diners.",
+    "status": "published",
+    "provenance": "reader-feedback"
+  },
+  {
+    "id": "empty-tables-to-full-house-20",
+    "productId": "empty-tables-to-full-house",
+    "name": "Divya Reddy",
+    "rating": 5,
+    "text": "Glad I explored this book. It focuses on a real challenge in the restaurant industry and encourages owners to think beyond food quality alone. A worthwhile read for anyone interested in restaurant marketing.",
     "status": "published",
     "provenance": "reader-feedback"
   }

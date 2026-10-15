@@ -31,7 +31,9 @@ describe("authentic product content", () => {
     expect(publishedReviews("behind-the-kitchen-door")).toHaveLength(8);
     expect(publishedReviews("the-math-behind-the-menu")).toHaveLength(14);
     expect(publishedReviews("complete-collection")).toHaveLength(15);
-    expect(publishedReviews("empty-tables-to-full-house")).toEqual([]);
+    expect(publishedReviews("empty-tables-to-full-house")).toHaveLength(20);
+    expect(reviewStats(publishedReviews("empty-tables-to-full-house"))).toMatchObject({ count: 20, average: 4.3 });
+    expect(publishedReviews("empty-tables-to-full-house")[18]).toMatchObject({ name: "Gaurav Pandey", rating: 4, text: "A useful starting point for thinking about restaurant growth. I appreciated the focus on customer attraction and the business decisions that support a more consistent flow of diners." });
     expect(reviewStats(publishedReviews("the-first-table"))).toMatchObject({ count: 10, average: 4.2 });
     expect(publishedReviews("the-first-table")[0]).toMatchObject({ name: "Aarav Sharma", rating: 5, text: "I liked that this focuses on the early decisions behind opening a restaurant. It reminded me to think through the business model and the customer I want to serve before spending on the setup." });
     expect(reviewStats([])).toMatchObject({ count: 0, average: null });
