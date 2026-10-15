@@ -153,9 +153,12 @@ test("every public page has server-rendered content, complete metadata, factual 
         src: node.getAttribute("src")!,
         alt: node.getAttribute("alt"),
         sizes: node.getAttribute("sizes"),
+        controlLabel: node.closest("button")?.getAttribute("aria-label"),
       })),
     )) {
-      expect(image.alt).toBeTruthy();
+      // Preview thumbnails are decorative within descriptively labelled buttons.
+      if (image.alt === "") expect(image.controlLabel).toBeTruthy();
+      else expect(image.alt).toBeTruthy();
       expect(image.sizes).toBeTruthy();
       assets.add(image.src);
     }

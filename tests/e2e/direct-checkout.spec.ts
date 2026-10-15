@@ -1,3 +1,4 @@
+import { addFromCard } from "./fixtures/shopping";
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 import { catalogue } from "../../src/lib/catalog";
 import { quoteFor } from "../../src/lib/commerce/pricing";
@@ -52,7 +53,7 @@ async function setup(context: BrowserContext, count = 1, mode: "test" | "live" =
 }
 async function openForm(page: Page, books: string[] = [first]) {
   await page.goto("/books");
-  for (const book of books) await page.getByRole("main").getByTestId(`book-card-add-btn-${book}`).click();
+  for (const book of books) await addFromCard(page, book);
   await page.getByTestId("nav-bag-toggle-btn").click();
   await page.getByTestId("smart-bag-checkout-btn").click();
   if (books.length < catalogue.length) await page.getByTestId("bundle-upsell-decline").click();

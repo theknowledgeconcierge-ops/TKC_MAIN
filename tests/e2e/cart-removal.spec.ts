@@ -16,7 +16,7 @@ for (const width of [320, 360, 375, 390, 412, 430]) {
     await page.getByTestId("nav-bag-toggle-btn").click();
     await expect(page.getByTestId("smart-bag-drawer")).toBeVisible();
     await page.getByTestId("smart-bag-close-btn").click();
-    await page.getByTestId("collection-page-add-all-btn").click();
+    await page.getByTestId("collection-page-add-to-bag-btn").click();
     await expect(page.getByTestId("smart-bag-selected-count")).toHaveText("5 selected");
 
     await page.getByTestId(`smart-bag-remove-${ids[0]}`).click();

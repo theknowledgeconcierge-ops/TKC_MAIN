@@ -1,3 +1,4 @@
+import { addFromCard } from "./fixtures/shopping";
 import { expect, test, type Page } from "@playwright/test";
 
 // Keep fixture runs isolated from the production advertising dataset.
@@ -57,13 +58,13 @@ for (const cpuRate of [1, 4]) test(`first tap reaches Add, badge and feedback wi
   });
   await tapAtCenter(page, `book-card-add-btn-${first}`);
   await expect(page.getByTestId("nav-bag-count")).toHaveText("1", { timeout: 1000 });
-  await expect(page.getByTestId(`book-card-add-btn-${first}`)).toContainText("Added");
+  await expect(page.getByTestId(`book-card-add-btn-${first}`)).toContainText("In bag");
   await expect.poll(() => page.evaluate(() => performance.getEntriesByName("cart-frame").length)).toBe(1);
   const latency = await page.evaluate(() => performance.getEntriesByName("cart-frame")[0].startTime - performance.getEntriesByName("cart-tap")[0].startTime);
   await info.attach("tap-to-frame-ms", { body: JSON.stringify({ latency, requests, cpuRate }), contentType: "application/json" });
   expect(latency).toBeLessThan(100);
   expect(requests).toBe(0);
-  await page.getByTestId("nav-bag-toggle-btn").click();
+  await expect(page.getByTestId("smart-bag-drawer")).toBeVisible();
   await page.evaluate(() => {
     document.addEventListener("pointerup", () => performance.mark("remove-tap"), { once: true, capture: true });
     const observer = new MutationObserver(() => {
@@ -88,8 +89,9 @@ test("ten rapid Add taps preserve one book and ten Remove taps preserve the next
   await ready(page);
   await tapAtCenter(page, `book-card-add-btn-${first}`, 10);
   await expect(page.getByTestId("nav-bag-count")).toHaveText("1");
+  await page.getByTestId("smart-bag-close-btn").click();
   await tapAtCenter(page, `book-card-add-btn-${second}`);
-  await page.getByTestId("nav-bag-toggle-btn").click();
+  await expect(page.getByTestId("smart-bag-drawer")).toBeVisible();
   await tapAtCenter(page, `smart-bag-remove-${first}`, 10);
   await expect(page.getByTestId(`smart-bag-item-${first}`)).toHaveCount(0);
   await expect(page.getByTestId(`smart-bag-item-${second}`)).toBeVisible();
@@ -98,7 +100,7 @@ test("ten rapid Add taps preserve one book and ten Remove taps preserve the next
   await expect(page.getByTestId(`smart-bag-item-${first}`)).toBeVisible();
   await page.getByTestId(`smart-bag-remove-${first}`).click();
   await page.keyboard.press("Escape");
-  // A recent add acknowledgement must never swallow a deliberate re-add.
+  // A deliberate re-add after removal must add the book and reopen the bag.
   await tapAtCenter(page, `book-card-add-btn-${first}`);
   await expect(page.getByTestId("nav-bag-count")).toHaveText("2");
 });
@@ -121,8 +123,8 @@ test("bag controls respond on the next frame after opening and focus returns", a
 test("ten rapid recommendation Add taps add only the intended book", async ({ page }, info) => {
   test.skip(info.project.name !== "mobile", "Physical touch coordinates");
   await ready(page);
-  await page.getByTestId(`book-card-add-btn-${first}`).click();
-  await page.getByTestId(`book-card-add-btn-${second}`).click();
+  await addFromCard(page, first);
+  await addFromCard(page, second);
   await page.getByTestId("nav-bag-toggle-btn").click();
   await page.getByTestId(`smart-bag-remove-${second}`).click();
   await tapAtCenter(page, `smart-bag-recommend-add-${second}`, 10);
@@ -160,7 +162,7 @@ test("assistant close stays reachable on a short screen after conversation grows
 
 for (const persistent of [true, false]) test(`cart ${persistent ? "persistent" : "transient"} storage failure rolls back a persisted removal with a clear error`, async ({ page }) => {
   await ready(page);
-  await page.getByTestId(`book-card-add-btn-${first}`).click();
+  await addFromCard(page, first);
   await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("knowledge_concierge_bag_v1") || "[]").length)).toBe(1);
   await page.evaluate((persistent) => {
     const original = Storage.prototype.setItem;
@@ -192,7 +194,7 @@ for (const persistent of [true, false]) test(`cart ${persistent ? "persistent" :
 test("a persisted cross-tab update becomes the rollback baseline when writes fail", async ({ page }) => {
   test.setTimeout(60000);
   await ready(page);
-  await page.getByTestId(`book-card-add-btn-${first}`).click();
+  await addFromCard(page, first);
   await expect.poll(() => page.evaluate(() => localStorage.getItem("knowledge_concierge_bag_v1"))).toContain(first);
   const sibling = await page.context().newPage();
   await sibling.bringToFront();
@@ -236,7 +238,7 @@ test("checkout acknowledges slow and failed requests, rejects duplicate submissi
   for (const path of [`**/api/orders/${id}`, "**/api/orders/reconcile"])
     await page.route(path, (route) => route.fulfill({ json: order }));
   await ready(page);
-  await page.getByTestId(`book-card-add-btn-${first}`).click();
+  await addFromCard(page, first);
   await page.getByTestId("nav-bag-toggle-btn").click();
   await page.getByTestId("smart-bag-checkout-btn").click();
   await page.getByTestId("razorpay-checkout-name-input").fill("Test Buyer");
@@ -260,7 +262,7 @@ test("checkout acknowledges slow and failed requests, rejects duplicate submissi
   await expect(page.getByTestId("thank-you-payment-status")).toHaveText("paid");
   expect(requests).toBe(2);
   await page.getByTestId("thank-you-explore-btn").click();
-  await page.getByTestId(`book-card-add-btn-${second}`).click();
+  await addFromCard(page, second);
   await page.getByTestId("nav-bag-toggle-btn").click();
   await page.getByTestId("smart-bag-checkout-btn").click();
   await expect(page.getByTestId("razorpay-checkout-name-input")).toBeVisible();
@@ -281,7 +283,7 @@ for (const width of widths) {
       expect(box.height).toBeGreaterThanOrEqual(44);
     }
     await ready(page);
-    await page.getByTestId(`book-card-add-btn-${first}`).click();
+    await addFromCard(page, first);
     await page.getByTestId("nav-bag-toggle-btn").click();
     for (const id of ["smart-bag-close-btn", "smart-bag-remove-all-btn", `smart-bag-remove-${first}`, "smart-bag-checkout-btn"]) {
       const box = (await page.getByTestId(id).boundingBox())!;
@@ -330,7 +332,7 @@ test("a short mobile bag can scroll the selected item above its fixed checkout f
   test.skip(info.project.name !== "mobile", "Short mobile viewport");
   await page.setViewportSize({ width: 320, height: 568 });
   await ready(page);
-  await page.getByTestId(`book-card-add-btn-${first}`).click();
+  await addFromCard(page, first);
   await page.getByTestId("nav-bag-toggle-btn").click();
   const remove = page.getByTestId(`smart-bag-remove-${first}`);
   await remove.scrollIntoViewIfNeeded();

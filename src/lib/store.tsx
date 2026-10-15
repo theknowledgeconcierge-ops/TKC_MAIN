@@ -12,7 +12,7 @@ import { activeBooks } from "./catalog";
 import { quoteFor } from "./commerce/pricing";
 import { readStorage, writeStorage } from "./browser-storage";
 const BAG_STORAGE_KEY = "knowledge_concierge_bag_v1";
-function trackAddToCart(bookIds: string[], total: number) {
+function trackCartEvent(event: "AddToCart" | "InitiateCheckout", bookIds: string[], total: number) {
   if (typeof window === "undefined" || bookIds.length === 0) return;
 
   const pixel = window as Window & {
@@ -25,7 +25,7 @@ function trackAddToCart(bookIds: string[], total: number) {
 
   if (typeof pixel.fbq !== "function") return;
 
-  pixel.fbq("track", "AddToCart", {
+  pixel.fbq("track", event, {
     content_ids: bookIds,
     content_type: "product",
     value: total,
@@ -84,6 +84,7 @@ interface Cart {
 }
 interface CartActions {
   setBagOpen: (open: boolean) => void;
+  setCheckoutOpen: (open: boolean) => void;
   addBook: (id: string) => void;
   addBooks: (ids: string[]) => void;
   removeBook: (id: string) => void;
@@ -95,12 +96,15 @@ interface CartActions {
 // components that read that piece, not every page that merely calls an action.
 const CartContext = createContext<Cart | null>(null);
 const BagOpenContext = createContext<boolean | null>(null);
+const CheckoutOpenContext = createContext<boolean | null>(null);
 const ActionsContext = createContext<CartActions | null>(null);
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const previousCartIds = useRef<string[]>([]);
   const [hydrated, setHydrated] = useState(false);
   const [bagOpen, setBagOpen] = useState(false);
+  const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const wasCheckoutOpen = useRef(false);
   const [announcement, setAnnouncement] = useState("");
   const [persistenceError, setPersistenceError] = useState("");
   const savedIds = useRef<string[] | null>(null);
@@ -151,8 +155,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   if (addedIds.length === 0) return;
 
   const total = summaryFor(addedIds).total;
-  trackAddToCart(addedIds, total);
+  trackCartEvent("AddToCart", addedIds, total);
 }, [selectedIds, hydrated]);
+  useEffect(() => {
+    if (checkoutOpen && !wasCheckoutOpen.current) {
+      trackCartEvent("InitiateCheckout", selectedIds, summaryFor(selectedIds).total);
+    }
+    wasCheckoutOpen.current = checkoutOpen;
+  }, [checkoutOpen, selectedIds]);
   const cart = useMemo<Cart>(
     () => ({ selectedIds, summary: summaryFor(selectedIds), persistenceError }),
     [selectedIds, persistenceError],
@@ -160,12 +170,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const actions = useMemo<CartActions>(
     () => ({
       setBagOpen,
-    addBook: (id) => {
-  setSelectedIds((current) => sanitizeBag([...current, id]));
-},
-addBooks: (ids) => {
-  setSelectedIds((current) => sanitizeBag([...current, ...ids]));
-},
+      setCheckoutOpen,
+      addBook: (id) => {
+        setSelectedIds((current) => sanitizeBag([...current, id]));
+      },
+      addBooks: (ids) => {
+        setSelectedIds((current) => sanitizeBag([...current, ...ids]));
+      },
       removeBook: (id) =>
         setSelectedIds((ids) => ids.filter((value) => value !== id)),
       removePurchased: (purchased) =>
@@ -182,16 +193,18 @@ addBooks: (ids) => {
   return (
     <ActionsContext.Provider value={actions}>
       <BagOpenContext.Provider value={bagOpen}>
-        <CartContext.Provider value={cart}>
-          {children}
-          <output
-            className="sr-only"
-            aria-live="polite"
-            data-testid="cart-announcer"
-          >
-            {announcement}
-          </output>
-        </CartContext.Provider>
+        <CheckoutOpenContext.Provider value={checkoutOpen}>
+          <CartContext.Provider value={cart}>
+            {children}
+            <output
+              className="sr-only"
+              aria-live="polite"
+              data-testid="cart-announcer"
+            >
+              {announcement}
+            </output>
+          </CartContext.Provider>
+        </CheckoutOpenContext.Provider>
       </BagOpenContext.Provider>
     </ActionsContext.Provider>
   );
@@ -202,4 +215,5 @@ function required<T>(value: T | null): T {
 }
 export const useCart = () => required(useContext(CartContext));
 export const useBagOpen = () => required(useContext(BagOpenContext));
+export const useCheckoutOpen = () => required(useContext(CheckoutOpenContext));
 export const useCartActions = () => required(useContext(ActionsContext));

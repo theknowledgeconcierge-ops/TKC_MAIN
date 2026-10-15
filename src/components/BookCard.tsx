@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { startTransition } from "react";
 import { Check, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import BookCover from "@/components/BookCover";
@@ -8,27 +8,20 @@ import type { Book } from "@/lib/catalog";
 import { formatInr } from "@/lib/catalog";
 import { useCart, useCartActions } from "@/lib/store";
 
-// Keep acknowledgement visible through a burst of taps.
-const ADDED_ACK_MS = 1200;
-
 export default function BookCard({ book }: { book: Book }) {
   const { selectedIds } = useCart();
-  const { addBook, setBagOpen, announce } = useCartActions();
+  const { addBook, removeBook, setBagOpen, announce } = useCartActions();
   const selected = selectedIds.includes(book.id);
-  const [justAdded, setJustAdded] = useState(false);
-  useEffect(() => {
-    if (!justAdded) return;
-    const timer = setTimeout(() => setJustAdded(false), ADDED_ACK_MS);
-    return () => clearTimeout(timer);
-  }, [justAdded]);
-  // Adding is idempotent: a second tap opens the bag instead of silently removing the book.
   const handleAdd = () => {
     if (selected) {
-      if (!justAdded) setBagOpen(true);
+      removeBook(book.id);
+      setBagOpen(false);
+      announce(`${book.title} removed from your bag.`);
       return;
     }
     addBook(book.id);
-    setJustAdded(true);
+    // Paint the selected state promptly while React prepares the full drawer.
+    startTransition(() => setBagOpen(true));
     announce(`${book.title} added to your bag.`);
   };
   return (
@@ -93,11 +86,12 @@ export default function BookCard({ book }: { book: Book }) {
             variant={selected ? "outline" : "default"}
             onClick={handleAdd}
             aria-label={
-              selected && !justAdded
-                ? `In bag: ${book.title}. Open bag`
-                : undefined
+              selected
+                ? `In bag: ${book.title}. Remove from bag`
+                : `Add to bag: ${book.title}`
             }
-            data-state={selected ? (justAdded ? "added" : "in-bag") : "idle"}
+            aria-pressed={selected}
+            data-state={selected ? "in-bag" : "idle"}
             data-testid={`book-card-add-btn-${book.slug}`}
           >
             {selected ? (
@@ -105,7 +99,7 @@ export default function BookCard({ book }: { book: Book }) {
             ) : (
               <Plus className="mr-1 size-3.5 sm:mr-2 sm:size-4" />
             )}
-            {selected ? (justAdded ? "Added" : "In bag") : "Add to bag"}
+            {selected ? "In bag" : "Add to bag"}
           </Button>
         </div>
       </div>

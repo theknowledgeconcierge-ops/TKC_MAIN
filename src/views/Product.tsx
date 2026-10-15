@@ -1,353 +1,79 @@
 "use client";
-import {
-  ArrowRight,
-  Check,
-  ChevronDown,
-  Download,
-  ShieldCheck,
-} from "lucide-react";
 import Link from "next/link";
-import { motion } from "motion/react";
+import { ArrowRight, Check, ChevronDown, Download, BookOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import BookCard from "@/components/BookCard";
-import BookCover from "@/components/BookCover";
+import BookPreview from "@/components/BookPreview";
+import BookReviews, { RatingSummary } from "@/components/BookReviews";
 import CollectionOffer from "@/components/CollectionOffer";
-import { activeBooks as books, formatInr } from "@/lib/catalog";
-import { useCart, useCartActions, summaryFor } from "@/lib/store";
-
-const partnerCopy: Record<string, string> = {
-  "the-first-table":
-    "Before you sign a lease, invest in interiors, or build your menu, have a practical guide by your side. The First Table is your silent planning partner—helping you ask better questions and prepare for the journey from idea to first customer.",
-  "the-full-table":
-    "Great food deserves to be discovered. The Full Table acts as your silent marketing partner, helping you understand customer acquisition, local visibility, repeat visits, and the decisions behind sustainable restaurant demand.",
-  "behind-the-kitchen-door":
-    "A restaurant runs on people, processes, and consistency. Behind the Kitchen Door is your silent operations partner, offering practical frameworks for staffing, coordination, inventory, routines, and everyday management.",
-  "the-math-behind-the-menu":
-    "Sales tell only part of the story. The Math Behind the Menu is your silent financial partner, helping you understand pricing, costs, margins, cash flow, and the numbers behind restaurant decisions.",
-  "empty-tables-to-full-house":
-    "When tables remain empty, the answer isn’t always another discount. Empty Tables to Full House is your silent growth partner, helping you examine demand, improve visibility, evaluate offers, and build a more deliberate plan for attracting customers.",
-};
+import PurchasePrice from "@/components/PurchasePrice";
+import WhatsAppPurchase from "@/components/WhatsAppPurchase";
+import { activeBooks as books, formatInr, type ProductId } from "@/lib/catalog";
+import { productContent } from "@/lib/product-content";
+import { useCartActions } from "@/lib/store";
 
 export default function Product({ slug }: { slug: string }) {
   const book = books.find((item) => item.slug === slug)!;
-  const { selectedIds } = useCart();
-  const { addBook, setBagOpen } = useCartActions();
-  const selected = selectedIds.includes(book.id);
-  const progress = summaryFor(
-    selectedIds.includes(book.id) ? selectedIds : [...selectedIds, book.id],
-  );
-  return (
-    <div data-testid="product-page">
-      <section className="relative overflow-hidden">
-        <div className="pointer-events-none absolute -right-24 top-10 size-72 rounded-full bg-[#c5a880]/10 blur-3xl" />
-        <div className="mx-auto grid max-w-7xl gap-10 px-4 py-12 sm:px-6 sm:py-16 md:grid-cols-[.7fr_1.3fr] md:gap-12 md:py-24 lg:px-8">
-          <motion.div
-            initial={{ opacity: 1, x: -18, rotate: -1 }}
-            animate={{ opacity: 1, x: 0, rotate: 0 }}
-            transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
-            className="mx-auto w-full max-w-[250px] sm:max-w-[300px]"
-          >
-            <BookCover
-              book={book}
-              preload
-              sizes="(max-width: 639px) 250px, 300px"
-            />
-            <p
-              className="mt-3 text-center text-[10px] uppercase tracking-[0.14em] text-[#8c6d46] sm:mt-4 sm:text-xs"
-              data-testid="product-cover-note"
-            >
-              Original supplied cover
-            </p>
-          </motion.div>
-          <motion.div
-            initial={{ opacity: 1, y: 16 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{
-              duration: 0.45,
-              delay: 0.08,
-              ease: [0.22, 1, 0.36, 1],
-            }}
-            className="relative max-w-2xl"
-          >
-            <p className="overline">
-              Restaurant business handbook · {book.pages} pages · By{" "}
-              {book.author}
-            </p>
-            <h1
-              className="mt-5 font-serif text-4xl leading-tight text-[#29231f] sm:text-5xl"
-              data-testid="product-title"
-            >
-              {book.title}
-            </h1>
-            <p
-              className="mt-4 font-serif text-xl leading-relaxed text-[#6e655e] sm:text-2xl"
-              data-testid="product-subtitle"
-            >
-              {book.subtitle}
-            </p>
-            <p
-              className="mt-6 text-base leading-relaxed text-[#6e655e]"
-              data-testid="product-description"
-            >
-              {book.description}
-            </p>
-            <div
-              className="mt-7 flex flex-wrap gap-2"
-              data-testid="product-topic-preview"
-            >
-              {book.topics.slice(0, 3).map((topic) => (
-                <span
-                  key={topic}
-                  className="border border-[#b49a6a]/30 bg-[#f5f0e6] px-3 py-1.5 text-xs text-[#6e655e] transition-transform duration-200 hover:-translate-y-0.5 hover:border-[#b49a6a]"
-                >
-                  {topic}
-                </span>
-              ))}
-            </div>
-            <motion.div
-              whileHover={{ y: -2 }}
-              transition={{ duration: 0.2 }}
-              className="mt-8 flex items-center justify-between gap-5 border border-[#b49a6a]/45 bg-[#eadfcd] p-5 shadow-[0_10px_30px_rgba(96,72,42,0.08)] sm:max-w-md"
-              data-testid="product-price-panel"
-            >
-              <div>
-                <p className="text-[10px] font-mono uppercase tracking-[0.16em] text-[#7a5c32]">
-                  Launch price
-                </p>
-                <div className="mt-2 flex items-end gap-3">
-                  <span
-                    className="font-serif text-4xl font-semibold leading-none text-[#7a5c32]"
-                    data-testid="product-selling-price"
-                  >
-                    {formatInr(book.selling_price_inr)}
-                  </span>
-                  <span
-                    className="pb-1 text-sm text-[#8d8176] line-through"
-                    data-testid="product-original-price"
-                  >
-                    {formatInr(book.original_price_inr)}
-                  </span>
-                </div>
-              </div>
-              <div className="border-l border-[#b49a6a]/50 pl-5 text-right">
-                <p className="font-mono text-sm font-medium text-[#29231f]">
-                  SAVE ₹250
-                </p>
-                <p className="mt-1 text-xs text-[#6e655e]">Digital PDF</p>
-              </div>
-            </motion.div>
-            <div className="mt-8 grid gap-3 min-[420px]:grid-cols-2 sm:flex sm:flex-wrap">
-              <Button
-                size="lg"
-                className="w-full sm:w-auto"
-                onClick={() => {
-                  if (!selected) addBook(book.id);
-                  setBagOpen(true);
-                }}
-                data-testid="book-detail-add-btn"
-              >
-                {selected ? "View your bag" : "Add to your bag"}
-                <ArrowRight className="ml-2 size-4" />
-              </Button>
-              <Button
-                size="lg"
-                className="w-full sm:w-auto"
-                variant="outline"
-                onClick={() => {
-                  if (!selected) addBook(book.id);
-                  setBagOpen(true);
-                }}
-                data-testid="book-detail-buy-btn"
-              >
-                Buy now
-              </Button>
-            </div>
-            <div className="mt-8 grid gap-3 border-t border-[#2e241f]/10 pt-5 text-sm text-[#6e655e] sm:grid-cols-3">
-              <motion.span
-                whileHover={{ x: 3 }}
-                className="flex items-center gap-2"
-              >
-                <Download className="size-4 text-[#b49a6a]" />
-                Instant digital access
-              </motion.span>
-              <motion.span
-                whileHover={{ x: 3 }}
-                className="flex items-center gap-2"
-              >
-                <ShieldCheck className="size-4 text-[#b49a6a]" />
-                Secure checkout flow
-              </motion.span>
-              <motion.span
-                whileHover={{ x: 3 }}
-                className="flex items-center gap-2"
-              >
-                <Check className="size-4 text-[#b49a6a]" />
-                PDF format
-              </motion.span>
-            </div>
-          </motion.div>
-        </div>
-      </section>
-      <CollectionOffer />
-      <motion.section
-        initial={{ opacity: 0.65 }}
-        whileInView={{ opacity: 1 }}
-        viewport={{ once: true, amount: 0.25 }}
-        transition={{ duration: 0.45 }}
-        className="bg-[#ede7dd]"
-        data-testid="product-smart-collection"
-      >
-        <div className="mx-auto max-w-7xl px-4 py-14 sm:px-6 sm:py-16 lg:px-8">
-          <div className="grid gap-8 md:grid-cols-[1fr_1.2fr] md:gap-10">
-            <div>
-              <p className="overline">Collection-aware shopping</p>
-              <h2 className="mt-4 font-serif text-3xl text-[#29231f] sm:text-4xl">
-                One book is a start. The complete collection goes further.
-              </h2>
-              <p className="mt-4 text-sm leading-relaxed text-[#6e655e]">
-                Your next book unlocks the next price automatically. No hunting
-                for codes.
-              </p>
-            </div>
-            <motion.div
-              whileHover={{ y: -3 }}
-              className="border border-[#b49a6a]/40 bg-[#fbf9f5] p-5 shadow-[0_8px_26px_rgba(24,20,18,0.05)] sm:p-6"
-              data-testid="product-progress-meter"
-            >
-              <div className="flex justify-between text-[10px] font-mono uppercase tracking-[0.12em] text-[#8c6d46] sm:text-xs sm:tracking-[0.15em]">
-                <span>
-                  {progress.count} of {books.length} selected
-                </span>
-                <span>{formatInr(progress.total)}</span>
-              </div>
-              <div className="mt-3 h-2 overflow-hidden bg-[#e9dfcf]">
-                <motion.div
-                  initial={{ width: 0 }}
-                  animate={{
-                    width: `${(progress.count / books.length) * 100}%`,
-                  }}
-                  transition={{ duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
-                  className="h-full bg-[#b49a6a]"
-                />
-              </div>
-              <div className="mt-5 grid grid-cols-2 gap-2 text-center text-xs text-[#6e655e] sm:grid-cols-4">
-                <span>2 · ₹399</span>
-                <span>3 · ₹549</span>
-                <span>4 · ₹699</span>
-                <span>5 · ₹499</span>
-              </div>
-              <p className="mt-5 text-xs leading-relaxed text-[#8c6d46]">
-                All five: ₹499 promotional price (regular collection price ₹999).
-                Your payable total is confirmed securely at checkout.
-              </p>
-              <Button
-                className="mt-5 w-full sm:w-auto"
-                variant="outline"
-                onClick={() => setBagOpen(true)}
-                data-testid="product-progress-bag-btn"
-              >
-                View your collection bag
-              </Button>
-            </motion.div>
+  const content = productContent[book.id as ProductId];
+  const { addBook, setBagOpen, setCheckoutOpen } = useCartActions();
+  const purchase = () => { addBook(book.id); setBagOpen(false); setCheckoutOpen(true); };
+  const addToBag = () => { addBook(book.id); setBagOpen(true); };
+  return <div data-testid="product-page">
+    <div className="mx-auto max-w-6xl px-4 pb-14 pt-6 sm:px-6 sm:pb-20 sm:pt-8">
+      <nav aria-label="Breadcrumb" className="mb-7 text-xs leading-6 text-[#6e655e]"><Link href="/">Home</Link><span aria-hidden="true"> / </span><Link href="/books">Books</Link><span aria-hidden="true"> / </span><span aria-current="page">{book.title}</span></nav>
+      <section className="grid min-w-0 gap-x-14 gap-y-6 md:grid-cols-[.85fr_1fr] md:gap-y-0">
+        <header className="md:col-start-2 md:row-start-1">
+          <p className="overline">{content.focus}</p>
+          <h1 className="mt-3 font-serif text-4xl leading-tight sm:text-5xl" data-testid="product-title">{book.title}</h1>
+          <p className="mt-3 text-sm leading-6 text-[#6e655e]">By {book.author} · {book.pages} pages · Digital PDF</p>
+          <div className="mt-2"><RatingSummary productId={book.id} /></div>
+        </header>
+        <div className="md:col-start-1 md:row-span-2 md:row-start-1"><BookPreview book={book} pages={content.previews} /></div>
+        <div className="min-w-0 md:col-start-2 md:row-start-2">
+          <p className="text-sm leading-6 text-[#6e655e] sm:hidden" data-testid="product-mobile-description">{content.shortDescription}</p>
+          <p className="mt-1 hidden font-serif text-lg leading-7 text-[#6e655e] sm:block" data-testid="product-subtitle">{book.subtitle}</p>
+          <p className="mt-4 hidden text-sm leading-7 text-[#6e655e] sm:block" data-testid="product-description">{book.description}</p>
+          <div className="mt-5 hidden flex-wrap gap-2 sm:flex" data-testid="product-topic-preview">{book.topics.slice(0, 3).map((topic) => <span key={topic} className="border border-[#ddd5c9] px-2.5 py-1.5 text-xs text-[#6e655e]">{topic}</span>)}</div>
+          <div className="mt-3 rounded-xl border border-[#d5c3a3] bg-[#f6f0e5] p-4 shadow-[0_8px_30px_rgba(96,72,42,0.05)] sm:mt-6 sm:p-5" data-testid="product-price-panel">
+            <p className="mb-3 hidden text-xs font-medium uppercase tracking-[0.12em] text-[#795c35] sm:block">Your next business decision, better informed.</p>
+            <PurchasePrice original={book.original_price_inr} price={book.selling_price_inr} sellingTestId="product-selling-price" />
+            <p className="mt-2 text-xs leading-5 text-[#6e655e]">PDF edition · Workbook included</p>
+            <Button size="lg" className="mt-3 h-12 w-full bg-[#29231f] text-base font-semibold shadow-[0_5px_14px_rgba(41,35,31,0.16)] hover:bg-[#503d2a] sm:mt-4" onClick={purchase} data-testid="book-detail-buy-btn">Buy now · {formatInr(book.selling_price_inr)} <ArrowRight className="ml-2 size-4" /></Button>
+            <div className="mt-3"><WhatsAppPurchase title={book.title} /></div>
+            <Button type="button" size="lg" variant="outline" className="mt-3 h-12 w-full border-[#c5b69d] bg-transparent text-sm" onClick={addToBag} data-testid="book-detail-add-btn">Add to bag</Button>
           </div>
-        </div>
-      </motion.section>
-      <section
-        className="mx-auto max-w-7xl px-4 py-16 sm:px-6 sm:py-20 lg:px-8"
-        data-testid="product-content-section"
-      >
-        <div className="grid gap-12 md:grid-cols-[1fr_1fr] md:gap-14">
-          <motion.div
-            initial={{ opacity: 1, y: 18 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true, amount: 0.25 }}
-            transition={{ duration: 0.4 }}
-          >
-            <p className="overline">What you’ll work through</p>
-            <h2 className="mt-4 font-serif text-3xl text-[#29231f] sm:text-4xl">
-              Useful knowledge, without the noise.
-            </h2>
-            <div className="mt-8 grid gap-3 sm:grid-cols-2">
-              {book.topics.map((topic, index) => (
-                <motion.div
-                  initial={{ opacity: 1, x: -8 }}
-                  whileInView={{ opacity: 1, x: 0 }}
-                  viewport={{ once: true }}
-                  transition={{ duration: 0.25, delay: index * 0.04 }}
-                  key={topic}
-                  className="flex gap-3 border-b border-[#2e241f]/10 py-3 text-sm text-[#6e655e]"
-                >
-                  <Check className="mt-0.5 size-4 shrink-0 text-[#b49a6a]" />
-                  {topic}
-                </motion.div>
-              ))}
-            </div>
-          </motion.div>
-          <motion.div
-            initial={{ opacity: 1, y: 18 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true, amount: 0.25 }}
-            transition={{ duration: 0.4, delay: 0.08 }}
-          >
-            <p className="overline">Inside the book</p>
-            <details className="group">
-              <summary
-                className="mt-4 flex w-full cursor-pointer list-none items-center justify-between border-b border-[#2e241f]/10 py-4 text-left font-serif text-2xl text-[#29231f] hover:border-[#b49a6a] hover:text-[#8c6d46] [&::-webkit-details-marker]:hidden"
-                data-testid="product-toc-toggle"
-              >
-                <h2>Contents</h2>
-                <ChevronDown className="size-5 text-[#8c6d46] transition-transform group-open:rotate-180" />
-              </summary>
-              <div
-                className="divide-y divide-[#2e241f]/10"
-                data-testid="product-toc-list"
-              >
-                {book.toc.map((item) => (
-                  <p className="py-3 text-sm text-[#6e655e]" key={item}>
-                    {item}
-                  </p>
-                ))}
-              </div>
-            </details>
-            <div className="mt-10 border-l border-[#b49a6a] pl-5">
-              <p className="overline">More than a book</p>
-              <h3 className="mt-3 font-serif text-3xl text-[#29231f]">
-                A silent business partner.
-              </h3>
-              <p className="mt-4 text-sm leading-relaxed text-[#6e655e]">
-                {partnerCopy[book.slug]}
-              </p>
-            </div>
-          </motion.div>
-        </div>
-      </section>
-      <section className="bg-[#f5f0e6]" data-testid="product-related-section">
-        <div className="mx-auto max-w-7xl px-4 py-16 sm:px-6 sm:py-20 lg:px-8">
-          <div className="flex items-end justify-between gap-5">
-            <div>
-              <p className="overline">Continue exploring</p>
-              <h2 className="mt-4 font-serif text-3xl text-[#29231f] sm:text-4xl">
-                Other useful perspectives.
-              </h2>
-            </div>
-            <Link
-              href="/books"
-              className="hidden items-center text-sm uppercase tracking-[0.12em] text-[#8c6d46] sm:flex"
-              data-testid="product-library-link"
-            >
-              All books <ArrowRight className="ml-2 size-4" />
-            </Link>
+          <div className="mt-4 space-y-2 text-xs leading-5 text-[#6e655e]">
+            <p className="flex gap-2"><Download className="mt-0.5 size-4 shrink-0 text-[#8c6d46]" />PDF downloads become available after payment confirmation.</p>
+            <p className="flex gap-2"><BookOpen className="mt-0.5 size-4 shrink-0 text-[#8c6d46]" />Digital edition only. No physical book is shipped.</p>
           </div>
-          <div className="mt-10 grid grid-cols-2 gap-x-4 gap-y-10 sm:gap-8 lg:grid-cols-3">
-            {books
-              .filter((item) => item.id !== book.id)
-              .slice(0, 3)
-              .map((item) => (
-                <BookCard key={item.id} book={item} />
-              ))}
-          </div>
+          <a href="#book-preview" className="mt-3 inline-flex min-h-11 items-center text-sm text-[#795c35] underline underline-offset-4">Preview three real pages</a>
         </div>
       </section>
     </div>
-  );
+    <nav aria-label="About this book" className="border-y border-[#ddd5c9] bg-[#f5f0e6]"><div className="mx-auto flex max-w-6xl flex-wrap gap-x-7 px-4 text-sm sm:px-6">{[["#about-book", "About the book"], ["#book-preview", "Look inside"], ["#reader-reviews", "Reader reviews"], ["#book-questions", "Questions"]].map(([href, label]) => <a className="inline-flex min-h-12 items-center underline-offset-4 hover:underline" href={href} key={href}>{label}</a>)}</div></nav>
+    <section id="about-book" className="mx-auto max-w-6xl scroll-mt-28 px-4 py-14 sm:px-6 sm:py-20" data-testid="product-content-section">
+      <div className="grid gap-10 md:grid-cols-[.8fr_1fr] md:gap-16">
+        <div><p className="overline">A closer look</p><h2 className="mt-3 font-serif text-3xl sm:text-4xl">A book for the decisions in front of you.</h2><p className="mt-5 text-sm leading-7 text-[#6e655e]">{content.introduction}</p>
+          <h3 className="mt-8 font-serif text-xl">Is this a familiar challenge?</h3><ul className="mt-3 space-y-3">{content.problems.map((problem) => <li key={problem} className="flex gap-3 text-sm leading-6 text-[#6e655e]"><Check className="mt-1 size-4 shrink-0 text-[#8c6d46]" />{problem}</li>)}</ul>
+        </div>
+        <div><p className="overline">What you’ll learn</p><div className="mt-3 divide-y divide-[#ddd5c9]">{content.outcomes.map((outcome, i) => <article className="flex gap-4 py-5 first:pt-0" key={outcome.title}><span className="pt-1 font-mono text-xs text-[#8c6d46]">0{i + 1}</span><div><h3 className="font-serif text-2xl">{outcome.title}</h3><p className="mt-2 text-sm leading-7 text-[#6e655e]">{outcome.text}</p></div></article>)}</div></div>
+      </div>
+      <div className="mt-12 grid gap-8 border-y border-[#ddd5c9] py-8 md:grid-cols-2"><div><h3 className="font-serif text-2xl">Who it’s for</h3><p className="mt-3 text-sm leading-7 text-[#6e655e]">{content.audience}</p></div><div><h3 className="font-serif text-2xl">Put it to work</h3><p className="mt-3 text-sm leading-7 text-[#6e655e]">{content.application}</p></div></div>
+      <details className="group mt-6"><summary className="flex min-h-16 cursor-pointer list-none items-center justify-between gap-4 border-b border-[#ddd5c9] font-serif text-2xl [&::-webkit-details-marker]:hidden" data-testid="product-toc-toggle">Inside the book: contents<ChevronDown className="size-5 transition-transform group-open:rotate-180" /></summary><div className="grid gap-x-8 sm:grid-cols-2" data-testid="product-toc-list">{book.toc.map((item, i) => <p className="border-b border-[#ddd5c9] py-4 text-sm text-[#6e655e]" key={item}><span className="mr-3 font-mono text-xs text-[#8c6d46]">{String(i + 1).padStart(2, "0")}</span>{item}</p>)}</div></details>
+      <p className="mt-5 max-w-3xl text-xs leading-6 text-[#6e655e]">Examples and worksheet figures are teaching illustrations. Adapt the material to your own business records and circumstances; reading a book does not guarantee a business result.</p>
+    </section>
+    <BookReviews key={book.id} productId={book.id} />
+    <section id="book-questions" className="mx-auto max-w-6xl scroll-mt-28 px-4 py-14 sm:px-6 sm:py-20">
+      <p className="overline">Before you choose</p><h2 className="mt-3 font-serif text-3xl sm:text-4xl">A few useful answers.</h2>
+      <div className="mt-7 divide-y divide-[#ddd5c9] border-y border-[#ddd5c9]">{[
+        ["What do I receive?", `The complete ${book.pages}-page PDF edition of ${book.title}, including its workbook pages. This is a digital book, not a physical delivery.`],
+        ["Can I look inside before buying?", "Yes. The gallery above includes the cover and three original interior pages from this book. Use the arrows or thumbnails, and enlarge any page to read it."],
+        ["How do I get the book after payment?", "Once your payment is confirmed, your order page provides the PDF download. If confirmation is pending, that page checks the payment status before making downloads available."],
+        ["Should I choose one book or the collection?", "Choose an individual book for one specific subject. The complete five-book collection covers starting, marketing, operations, finance and diagnosing weak demand. Its current total is shown below and confirmed at checkout."],
+      ].map(([question, answer]) => <details className="group" key={question}><summary className="flex min-h-16 cursor-pointer list-none items-center justify-between gap-4 py-4 text-sm font-medium [&::-webkit-details-marker]:hidden">{question}<ChevronDown className="size-4 shrink-0 group-open:rotate-180" /></summary><p className="max-w-3xl pb-5 text-sm leading-7 text-[#6e655e]">{answer}</p></details>)}</div>
+      <p className="mt-5 text-sm text-[#6e655e]">More questions? <Link href="/faq" className="underline underline-offset-4">Visit the FAQs</Link> or <Link href="/contact-us" className="underline underline-offset-4">contact us</Link>.</p>
+    </section>
+    <CollectionOffer />
+    <section className="mx-auto max-w-6xl px-4 py-14 sm:px-6 sm:py-20" data-testid="product-related-section"><div className="flex flex-wrap items-end justify-between gap-4"><div><p className="overline">Keep exploring</p><h2 className="mt-3 font-serif text-3xl sm:text-4xl">A different part of the business.</h2></div><Link href="/books" className="inline-flex min-h-11 items-center text-sm text-[#795c35] underline underline-offset-4" data-testid="product-library-link">Browse all books <ArrowRight className="ml-2 size-4" /></Link></div><div className="mt-9 grid grid-cols-2 gap-x-4 gap-y-10 sm:gap-8 lg:grid-cols-4">{books.filter((item) => item.id !== book.id).map((item) => <BookCard key={item.id} book={item} />)}</div></section>
+  </div>;
 }

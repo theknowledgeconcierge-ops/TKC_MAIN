@@ -1,3 +1,4 @@
+import { addFromCard } from "./fixtures/shopping";
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 import { activeBooks } from "../../src/lib/catalog";
 import { quoteFor } from "../../src/lib/commerce/pricing";
@@ -37,7 +38,7 @@ async function fixture(context: BrowserContext) {
 }
 async function open(page: Page, count: number) {
   await page.goto("/books");
-  for (const book of ids.slice(0, count)) await page.getByRole("main").getByTestId(`book-card-add-btn-${book}`).click();
+  for (const book of ids.slice(0, count)) await addFromCard(page, book);
   await page.getByTestId("nav-bag-toggle-btn").click();
   await page.getByTestId("smart-bag-checkout-btn").click();
 }
@@ -85,7 +86,7 @@ test("upgrade preserves entered details and opens Razorpay without another Pay c
   await details(page);
   await page.getByTestId("razorpay-checkout-close-btn").click();
   await page.keyboard.press("Escape");
-  await page.getByRole("main").getByTestId(`book-card-add-btn-${ids[1]}`).click();
+  await addFromCard(page, ids[1]);
   await page.getByTestId("nav-bag-toggle-btn").click();
   await page.getByTestId("smart-bag-checkout-btn").click();
   await expect(page.getByTestId("bundle-upsell-difference")).toHaveText("ADD JUST ₹100");

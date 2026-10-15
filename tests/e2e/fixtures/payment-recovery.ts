@@ -1,3 +1,4 @@
+import { addFromCard } from "./shopping";
 import { expect, type BrowserContext, type Page } from "@playwright/test";
 import { catalogue } from "../../../src/lib/catalog";
 import { quoteFor } from "../../../src/lib/commerce/pricing";
@@ -60,7 +61,7 @@ export async function details(page: Page) {
   await page.getByTestId("nav-bag-toggle-btn").click();
   await page.keyboard.press("Escape");
   for (const book of ids) {
-    if (await page.getByTestId(`book-card-add-btn-${book}`).getAttribute("data-state") === "idle") await page.getByTestId(`book-card-add-btn-${book}`).click();
+    if (await page.getByTestId(`book-card-add-btn-${book}`).getAttribute("data-state") === "idle") await addFromCard(page, book);
   }
   await page.getByTestId("nav-bag-toggle-btn").click();
   await page.getByTestId("smart-bag-checkout-btn").click();

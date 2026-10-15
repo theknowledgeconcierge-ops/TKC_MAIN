@@ -1,3 +1,4 @@
+import { addFromCard } from "./fixtures/shopping";
 import { expect, test } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 // Keep fixture runs isolated from the production advertising dataset.
@@ -54,14 +55,12 @@ test("all routes, five covers, responsive layout and product contents", async ({
     page.getByTestId("collection-page-covers").locator("a"),
   ).toHaveCount(5);
   await expect(page.getByTestId("collection-page-heading")).toContainText(
-    "Five books",
+    "One collection",
   );
-  await expect(page.getByTestId("collection-page")).toContainText("₹999");
+  await expect(page.getByTestId("collection-page")).toContainText("₹1,245");
   await expect(page.getByTestId("collection-page")).toContainText("₹499");
   await page.goto("/books/empty-tables-to-full-house");
-  await expect(page.getByTestId("product-progress-meter")).toContainText(
-    "1 of 5 selected",
-  );
+  await expect(page.getByTestId("preview-indicator")).toContainText("1 of 4");
   await page.getByTestId("product-toc-toggle").click();
   await expect(page.getByTestId("product-toc-list")).toContainText(
     "Understand Your Restaurant",
@@ -77,14 +76,11 @@ test("all routes, five covers, responsive layout and product contents", async ({
 });
 test("bag persists, deduplicates and confirms Remove all", async ({ page }) => {
   await page.goto("/books");
-  await page
-    .getByRole("main")
-    .getByTestId(`book-card-add-btn-${ids[0]}`)
-    .click();
+  await addFromCard(page, ids[0]);
   await page.reload();
   await expect(page.getByTestId("nav-bag-count")).toHaveText("1");
   await page.goto("/restaurant-business-collection");
-  await page.getByTestId("collection-page-add-all-btn").click();
+  await page.getByTestId("collection-page-add-to-bag-btn").click();
   await expect(page.getByTestId("smart-bag-selected-count")).toHaveText(
     "5 selected",
   );
@@ -129,13 +125,13 @@ test("bag persists, deduplicates and confirms Remove all", async ({ page }) => {
   await page.getByTestId("smart-bag-clear-confirm-btn").click();
   await expect(page.getByTestId("smart-bag-empty-state")).toBeVisible();
   await page.keyboard.press("Escape");
-  await expect(page.getByTestId("collection-page-add-all-btn")).toBeFocused();
+  await expect(page.getByTestId("collection-page-add-to-bag-btn")).toBeFocused();
 });
 test("five-book one-step checkout shows the server price and validates required email", async ({ page }) => {
   let creates = 0;
   await page.route("**/api/orders", route => { creates++; return route.abort(); });
   await page.goto("/restaurant-business-collection");
-  await page.getByTestId("collection-page-add-all-btn").click();
+  await page.getByTestId("collection-page-add-to-bag-btn").click();
   await page.getByTestId("smart-bag-checkout-btn").click();
   await expect(page.getByTestId("razorpay-confirmed-total")).toHaveText("₹499");
   await expect(page.getByTestId("razorpay-create-order-btn")).toHaveText("Pay ₹499 with Razorpay");
@@ -228,10 +224,7 @@ test("checkout uses server total directly and payment confirmation survives refr
     }),
   );
   await page.goto("/books");
-  await page
-    .getByRole("main")
-    .getByTestId(`book-card-add-btn-${ids[0]}`)
-    .click();
+  await addFromCard(page, ids[0]);
   await page.getByTestId("nav-bag-toggle-btn").click();
   await page.getByTestId("smart-bag-checkout-btn").click();
   await page.getByTestId("razorpay-checkout-name-input").fill("Test Buyer");
@@ -378,10 +371,7 @@ test("storefront still works when browser persistence is unavailable", async ({
     });
   });
   await page.goto("/books");
-  await page
-    .getByRole("main")
-    .getByTestId(`book-card-add-btn-${ids[0]}`)
-    .click();
+  await addFromCard(page, ids[0]);
   await expect(page.getByTestId("nav-bag-count")).toHaveText("1");
   await page.getByTestId("nav-bag-toggle-btn").click();
   await expect(page.getByTestId("smart-bag-selected-count")).toHaveText(
@@ -535,10 +525,7 @@ for (const count of [1, 2, 3, 4, 5]) {
     );
     await page.goto("/books");
     for (const book of selected)
-      await page
-        .getByRole("main")
-        .getByTestId(`book-card-add-btn-${book}`)
-        .click();
+      await addFromCard(page, book);
     await page.getByTestId("nav-bag-toggle-btn").click();
     await page.getByTestId("smart-bag-checkout-btn").click();
     await page
@@ -807,7 +794,7 @@ test("a remembered order priced before a change is replaced by a fresh ₹499 or
   });
   await page.route("https://checkout.razorpay.com/v1/checkout.js", route => route.abort());
   await page.goto("/restaurant-business-collection");
-  await page.getByTestId("collection-page-add-all-btn").click();
+  await page.getByTestId("collection-page-add-to-bag-btn").click();
   const submit = async () => {
     await page.getByTestId("smart-bag-checkout-btn").click();
     await page.getByTestId("razorpay-checkout-name-input").fill("Test Buyer");

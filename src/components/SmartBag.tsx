@@ -3,7 +3,7 @@ import { ArrowRight, Check, Plus, Sparkles, Trash2, X } from "lucide-react";
 import { useRef, useState, type MouseEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { activeBooks as books, formatInr } from "@/lib/catalog";
-import { useBagOpen, useCart, useCartActions } from "@/lib/store";
+import { useBagOpen, useCheckoutOpen, useCart, useCartActions } from "@/lib/store";
 import Modal from "@/components/Modal";
 import CheckoutModal from "@/components/CheckoutModal";
 import ConnectivityNotice from "@/components/ConnectivityNotice";
@@ -20,8 +20,8 @@ const milestones = [
 export default function SmartBag() {
   const { selectedIds, summary, persistenceError } = useCart();
   const bagOpen = useBagOpen();
-  const { setBagOpen, addBook, removeBook, clearBag } = useCartActions();
-  const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const { setBagOpen, setCheckoutOpen, addBook, removeBook, clearBag } = useCartActions();
+  const checkoutOpen = useCheckoutOpen();
   const [confirmClear, setConfirmClear] = useState(false);
   const lastRemovalTap = useRef<{ x: number; y: number; at: number } | null>(null);
   const [addedRecommendationIds, setAddedRecommendationIds] = useState<string[]>([]);
@@ -413,27 +413,7 @@ export default function SmartBag() {
               <Button
                 className="h-11 w-full sm:h-8"
                 disabled={summary.count === 0}
-                onClick={() => {
-  const pixel = window as Window & {
-    fbq?: (
-      command: string,
-      event: string,
-      parameters: Record<string, unknown>
-    ) => void;
-  };
-
-  if (typeof pixel.fbq === "function") {
-    pixel.fbq("track", "InitiateCheckout", {
-      content_ids: selectedIds,
-      content_type: "product",
-      value: summary.total,
-      currency: "INR",
-      num_items: selectedIds.length,
-    });
-  }
-
-  setCheckoutOpen(true);
-}}
+                onClick={() => setCheckoutOpen(true)}
                 data-testid="smart-bag-checkout-btn"
               >
                 {summary.count === 5

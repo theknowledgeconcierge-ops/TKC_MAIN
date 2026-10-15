@@ -1,3 +1,4 @@
+import { addFromCard } from "./fixtures/shopping";
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 
 // Keep fixture runs isolated from the production advertising dataset.
@@ -46,7 +47,7 @@ async function openCheckout(page: Page) {
   await page.getByTestId("nav-bag-toggle-btn").click();
   await page.keyboard.press("Escape");
   if (await page.getByTestId(`book-card-add-btn-${book}`).getAttribute("data-state") === "idle")
-    await page.getByTestId(`book-card-add-btn-${book}`).click();
+    await addFromCard(page, book);
   await page.getByTestId("nav-bag-toggle-btn").click();
   await page.getByTestId("smart-bag-checkout-btn").click();
 }

@@ -11,6 +11,10 @@ import { StoreProvider, useCart, useCartActions } from "@/lib/store";
 import SmartBag from "@/components/SmartBag";
 import ConciergeChatbot from "@/components/ConciergeChatbot";
 import BackToTop from "@/components/BackToTop";
+import { activeBooks, formatInr } from "@/lib/catalog";
+import { quoteFor } from "@/lib/commerce/pricing";
+
+const bannerCollection = quoteFor(activeBooks.map((book) => book.id));
 
 function Header() {
   const { summary, persistenceError } = useCart();
@@ -44,8 +48,8 @@ function Header() {
           className="-my-2 block min-h-11 content-center py-2 sm:min-h-0"
           data-testid="announcement-collection-link"
         >
-          All 5 restaurant handbooks · ₹999 regular · ₹499 promotional
-          price{" "}
+          All {activeBooks.length} restaurant handbooks · <del>{formatInr(bannerCollection.regular_total_inr)}</del>{" "}
+          {formatInr(bannerCollection.total_inr)} for the collection{" "}
           <span className="ml-1 text-[#c5a880] sm:ml-2">Shop →</span>
         </Link>
       </div>
