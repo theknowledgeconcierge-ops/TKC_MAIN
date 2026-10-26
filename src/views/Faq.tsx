@@ -11,18 +11,18 @@ const faqs = [
   ],
   [
     "Can I buy books separately?",
-    "Yes. Each title is available individually at ₹249.",
+    "Yes. Each title is available individually at ₹199.",
   ],
   [
     "What is included in the complete collection?",
-    "All five restaurant business handbooks for a ₹499 promotional price. The regular collection price is ₹999.",
+    "Choose five Restaurant Playbook books or four Start Selling Online books. Each complete bundle is ₹499, without a coupon.",
   ],
   [
     "How do collection savings work?",
-    "One handbook is ₹249, two are ₹399, three are ₹549 and four are ₹699. All five have a ₹999 regular collection price and a ₹499 promotional price. Your exact payable amount is confirmed before payment.",
+    "Each book is ₹199. Each complete series bundle is ₹499. Books from different series are counted separately. Both complete bundles together cost ₹998. Your exact payable amount is confirmed before payment.",
   ],
   [
-    "Will these books guarantee restaurant success?",
+    "Will these books guarantee business success?",
     "No. They are educational resources designed to support better decisions, not a guarantee of business results.",
   ],
   ["Can I read these on my phone?", "Yes, using a compatible PDF reader."],

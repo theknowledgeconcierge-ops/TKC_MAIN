@@ -1,4 +1,5 @@
 import type { MetadataRoute } from "next";
+import { series } from "@/lib/catalog/series";
 import { activeBooks } from "@/lib/catalog";
 import {
   canonicalUrl,
@@ -13,6 +14,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
     ...Object.values(publicPages).map((page) => ({
       url: canonicalUrl(page.path),
     })),
+    ...series.map(item => ({ url: canonicalUrl(item.path) })),
     ...activeBooks.map((book) => ({
       url: `${PRODUCTION_ORIGIN}/books/${book.slug}`,
       images: [`${PRODUCTION_ORIGIN}${book.cover_image_url}`],

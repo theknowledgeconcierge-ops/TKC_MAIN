@@ -10,6 +10,11 @@ from pathlib import Path
 from PIL import Image
 
 SAMPLES = {
+    "from-someday-to-sold": ("From Someday To Sold.pdf", [5, 28, 58]),
+    "stop-scrolling-start-selling": ("Stop Scrolling Start Selling.pdf", [5, 25, 53]),
+    "sold-out-still-broke": ("Sold Out Still Broke.pdf", [5, 25, 53]),
+    "nobody-told-me-this": ("Nobody Told Me This.pdf", [5, 25, 53]),
+
     "the-first-table": ("The First Table .pdf", [5, 15, 41]),
     "the-full-table": ("The Full Table.pdf", [5, 27, 48]),
     "behind-the-kitchen-door": ("Behind The Kitchen Door.pdf", [5, 17, 45]),
@@ -21,10 +26,17 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("source", type=Path)
     parser.add_argument("--pdftoppm", default="pdftoppm")
+    parser.add_argument("--books", nargs="+", choices=list(SAMPLES))
     args = parser.parse_args()
+    selected = args.books or [slug for slug, (filename, _) in SAMPLES.items()
+                              if (args.source / filename).is_file()]
+    if not selected:
+        parser.error("No matching manuscripts found in the source directory")
     root = Path(__file__).resolve().parents[1] / "public" / "previews"
     with tempfile.TemporaryDirectory() as scratch:
         for slug, (filename, pages) in SAMPLES.items():
+            if slug not in selected:
+                continue
             target = root / slug
             target.mkdir(parents=True, exist_ok=True)
             for page in pages:

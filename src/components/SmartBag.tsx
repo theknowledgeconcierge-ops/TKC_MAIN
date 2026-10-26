@@ -9,13 +9,7 @@ import CheckoutModal from "@/components/CheckoutModal";
 import ConnectivityNotice from "@/components/ConnectivityNotice";
 import BookCover from "@/components/BookCover";
 
-const milestones = [
-  { count: 1, label: "1 Book", price: "₹249" },
-  { count: 2, label: "2 Books", price: "₹399" },
-  { count: 3, label: "3 Books", price: "₹549" },
-  { count: 4, label: "4 Books", price: "₹699" },
-  { count: 5, label: "All 5", price: "₹499*" },
-];
+import { series, booksForSeries } from "@/lib/catalog/series";
 
 export default function SmartBag() {
   const { selectedIds, summary, persistenceError } = useCart();
@@ -30,19 +24,6 @@ export default function SmartBag() {
   const recommendations = books.filter(
     (book) => !selectedIds.includes(book.id) || addedRecommendationIds.includes(book.id),
   );
-  const progress = `${(summary.count / books.length) * 100}%`;
-  const message =
-    summary.count === 0
-      ? "Choose your first handbook to begin building your collection."
-      : summary.count === 1
-        ? "Add 1 more book to unlock 2 for ₹399 and save ₹99."
-        : summary.count === 2
-          ? "Add 1 more book to unlock 3 for ₹549 and save ₹198."
-          : summary.count === 3
-            ? "Add 1 more book to unlock 4 for ₹699 and save ₹297."
-            : summary.count === 4
-              ? "Add 1 more book to unlock all 5 for ₹499 and save ₹746."
-              : "Complete collection unlocked: ₹499 promotional price (regular ₹999).";
   const closeBag = () => {
     setConfirmClear(false);
     lastRemovalTap.current = null;
@@ -131,13 +112,20 @@ export default function SmartBag() {
             <div className="flex-1 overflow-y-auto overscroll-contain px-4 pb-6 sm:px-6">
               {!checkoutOpen && <ConnectivityNotice stage="details" />}
               {persistenceError && <p role="alert" className="my-4 border border-[#9b3d32]/40 p-3 text-sm text-[#9b3d32]" data-testid="cart-storage-error">{persistenceError}</p>}
-              <div
+              {series.map(info => {
+                const seriesBooks = booksForSeries(info.id);
+                const count = seriesBooks.filter(book => selectedIds.includes(book.id)).length;
+                if (selected.length && !count) return null;
+                const progress = `${Math.round(count / seriesBooks.length * 100)}%`;
+                const milestones = seriesBooks.map((_, index) => ({ count: index + 1, label: index + 1 === seriesBooks.length ? `All ${seriesBooks.length}` : `${index + 1} ${index ? "Books" : "Book"}`, price: formatInr(index + 1 === seriesBooks.length ? info.bundlePrice : seriesBooks.slice(0, index + 1).reduce((sum, book) => sum + book.selling_price_inr, 0)) }));
+                const message = count === seriesBooks.length ? `Complete series unlocked: ₹499.` : `Add ${seriesBooks.length - count} ${seriesBooks.length - count === 1 ? "book" : "books"} to complete this series for ₹499.`;
+                return <div key={info.id}
                 className="relative top-0 z-20 -mx-4 mb-6 border-b border-[#2e241f]/10 bg-[#fbf9f5]/95 px-4 py-5 shadow-[0_8px_18px_rgba(24,20,18,0.04)] backdrop-blur-xl sm:sticky sm:-mx-6 sm:px-6"
                 data-testid="smart-bag-tier-progress"
               >
                 <div className="mb-2 flex items-center justify-between text-xs font-mono uppercase tracking-[0.16em] text-[#8c6d46]">
                   <span>
-                    {summary.count} of {books.length} books selected
+                    {info.name}: {count} of {seriesBooks.length} books selected
                   </span>
                   <span>{progress}</span>
                 </div>
@@ -152,16 +140,16 @@ export default function SmartBag() {
                     />
                   </div>
                   {milestones.map((milestone) => {
-                    const reached = summary.count >= milestone.count;
-                    const current = summary.count === milestone.count;
-                    const next = summary.count + 1 === milestone.count;
-                    const bestValue = milestone.count === books.length;
+                    const reached = count >= milestone.count;
+                    const current = count === milestone.count;
+                    const next = count + 1 === milestone.count;
+                    const bestValue = milestone.count === seriesBooks.length;
                     return (
                       <span
                         key={milestone.count}
                         className={`absolute top-1/2 size-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 transition-[background-color,border-color,transform] duration-300 ${bestValue ? "border-[#b49a6a] bg-[#302821] ring-2 ring-[#b49a6a]/25" : reached ? "border-[#b49a6a] bg-[#b49a6a]" : "border-[#cdbfae] bg-[#fbf9f5]"} ${current ? "scale-125" : next ? "scale-110" : ""}`}
                         style={{
-                          left: `${(milestone.count / books.length) * 100}%`,
+                          left: `${(milestone.count / seriesBooks.length) * 100}%`,
                         }}
                         data-testid={`smart-bag-milestone-stop-${milestone.count}`}
                         data-current={current || undefined}
@@ -172,13 +160,13 @@ export default function SmartBag() {
                   })}
                 </div>
                 <div
-                  className="mt-2 grid grid-cols-5 gap-1"
+                  className="mt-2 grid gap-1" style={{ gridTemplateColumns: `repeat(${seriesBooks.length}, minmax(0, 1fr))` }}
                   data-testid="smart-bag-milestone-labels"
                 >
                   {milestones.map((milestone) => {
-                    const current = summary.count === milestone.count;
-                    const next = summary.count + 1 === milestone.count;
-                    const bestValue = milestone.count === books.length;
+                    const current = count === milestone.count;
+                    const next = count + 1 === milestone.count;
+                    const bestValue = milestone.count === seriesBooks.length;
                     return (
                       <div
                         key={milestone.count}
@@ -209,7 +197,7 @@ export default function SmartBag() {
                             className="mt-0.5 block text-[9px] leading-[1.05] text-[#d7c8b8] sm:text-[7px]"
                             data-testid="smart-bag-best-value-promo"
                           >
-                            Promo price
+                            Bundle price
                           </span>
                         )}
                       </div>
@@ -226,10 +214,10 @@ export default function SmartBag() {
                   className="mt-1 text-[11px] leading-relaxed text-[#8c6d46] sm:text-[9px]"
                   data-testid="smart-bag-milestone-footnote"
                 >
-                  *Promotional price for all five books. The regular collection
-                  price is ₹999. Your exact amount is confirmed before payment.
+                  Each series is priced separately. Bundle savings apply automatically when all its books are in your bag.
                 </p>
-              </div>
+              </div>;
+              })}
 
               {confirmClear && (
                 <div
@@ -399,7 +387,7 @@ export default function SmartBag() {
                   )}
                   <div className="mt-4 flex justify-between border-t border-[#2e241f]/10 pt-4 font-serif text-2xl text-[#29231f]">
                     <span>
-                      {summary.count === 5 ? "Estimated total" : "Total"}
+                      Total
                     </span>
                     <span>{formatInr(summary.total)}</span>
                   </div>
@@ -416,9 +404,7 @@ export default function SmartBag() {
                 onClick={() => setCheckoutOpen(true)}
                 data-testid="smart-bag-checkout-btn"
               >
-                {summary.count === 5
-                  ? "Get complete collection"
-                  : "Checkout securely"}
+                Checkout securely
                 <ArrowRight className="ml-2 size-4" />
               </Button>
               <p

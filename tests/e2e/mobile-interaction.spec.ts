@@ -213,7 +213,7 @@ test("a persisted cross-tab update becomes the rollback baseline when writes fai
 
 test("checkout acknowledges slow and failed requests, rejects duplicate submissions and verifies before success", async ({ page }) => {
   const id = "99a3cb9b-6ef1-4fb7-a60e-87a758e9f612";
-  const pricing = { book_count: 1, regular_total_inr: 249, automatic_discount_inr: 0, automatic_price_inr: 249, coupon_discount_inr: 0, total_inr: 249, total_savings_inr: 0, message: "Confirmed" };
+  const pricing = { book_count: 1, regular_total_inr: 199, automatic_discount_inr: 0, automatic_price_inr: 199, coupon_discount_inr: 0, total_inr: 199, total_savings_inr: 0, message: "Confirmed" };
   let releaseOrder!: () => void;
   let releaseScript!: () => void;
   let releaseVerify!: () => void;
@@ -221,7 +221,7 @@ test("checkout acknowledges slow and failed requests, rejects duplicate submissi
   const scriptGate = new Promise<void>((resolve) => { releaseScript = resolve; });
   const verifyGate = new Promise<void>((resolve) => { releaseVerify = resolve; });
   let requests = 0;
-  const preparedCheckout = { key_id: "rzp_test_fixture", payment_mode: "test", internal_order_id: id, order_number: "TKC-mobile", razorpay_order_id: "order_mobile", amount_paise: 24900, currency: "INR", pricing, customer_name: "Test Buyer", customer_email: "buyer@example.com", customer_mobile: "9876543210", description: "One handbook" };
+  const preparedCheckout = { key_id: "rzp_test_fixture", payment_mode: "test", internal_order_id: id, order_number: "TKC-mobile", razorpay_order_id: "order_mobile", amount_paise: 19900, currency: "INR", pricing, customer_name: "Test Buyer", customer_email: "buyer@example.com", customer_mobile: "9876543210", description: "One handbook" };
   await page.route(/\/api\/orders(?:\/resume)?$/, async (route) => {
     if (route.request().url().endsWith("/resume")) return route.fulfill({ json: preparedCheckout });
     requests++;
@@ -252,7 +252,7 @@ test("checkout acknowledges slow and failed requests, rejects duplicate submissi
   await expect(page.getByTestId("checkout-notice")).toContainText("Temporary outage");
   await expect(page.getByTestId("razorpay-create-order-btn")).toBeEnabled();
   await page.getByTestId("razorpay-create-order-btn").click();
-  await expect(page.getByTestId("razorpay-confirmed-total")).toHaveText("₹249");
+  await expect(page.getByTestId("razorpay-confirmed-total")).toHaveText("₹199");
   await expect(page.getByTestId("razorpay-create-order-btn")).toContainText("Opening Razorpay…");
   await expect(page.getByTestId("razorpay-create-order-btn")).toHaveAttribute("aria-busy", "true");
   releaseScript();

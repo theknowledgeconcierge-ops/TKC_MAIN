@@ -52,7 +52,7 @@ Email delivery reuses the purchase-session boundary: viewing the delivery addres
 
 | Attempt | Enforced result |
 | --- | --- |
-| Change ₹249 to ₹1 in DevTools/request | HTTP schema strips submitted totals; server sends 24900 paise from catalogue/pricing |
+| Change ₹199 to ₹1 in DevTools/request | HTTP schema strips submitted totals; server sends 19900 paise from catalogue/pricing |
 | Supply inactive/unknown book or malformed IDs | Runtime validation rejects before order creation |
 | Forge callback/redirect/session paid flag | HMAC and current provider evidence required; session state is ignored |
 | Use another purchase UUID or copy its thank-you URL without its session | Uniform private-purchase 404; no customer details or signed URL |

@@ -2,7 +2,7 @@
 
 One Next.js 16 App Router / TypeScript application on Netlify using its automatically managed OpenNext adapter. Supabase supplies PostgreSQL and private PDF Storage; Razorpay supplies payments. No separate backend, customer accounts, email provider, CMS, queues or Redis.
 
-The existing editorial design, fonts, covers, responsive pages, motion, bag and checkout review are retained. All five titles are active: **The First Table, The Full Table, Behind the Kitchen Door, The Math Behind the Menu, and Empty Tables to Full House**. Prices: **1 / 2 / 3 / 4 books = ₹249 / ₹399 / ₹549 / ₹699**. All five books sell at the **₹499 promotional price for every customer**, including repeat buyers; ₹999 is shown only as the regular collection reference price. The server computes the payable amount before payment; purchase history, email or mobile number never change it.
+The existing editorial design, fonts, responsive pages, bag, direct checkout and delivery flow are retained. The catalog now contains **nine books in two series**: five Restaurant Playbook books and four Start Selling Online books. **Every individual PDF is ₹199. Each complete series bundle is ₹499; both bundles together are ₹998.** Bundle prices apply automatically, without a coupon. Mixed-series carts are calculated separately per series, and historical paid orders retain their original prices.
 
 The visual source of truth is `src/app/globals.css`: warm paper/brown/gold colors, Playfair Display headings, DM Sans body text and JetBrains Mono labels. Shared controls live in `src/components/ui/`; page compositions live in `src/views/`.
 
@@ -171,7 +171,7 @@ Browser tests start the production build on port 3100, cover desktop/mobile rout
 ### External smoke test
 
 - `GET /api/health` returns 200/`status: ready`; `npm run check:integrations` passes with actual credentials/files.
-- Purchase one book, four books and all five; confirm Razorpay receives 24900, 69900 and 49900 paise regardless of edited browser fields. Repeat the five-book purchase with the same email and mobile: it must still be 49900.
+- Purchase an individual book, either complete series, and both bundles; confirm Razorpay receives 19900, 49900 and 99800 paise respectively, regardless of edited browser fields. Test mixed-series selections and repeated customer details.
 - Close/reopen checkout and refresh; confirm the same internal/provider order is reused. Temporarily lose a verification response and verify callback retry. Close the browser before verification: webhook/reconciliation must still mark paid, but must not turn the checkout cookie into download access; separate recovery is required.
 - Replay a signed event using Razorpay dashboard replay; verify one entitlement per item and no duplicate payment/fulfillment. Failed delivery must retry after the underlying issue is restored.
 - Complete verified payment and download in that browser, then refresh and repeat. Copy its thank-you URL into a clean browser: no purchase/session/download access. Checkout cookies, legacy fragments, wrong/expired sessions, another purchase's entitlement, forged callbacks and spoofed webhooks must fail.
@@ -179,3 +179,7 @@ Browser tests start the production build on port 3100, cover desktop/mobile rout
 - Refund a test purchase; confirmation must show refunded and new download requests must fail. Check failure/loading messages and real Razorpay iframe/CSP behavior on mobile and desktop (browser fixtures cannot verify the provider's live assets).
 
 [Migration map](docs/MIGRATION.md) · [Production audit and certification limits](docs/SECURITY_AUDIT.md) · [Customer lifecycle audit and verification matrix](docs/LIFECYCLE_AUDIT.md) · [Netlify deployment](docs/NETLIFY_DEPLOYMENT.md)
+
+## Multi-series release
+
+Apply the database migration and upload the four new private PDFs before publishing. See [release steps](docs/multi-series-release.md) and [feature verification](docs/multi-series-verification.md). The existing restaurant URL is preserved; series routes are `/series/restaurant-playbooks` and `/series/start-selling-online`.

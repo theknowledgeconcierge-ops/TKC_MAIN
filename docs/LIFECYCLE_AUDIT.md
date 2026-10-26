@@ -1,6 +1,6 @@
 # Customer purchase and delivery audit — 10 October 2026
 
-The current catalogue contains **five active handbooks**. One through four unique titles cost ₹249 / ₹399 / ₹549 / ₹699. All five cost the ₹499 promotional price for every customer; ₹999 is only the regular reference collection price, and no purchase history, email, mobile number or customer count changes it. This audit follows the actual frontend, handlers, server service, provider adapters and PostgreSQL functions, including the subsequent purchase-session security fix.
+The current catalogue contains **nine active handbooks across two series**. Every individual book costs ₹199. A complete restaurant series (five books) or online-selling series (four books) costs ₹499; both together cost ₹998. Each series is calculated independently and no coupon or purchase-history eligibility is required. Historical orders keep their recorded amounts. This audit follows the existing frontend, handlers, server service, provider adapters and PostgreSQL functions; the multi-series release extends valid IDs and order capacity without changing the payment or delivery design.
 
 ## Authorization boundary
 

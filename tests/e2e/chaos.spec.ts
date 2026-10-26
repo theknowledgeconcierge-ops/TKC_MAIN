@@ -19,8 +19,8 @@ test.beforeEach(async ({ context }) => {
 const id = "99a3cb9b-6ef1-4fb7-a60e-87a758e9f612";
 const book = "the-first-table";
 const entitlement = "99a3cb9b-6ef1-4fb7-a60e-87a758e9f613";
-const pricing = { book_count: 1, regular_total_inr: 249, automatic_discount_inr: 0, automatic_price_inr: 249, coupon_discount_inr: 0, total_inr: 249, total_savings_inr: 0, message: "Confirmed" };
-const checkout = { key_id: "rzp_test_fixture", payment_mode: "test", internal_order_id: id, order_number: "TKC-chaos", razorpay_order_id: "order_chaos", amount_paise: 24900, currency: "INR", pricing, customer_name: "Test Buyer", customer_email: "buyer@example.com", customer_mobile: "9876543210", description: "One handbook" };
+const pricing = { book_count: 1, regular_total_inr: 199, automatic_discount_inr: 0, automatic_price_inr: 199, coupon_discount_inr: 0, total_inr: 199, total_savings_inr: 0, message: "Confirmed" };
+const checkout = { key_id: "rzp_test_fixture", payment_mode: "test", internal_order_id: id, order_number: "TKC-chaos", razorpay_order_id: "order_chaos", amount_paise: 19900, currency: "INR", pricing, customer_name: "Test Buyer", customer_email: "buyer@example.com", customer_mobile: "9876543210", description: "One handbook" };
 function purchase(status = "paid", deliveryStatus = "pending") {
   return { id, order_number: "TKC-chaos", status, books: [book], pricing, payment_mode: "test", payment_retry_allowed: status === "failed", download_authorized: status === "paid", entitlements: status === "paid" ? [{ id: entitlement, product_id: book }] : [], delivery: status === "paid" ? { email: "buyer@example.com", status: deliveryStatus, locked: deliveryStatus === "sent", can_retry: deliveryStatus !== "sent", can_change_email: true, sent_at: deliveryStatus === "sent" ? "2026-10-10T18:00:00Z" : null, error: deliveryStatus === "failed" ? "provider_timeout" : null } : null };
 }
@@ -129,17 +129,28 @@ test("five tabs, reload during Sending, Sent revisit, failed reload and Back/For
     await route.fulfill({ json: current }).catch(() => {});
   });
   const pages = [page, ...await Promise.all(Array.from({ length: 4 }, () => context.newPage()))];
-  await Promise.all(pages.map(p => p.goto(`/thank-you?order=${id}`)));
+  // Hydrate each tab in the foreground before testing concurrent actions. Edge
+  // can defer hydration in newly opened background tabs on Windows.
+  for (const p of pages) {
+    await p.bringToFront();
+    await p.goto(`/thank-you?order=${id}`, { waitUntil: "domcontentloaded" });
+    await expect(p.getByTestId("delivery-confirm-btn")).toBeVisible();
+  }
   // Dispatch near-simultaneous taps without switching active tabs and causing
   // focus reconciliation to disable a sibling before its intended click.
   await Promise.all(pages.map(p => p.getByTestId("delivery-confirm-btn").evaluate(el => (el as HTMLButtonElement).click())));
   await expect.poll(() => requests).toBe(5);
-  await page.reload();
+  await page.bringToFront();
+  await page.reload({ waitUntil: "domcontentloaded" });
   await expect(page.getByTestId("delivery-sending")).toBeVisible();
   expect(requests).toBe(5);
   pending.release();
-  await Promise.all(pages.map(p => p.reload()));
-  for (const p of pages) await expect(p.getByTestId("delivery-sent")).toBeVisible();
+  for (const p of pages) {
+    await p.bringToFront();
+    await p.reload({ waitUntil: "domcontentloaded" });
+    await expect(p.getByTestId("delivery-sent")).toBeVisible();
+  }
+  await page.bringToFront();
   await page.goto("/books");
   await page.goBack();
   await expect(page.getByTestId("delivery-sent")).toBeVisible();
@@ -202,10 +213,10 @@ test("reloads in the form and Razorpay opening reuse the checkout without chargi
   await openCheckout(page);
   await details(page);
   await burst(page, "razorpay-create-order-btn");
-  await expect(page.getByTestId("razorpay-confirmed-total")).toHaveText("₹249");
+  await expect(page.getByTestId("razorpay-confirmed-total")).toHaveText("₹199");
   await page.reload();
   await openCheckout(page);
-  await expect(page.getByTestId("razorpay-confirmed-total")).toHaveText("₹249");
+  await expect(page.getByTestId("razorpay-confirmed-total")).toHaveText("₹199");
   await page.getByTestId("razorpay-create-order-btn").click();
   await expect(page.getByTestId("razorpay-create-order-btn")).toContainText("Opening Razorpay");
   await expect.poll(() => resumes).toBe(3);

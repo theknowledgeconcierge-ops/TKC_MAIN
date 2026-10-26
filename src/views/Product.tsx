@@ -9,11 +9,13 @@ import CollectionOffer from "@/components/CollectionOffer";
 import PurchasePrice from "@/components/PurchasePrice";
 import WhatsAppPurchase from "@/components/WhatsAppPurchase";
 import { activeBooks as books, formatInr, type ProductId } from "@/lib/catalog";
+import { seriesForBook } from "@/lib/catalog/series";
 import { productContent } from "@/lib/product-content";
 import { useCartActions } from "@/lib/store";
 
 export default function Product({ slug }: { slug: string }) {
   const book = books.find((item) => item.slug === slug)!;
+  const info = seriesForBook(book);
   const content = productContent[book.id as ProductId];
   const { addBook, setBagOpen, setCheckoutOpen } = useCartActions();
   const purchase = () => { addBook(book.id); setBagOpen(false); setCheckoutOpen(true); };
@@ -23,7 +25,7 @@ export default function Product({ slug }: { slug: string }) {
       <nav aria-label="Breadcrumb" className="mb-7 text-xs leading-6 text-[#6e655e]"><Link href="/">Home</Link><span aria-hidden="true"> / </span><Link href="/books">Books</Link><span aria-hidden="true"> / </span><span aria-current="page">{book.title}</span></nav>
       <section className="grid min-w-0 gap-x-14 gap-y-6 md:grid-cols-[.85fr_1fr] md:gap-y-0">
         <header className="md:col-start-2 md:row-start-1">
-          <p className="overline">{content.focus}</p>
+          <p className="overline"><Link href={info.path}>{info.name}</Link> · {content.focus}</p>
           <h1 className="mt-3 font-serif text-4xl leading-tight sm:text-5xl" data-testid="product-title">{book.title}</h1>
           <p className="mt-3 text-sm leading-6 text-[#6e655e]">By {book.author} · {book.pages} pages · Digital PDF</p>
           <div className="mt-2"><RatingSummary productId={book.id} /></div>
@@ -69,11 +71,11 @@ export default function Product({ slug }: { slug: string }) {
         ["What do I receive?", `The complete ${book.pages}-page PDF edition of ${book.title}, including its workbook pages. This is a digital book, not a physical delivery.`],
         ["Can I look inside before buying?", "Yes. The gallery above includes the cover and three original interior pages from this book. Use the arrows or thumbnails, and enlarge any page to read it."],
         ["How do I get the book after payment?", "Once your payment is confirmed, your order page provides the PDF download. If confirmation is pending, that page checks the payment status before making downloads available."],
-        ["Should I choose one book or the collection?", "Choose an individual book for one specific subject. The complete five-book collection covers starting, marketing, operations, finance and diagnosing weak demand. Its current total is shown below and confirmed at checkout."],
+        ["Should I choose one book or the collection?", `Choose an individual book for one specific subject. ${info.name}: ${info.description} The complete bundle is ₹499, with its current total confirmed at checkout.`],
       ].map(([question, answer]) => <details className="group" key={question}><summary className="flex min-h-16 cursor-pointer list-none items-center justify-between gap-4 py-4 text-sm font-medium [&::-webkit-details-marker]:hidden">{question}<ChevronDown className="size-4 shrink-0 group-open:rotate-180" /></summary><p className="max-w-3xl pb-5 text-sm leading-7 text-[#6e655e]">{answer}</p></details>)}</div>
       <p className="mt-5 text-sm text-[#6e655e]">More questions? <Link href="/faq" className="underline underline-offset-4">Visit the FAQs</Link> or <Link href="/contact-us" className="underline underline-offset-4">contact us</Link>.</p>
     </section>
-    <CollectionOffer />
-    <section className="mx-auto max-w-6xl px-4 py-14 sm:px-6 sm:py-20" data-testid="product-related-section"><div className="flex flex-wrap items-end justify-between gap-4"><div><p className="overline">Keep exploring</p><h2 className="mt-3 font-serif text-3xl sm:text-4xl">A different part of the business.</h2></div><Link href="/books" className="inline-flex min-h-11 items-center text-sm text-[#795c35] underline underline-offset-4" data-testid="product-library-link">Browse all books <ArrowRight className="ml-2 size-4" /></Link></div><div className="mt-9 grid grid-cols-2 gap-x-4 gap-y-10 sm:gap-8 lg:grid-cols-4">{books.filter((item) => item.id !== book.id).map((item) => <BookCard key={item.id} book={item} />)}</div></section>
+    <CollectionOffer seriesId={book.seriesId} />
+    <section className="mx-auto max-w-6xl px-4 py-14 sm:px-6 sm:py-20" data-testid="product-related-section"><div className="flex flex-wrap items-end justify-between gap-4"><div><p className="overline">Keep exploring</p><h2 className="mt-3 font-serif text-3xl sm:text-4xl">A different part of the business.</h2></div><Link href="/books" className="inline-flex min-h-11 items-center text-sm text-[#795c35] underline underline-offset-4" data-testid="product-library-link">Browse all books <ArrowRight className="ml-2 size-4" /></Link></div><div className="mt-9 grid grid-cols-2 gap-x-4 gap-y-10 sm:gap-8 lg:grid-cols-4">{books.filter((item) => item.id !== book.id && item.seriesId === book.seriesId).map((item) => <BookCard key={item.id} book={item} />)}</div></section>
   </div>;
 }

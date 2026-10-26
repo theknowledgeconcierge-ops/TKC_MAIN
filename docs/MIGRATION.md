@@ -1,5 +1,6 @@
 # Storefront migration — 9 October 2026
 
+> Historical migration record. The pricing and catalog descriptions below document earlier releases. Current pricing is ₹199 per book and ₹499 per series bundle; see [the multi-series release](multi-series-release.md) for the October 26 expansion.
 ## Audit completed before implementation
 
 Read all seven page modules, the shell/router, six storefront components, UI primitives, CSS/fonts, browser store and payment client, all Python models/routes/database helpers, existing pytest and Playwright scaffolding, reports, and deployment/template configuration. No `.codegraph/` exists, so CodeGraph was not used.

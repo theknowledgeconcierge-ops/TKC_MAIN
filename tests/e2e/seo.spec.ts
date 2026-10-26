@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { series } from "../../src/lib/catalog/series";
 import { activeBooks } from "../../src/lib/catalog";
 import {
   bookMetadata,
@@ -10,6 +11,7 @@ test.use({ javaScriptEnabled: false, userAgent: "Googlebot" });
 
 const pages = [
   ...Object.values(publicPages),
+  ...series.map(item => ({ path: item.path, title: `${item.name} & ₹499 Bundle`, description: item.description })),
   ...activeBooks.map((book) => ({
     path: `/books/${book.slug}`,
     title: (bookMetadata(book).title as { absolute: string }).absolute.replace(
@@ -55,7 +57,7 @@ test("every public page has server-rendered content, complete metadata, factual 
   page,
   request,
 }) => {
-  test.setTimeout(90000);
+  test.setTimeout(180000);
   const links = new Set<string>();
   const assets = new Set<string>();
   const titles = new Set<string>();

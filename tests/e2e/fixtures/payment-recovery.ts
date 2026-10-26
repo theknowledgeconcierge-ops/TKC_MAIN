@@ -4,7 +4,7 @@ import { catalogue } from "../../../src/lib/catalog";
 import { quoteFor } from "../../../src/lib/commerce/pricing";
 
 export const id = "bbf0142d-4ded-4709-b74c-c627156d633c";
-export const ids = catalogue.map(book => book.id);
+export const ids = catalogue.filter(book => book.seriesId === "restaurant-playbooks").map(book => book.id);
 export const pricing = quoteFor(ids);
 export const checkout = { internal_order_id: id, order_number: "TKC-recovery", razorpay_order_id: "order_recovery", amount_paise: 49900, currency: "INR", key_id: "rzp_test_fixture", payment_mode: "test", customer_name: "Fixture Buyer", customer_email: "fixture@example.com", customer_mobile: "9876543210", pricing, description: "Five books" };
 export const support = "theknowledgeconcierge@gmail.com";

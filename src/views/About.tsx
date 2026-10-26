@@ -31,7 +31,7 @@ export default function About() {
         <p data-testid="about-author">
           The restaurant collection is authored by Rakesh Chauhan, described in
           the supplied books as a chef and restaurant owner with hospitality
-          experience in India and abroad.
+          experience in India and abroad. The four-book Start Selling Online Series is written and published by The Knowledge Concierge for people building physical-product businesses in India.
         </p>
       </div>
     </div>

@@ -41,12 +41,12 @@ afterAll(async () => {
 });
 
 describe("real PostgreSQL transaction invariants", () => {
-  it("snapshots and fulfills all five handbooks once under repeated captured events", async () => {
+  it("snapshots and fulfills both bundles once under repeated captured events", async () => {
     const data = {
       ...input(),
-      subtotal: 124500,
-      total: 49900,
-      pricing: { book_count: 5, total_inr: 499 },
+      subtotal: 179100,
+      total: 99800,
+      pricing: { book_count: 9, total_inr: 998 },
       items: catalogue.map((book) => ({
         product_id: book.id,
         product_title: book.title,
@@ -65,7 +65,7 @@ describe("real PostgreSQL transaction invariants", () => {
       order_id: data.id,
       razorpay_order_id: providerOrder,
       payment_id: "pay_" + data.id.replaceAll("-", ""),
-      amount: 49900,
+      amount: 99800,
       currency: "INR",
       status: "captured",
       amount_refunded: 0,
@@ -85,7 +85,7 @@ describe("real PostgreSQL transaction invariants", () => {
         [data.id],
       )
     ).rows;
-    expect(rows).toHaveLength(5);
+    expect(rows).toHaveLength(9);
     expect(rows).toContainEqual({
       product_id: "empty-tables-to-full-house",
       storage_path: "handbooks/empty-tables-to-full-house.pdf",
@@ -97,7 +97,7 @@ describe("real PostgreSQL transaction invariants", () => {
           [data.id],
         )
       ).rows[0],
-    ).toEqual({ total: 49900, status: "paid" });
+    ).toEqual({ total: 99800, status: "paid" });
   });
   it("atomically creates one order and snapshot for concurrent submissions", async () => {
     const data = input();

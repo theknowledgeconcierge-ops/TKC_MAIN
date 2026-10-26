@@ -49,15 +49,15 @@ test("all routes, five covers, responsive layout and product contents", async ({
     ).toBe(true);
   }
   await page.goto("/books");
-  await expect(page.locator('[data-testid^="book-card-item-"]')).toHaveCount(5);
+  await expect(page.locator('[data-testid^="book-card-item-"]')).toHaveCount(9);
   await page.goto("/restaurant-business-collection");
   await expect(
     page.getByTestId("collection-page-covers").locator("a"),
   ).toHaveCount(5);
   await expect(page.getByTestId("collection-page-heading")).toContainText(
-    "One collection",
+    "Five perspectives",
   );
-  await expect(page.getByTestId("collection-page")).toContainText("₹1,245");
+  await expect(page.getByTestId("collection-page")).toContainText("₹995");
   await expect(page.getByTestId("collection-page")).toContainText("₹499");
   await page.goto("/books/empty-tables-to-full-house");
   await expect(page.getByTestId("preview-indicator")).toContainText("1 of 4");
@@ -88,10 +88,10 @@ test("bag persists, deduplicates and confirms Remove all", async ({ page }) => {
     "499",
   );
   await expect(page.getByTestId("smart-bag-price-summary")).toContainText(
-    "Promotional discount",
+    "Automatic collection discount",
   );
   await expect(page.getByTestId("smart-bag-best-value-promo")).toHaveText(
-    "Promo price",
+    "Bundle price",
   );
   await expect(page.locator("body")).not.toContainText(
     /eligib|first-time|returning customer/i,
@@ -111,7 +111,7 @@ test("bag persists, deduplicates and confirms Remove all", async ({ page }) => {
     "80%",
   );
   await expect(page.getByTestId("smart-bag-price-summary")).toContainText(
-    "699",
+    "796",
   );
   await page
     .getByTestId("smart-bag-recommend-add-empty-tables-to-full-house")
@@ -168,12 +168,12 @@ test("checkout uses server total directly and payment confirmation survives refr
   const id = "99a3cb9b-6ef1-4fb7-a60e-87a758e9f612";
   const pricing = {
     book_count: 1,
-    regular_total_inr: 249,
+    regular_total_inr: 199,
     automatic_discount_inr: 0,
-    automatic_price_inr: 249,
+    automatic_price_inr: 199,
     coupon_code: null,
     coupon_discount_inr: 0,
-    total_inr: 249,
+    total_inr: 199,
     total_savings_inr: 0,
     message: "Your collection price is ready.",
   };
@@ -183,7 +183,7 @@ test("checkout uses server total directly and payment confirmation survives refr
     internal_order_id: id,
     order_number: "TKC-fixture",
     razorpay_order_id: "order_fixture",
-    amount_paise: 24900,
+    amount_paise: 19900,
     currency: "INR",
     pricing,
     customer_name: "Buyer",
@@ -234,7 +234,7 @@ test("checkout uses server total directly and payment confirmation survives refr
   await page.getByTestId("razorpay-checkout-mobile-input").fill("9876543210");
   await page.getByTestId("razorpay-create-order-btn").click();
   await expect(page.getByTestId("razorpay-confirmed-total")).toContainText(
-    "249",
+    "199",
   );
   await expect(
     page.getByText("Razorpay could not open", { exact: true }),
@@ -345,7 +345,7 @@ test("a paid status without a purchase session never renders downloadable books"
     status: "paid",
     download_authorized: false,
     books: [ids[0]],
-    pricing: { total_inr: 249 },
+    pricing: { total_inr: 199 },
     payment_mode: "test",
     entitlements: [],
   };
@@ -385,7 +385,7 @@ for (const count of [1, 2, 3, 4, 5]) {
   }) => {
     const selected = ids.slice(0, count);
     const id = "649c9c83-0758-4dd7-a853-054793b2209c";
-    const total = [0, 249, 399, 549, 699, 499][count];
+    const total = [0, 199, 398, 597, 796, 499][count];
     let settled = false;
     let callbackReceived = false;
     let verificationAttempts = 0;
@@ -393,13 +393,13 @@ for (const count of [1, 2, 3, 4, 5]) {
     let failDownload = true;
     const pricing = {
       book_count: count,
-      regular_total_inr: count * 249,
-      automatic_discount_inr: count * 249 - (count === 5 ? 999 : total),
-      automatic_price_inr: count === 5 ? 999 : total,
-      coupon_code: count === 5 ? "FIRST50" : null,
-      coupon_discount_inr: count === 5 ? 500 : 0,
+      regular_total_inr: count * 199,
+      automatic_discount_inr: count * 199 - total,
+      automatic_price_inr: total,
+      coupon_code: null,
+      coupon_discount_inr: 0,
       total_inr: total,
-      total_savings_inr: count * 249 - total,
+      total_savings_inr: count * 199 - total,
       message: "Server verified collection price.",
     };
     const entitlements = selected.map((product_id, index) => ({

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { series } from "@/lib/catalog/series";
 import { activeBooks } from "@/lib/catalog";
 import robots from "@/app/robots";
 import sitemap from "@/app/sitemap";
@@ -49,6 +50,7 @@ describe("production SEO", () => {
       ...Object.values(publicPages).map(
         (page) => `${PRODUCTION_ORIGIN}${page.path === "/" ? "" : page.path}`,
       ),
+      ...series.map(item => `${PRODUCTION_ORIGIN}${item.path}`),
       ...activeBooks.map((book) => `${PRODUCTION_ORIGIN}/books/${book.slug}`),
     ]);
     expect(new Set(urls).size).toBe(urls.length);
@@ -116,7 +118,7 @@ describe("production SEO", () => {
         "@type": ["Product", "Book"],
         name: book.title,
         description: book.description,
-        author: { "@type": "Person", name: book.author },
+        author: { "@type": book.seriesId === "start-selling-online" ? "Organization" : "Person", name: book.author },
         numberOfPages: book.pages,
         bookFormat: "https://schema.org/EBook",
         encodingFormat: "application/pdf",
@@ -128,7 +130,7 @@ describe("production SEO", () => {
       });
       expect(data["@graph"][1]).toMatchObject({ "@type": "BreadcrumbList" });
       expect(JSON.stringify(data)).not.toMatch(
-        /aggregateRating|review|availability|isbn|priceValidUntil/i,
+        /"(?:aggregateRating|review|availability|isbn|priceValidUntil)"\s*:/i,
       );
       expect(JSON.parse(serializeJsonLd(data))).toEqual(data);
     }

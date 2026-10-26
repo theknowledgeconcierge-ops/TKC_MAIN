@@ -216,7 +216,7 @@ describe("checkout and recovery", () => {
     createOrderSchema.parse({
       ...input(),
       ...details,
-      book_ids: catalogue.map((book) => book.id),
+      book_ids: catalogue.filter(book => book.seriesId === "restaurant-playbooks").map((book) => book.id),
       checkout_token: randomBytes(32).toString("base64url"),
     });
   // Seeds the durable paid history that the removed eligibility lookup used to read.
@@ -255,14 +255,14 @@ describe("checkout and recovery", () => {
       const checkout = await service.create(collection());
       expect(checkout.amount_paise).toBe(49900);
       expect(checkout.pricing).toMatchObject({
-        regular_total_inr: 1245,
-        automatic_discount_inr: 246,
-        coupon_code: "FIRST50",
-        coupon_discount_inr: 500,
+        regular_total_inr: 995,
+        automatic_discount_inr: 496,
+        coupon_code: null,
+        coupon_discount_inr: 0,
         total_inr: 499,
       });
       const order = orders.get(checkout.internal_order_id)!;
-      expect(order.subtotal).toBe(124500);
+      expect(order.subtotal).toBe(99500);
       expect(order.total).toBe(49900);
       expect(order.order_items).toHaveLength(5);
       expect(provider.createOrder).toHaveBeenLastCalledWith(
@@ -276,7 +276,7 @@ describe("checkout and recovery", () => {
     expect(a.internal_order_id).toBe(b.internal_order_id);
     expect(orders.size).toBe(1);
     expect(provider.createOrder).toHaveBeenCalledTimes(1);
-    expect(a.amount_paise).toBe(24900);
+    expect(a.amount_paise).toBe(19900);
   });
   it("rejects reuse of checkout token for different customer details", async () => {
     await service.create(input());
@@ -362,7 +362,7 @@ describe("trusted verification and private downloads", () => {
   it("fulfills all five titles once and signs the fifth PDF only for its owner", async () => {
     const orderInput = createOrderSchema.parse({
       ...input(),
-      book_ids: catalogue.map((book) => book.id),
+      book_ids: catalogue.filter(book => book.seriesId === "restaurant-playbooks").map((book) => book.id),
     });
     const { checkout, payment } = await captured(orderInput);
     const verification = {
@@ -834,7 +834,7 @@ describe("stale unpaid orders after a price change", () => {
   const collectionInput = () =>
     createOrderSchema.parse({
       ...input(),
-      book_ids: catalogue.map((book) => book.id),
+      book_ids: catalogue.filter(book => book.seriesId === "restaurant-playbooks").map((book) => book.id),
     });
   // Recreates the production case: an unpaid order and Razorpay order priced at ₹999.
   function makeHistorical(id: string) {
@@ -876,7 +876,7 @@ describe("stale unpaid orders after a price change", () => {
     });
     expect(fresh.internal_order_id).not.toBe(stale.internal_order_id);
     expect(fresh.amount_paise).toBe(49900);
-    expect(fresh.pricing).toMatchObject({ total_inr: 499, coupon_discount_inr: 500 });
+    expect(fresh.pricing).toMatchObject({ total_inr: 499, coupon_discount_inr: 0 });
     expect(provider.createOrder).toHaveBeenCalledTimes(2);
     expect(provider.createOrder).toHaveBeenLastCalledWith(
       expect.objectContaining({ id: fresh.internal_order_id, total: 49900 }),
@@ -888,13 +888,13 @@ describe("stale unpaid orders after a price change", () => {
     // An older snapshot at the same total keeps its order, but shows current copy.
     orders.get(order.internal_order_id)!.pricing.message =
       "First50 applied for a first-time buyer.";
-    const resumed = await service.resume(order.internal_order_id, token, catalogue.map((book) => book.id));
+    const resumed = await service.resume(order.internal_order_id, token, catalogue.filter(book => book.seriesId === "restaurant-playbooks").map((book) => book.id));
     expect(resumed).toMatchObject({
       internal_order_id: order.internal_order_id,
       razorpay_order_id: order.razorpay_order_id,
       amount_paise: 49900,
     });
-    expect(resumed.pricing.message).toBe("Promotional collection price applied.");
+    expect(resumed.pricing.message).toBe("Complete series bundle price applied automatically.");
     expect(provider.createOrder).toHaveBeenCalledTimes(1);
   });
   it("never reprices a paid historical ₹999 order", async () => {
@@ -957,12 +957,12 @@ describe("stale unpaid orders after a price change", () => {
     ).rejects.toMatchObject(isPriceChanged);
     await expect(
       service.resume(order.internal_order_id, token, ["the-full-table", "the-first-table"]),
-    ).resolves.toMatchObject({ amount_paise: 39900 });
-    orders.get(order.internal_order_id)!.order_items[0].unit_price = 19900;
+    ).resolves.toMatchObject({ amount_paise: 39800 });
+    orders.get(order.internal_order_id)!.order_items[0].unit_price = 24900;
     await expect(service.resume(order.internal_order_id, token)).rejects.toMatchObject(
       isPriceChanged,
     );
-    orders.get(order.internal_order_id)!.order_items[0].unit_price = 24900;
+    orders.get(order.internal_order_id)!.order_items[0].unit_price = 19900;
     orders.get(order.internal_order_id)!.order_items[1].storage_path = "handbooks/other.pdf";
     await expect(service.resume(order.internal_order_id, token)).rejects.toMatchObject(
       isPriceChanged,
@@ -981,5 +981,34 @@ describe("stale unpaid orders after a price change", () => {
     }
     expect(orders.get(stale.internal_order_id)).toEqual(before.order);
     expect(provider.createOrder).toHaveBeenCalledTimes(1);
+  });
+});
+
+
+describe("multi-series payment and entitlement parity", () => {
+  const online = catalogue.filter(book => book.seriesId === "start-selling-online").map(book => book.id);
+  const restaurant = catalogue.filter(book => book.seriesId === "restaurant-playbooks").map(book => book.id);
+  it.each([
+    { ids: [online[0]], total: 199 },
+    { ids: online, total: 499 },
+    { ids: [restaurant[0], online[0]], total: 398 },
+    { ids: [...restaurant, online[0]], total: 698 },
+    { ids: catalogue.map(book => book.id), total: 998 },
+  ])("verifies and delivers $ids at ₹$total through the existing flow", async ({ ids, total }) => {
+    const { checkout, payment } = await captured({ ...input(), book_ids: ids });
+    expect(checkout.amount_paise).toBe(total * 100);
+    expect(provider.createOrder).toHaveBeenCalledWith(expect.objectContaining({ total: total * 100 }));
+    const verified = await service.verify({ internal_order_id: checkout.internal_order_id, razorpay_order_id: payment.order_id,
+      razorpay_payment_id: payment.id, razorpay_signature: signature(payment.order_id, payment.id) }, token);
+    expect(verified.status).toBe("paid");
+    expect(entitlements.map(item => item.product_id).sort()).toEqual([...ids].sort());
+    const session = await service.issuePurchaseSession(checkout.internal_order_id, payment.id);
+    for (const entitlement of entitlements) {
+      await service.download(checkout.internal_order_id, entitlement.id, session);
+      expect(repo.signDownload).toHaveBeenLastCalledWith(`handbooks/${entitlement.product_id}.pdf`, 60);
+    }
+    await service.verify({ internal_order_id: checkout.internal_order_id, razorpay_order_id: payment.order_id,
+      razorpay_payment_id: payment.id, razorpay_signature: signature(payment.order_id, payment.id) }, token);
+    expect(entitlements).toHaveLength(ids.length);
   });
 });

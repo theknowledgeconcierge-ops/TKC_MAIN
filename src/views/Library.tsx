@@ -1,4 +1,7 @@
 "use client";
+import { useEffect, useState } from "react";
+import CollectionOffer from "@/components/CollectionOffer";
+import { series, type SeriesId } from "@/lib/catalog/series";
 import { ArrowRight } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
@@ -7,6 +10,9 @@ import { activeBooks as books, formatInr } from "@/lib/catalog";
 import { useCart, useCartActions } from "@/lib/store";
 
 export default function Library() {
+  const [filter, setFilter] = useState<"all" | "bundles" | SeriesId>("all");
+  useEffect(() => { if (window.location.hash === "#bundles") setFilter("bundles"); }, []);
+  const visibleBooks = books.filter(book => filter === "all" || book.seriesId === filter);
   const { summary } = useCart();
   const { setBagOpen } = useCartActions();
   return (
@@ -20,14 +26,13 @@ export default function Library() {
           className="mt-5 font-serif text-4xl leading-tight text-[#29231f] sm:text-5xl"
           data-testid="library-heading"
         >
-          Build your restaurant business library.
+          Build your business library.
         </h1>
         <p
           className="mt-5 text-base leading-relaxed text-[#6e655e] sm:text-lg"
           data-testid="library-description"
         >
-          Choose the handbooks that match your challenges. The more you add, the
-          more value you unlock.
+          Choose the handbooks that match your challenges. Nine books across two series, ₹199 each. Complete either series for ₹499.
         </p>
       </div>
       <div
@@ -50,12 +55,13 @@ export default function Library() {
           View your bag <ArrowRight className="ml-2 size-4" />
         </Button>
       </div>
-      <div className="mt-12 grid grid-cols-2 gap-x-4 gap-y-12 sm:mt-14 sm:gap-x-6 sm:gap-y-16 lg:grid-cols-5">
-        <h2 className="sr-only">Restaurant business PDF handbooks</h2>
-        {books.map((book) => (
+      <nav id="bundles" aria-label="Filter books" className="mt-8 flex flex-wrap gap-2">{([{ id: "all", name: "All Books" }, ...series, { id: "bundles", name: "Complete Bundles" }] as const).map(item => <Button key={item.id} variant={filter === item.id ? "default" : "outline"} onClick={() => setFilter(item.id)} aria-pressed={filter === item.id} className="min-h-11">{item.name}</Button>)}</nav>
+      {filter === "bundles" ? <div className="mt-10 space-y-8">{series.map(info => <CollectionOffer key={info.id} seriesId={info.id} />)}</div> : <div className="mt-12 grid grid-cols-2 gap-x-4 gap-y-12 sm:mt-14 sm:gap-x-6 sm:gap-y-16 lg:grid-cols-5">
+        <h2 className="sr-only">Business PDF handbooks</h2>
+        {visibleBooks.map((book) => (
           <BookCard key={book.id} book={book} />
         ))}
-      </div>
+      </div>}
       <section
         className="mt-16 bg-[#302821] p-6 text-[#f7f4ee] sm:mt-24 sm:p-12"
         data-testid="library-build-section"
@@ -67,16 +73,16 @@ export default function Library() {
               One book is a start. The collection goes further.
             </h2>
             <p className="mt-3 max-w-2xl text-sm leading-relaxed text-[#d2c3b3]">
-              Collection savings unlock as you add books. All five complete your
-              collection at the ₹499 promotional price.
+              Each complete series is ₹499 automatically: five restaurant books or four selling-online books. Add both bundles for ₹998.
             </p>
           </div>
           <Link
-            href="/restaurant-business-collection"
+            href="/books#bundles"
             className="inline-flex items-center text-sm font-medium uppercase tracking-[0.12em] text-[#c5a880]"
+            onClick={() => setFilter("bundles")}
             data-testid="library-collection-link"
           >
-            See the collection <ArrowRight className="ml-2 size-4" />
+            Explore complete bundles <ArrowRight className="ml-2 size-4" />
           </Link>
         </div>
       </section>

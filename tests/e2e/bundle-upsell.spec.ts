@@ -3,7 +3,7 @@ import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 import { activeBooks } from "../../src/lib/catalog";
 import { quoteFor } from "../../src/lib/commerce/pricing";
 
-const ids = activeBooks.map(book => book.id);
+const ids = activeBooks.filter(book => book.seriesId === "restaurant-playbooks").map(book => book.id);
 const id = "99a3cb9b-6ef1-4fb7-a60e-87a758e9f612";
 async function fixture(context: BrowserContext) {
   const requests: { book_ids: string[]; full_name: string; email: string; mobile: string }[] = [];
@@ -47,7 +47,7 @@ async function details(page: Page) {
   await page.getByTestId("razorpay-checkout-email-input").fill("buyer@example.com");
   await page.getByTestId("razorpay-checkout-mobile-input").fill("9876543210");
 }
-for (const [count, highlight] of [[1, "ADD JUST ₹250"], [2, "ADD JUST ₹100"], [3, "SAVE ₹50"], [4, "SAVE ₹200"]] as const) {
+for (const [count, highlight] of [[1, "ADD JUST ₹300"], [2, "ADD JUST ₹101"], [3, "SAVE ₹98"], [4, "SAVE ₹297"]] as const) {
   test(`${count} books: server pricing produces a truthful offer with actual covers`, async ({ page, context }) => {
     const state = await fixture(context);
     await open(page, count);
@@ -89,7 +89,7 @@ test("upgrade preserves entered details and opens Razorpay without another Pay c
   await addFromCard(page, ids[1]);
   await page.getByTestId("nav-bag-toggle-btn").click();
   await page.getByTestId("smart-bag-checkout-btn").click();
-  await expect(page.getByTestId("bundle-upsell-difference")).toHaveText("ADD JUST ₹100");
+  await expect(page.getByTestId("bundle-upsell-difference")).toHaveText("ADD JUST ₹101");
   await page.getByTestId("bundle-upsell-upgrade").click();
   await expect(page.getByRole("button", { name: "Complete fixture payment" })).toBeVisible();
   expect(state.requests).toHaveLength(1);
@@ -114,7 +114,7 @@ test("320px mobile offer has no overflow and both controls are reachable", async
   await fixture(context);
   await page.setViewportSize({ width: 320, height: 568 });
   await open(page, 4);
-  await expect(page.getByTestId("bundle-upsell-difference")).toHaveText("SAVE ₹200");
+  await expect(page.getByTestId("bundle-upsell-difference")).toHaveText("SAVE ₹297");
   expect(await page.getByTestId("bundle-upsell").evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
   for (const id of ["bundle-upsell-upgrade", "bundle-upsell-decline"]) {
     const control = page.getByTestId(id);

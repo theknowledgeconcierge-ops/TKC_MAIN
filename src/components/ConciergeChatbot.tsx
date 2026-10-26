@@ -5,9 +5,9 @@ import { Button } from "@/components/ui/button";
 
 const answers: Record<string, string> = {
   "Which book should I start with?":
-    "If you are planning a restaurant, start with The First Table. For a broader journey across marketing, operations, finance and growth, choose the complete collection.",
+    "If you are planning a restaurant, start with The First Table. For a first online product business, start with From “Someday” to Sold. Each series also has its own complete bundle.",
   "What's included in the bundle?":
-    "All five restaurant business handbooks: The First Table, The Full Table, Behind the Kitchen Door, The Math Behind the Menu, and Empty Tables to Full House.",
+    "Choose the Restaurant Playbook Bundle (five books) or Start Selling Online Bundle (four books). Each bundle is ₹499; individual books are ₹199.",
   "How do I download my purchase?":
     "After payment is verified, download your handbooks on the purchase page in the same browser. We also email the PDFs to the address you confirm, so you can access them on any device.",
   "Are these physical books?":

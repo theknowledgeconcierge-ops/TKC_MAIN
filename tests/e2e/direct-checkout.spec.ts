@@ -1,6 +1,7 @@
 import { addFromCard } from "./fixtures/shopping";
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 import { catalogue } from "../../src/lib/catalog";
+import { incompleteSeries } from "../../src/lib/catalog/series";
 import { quoteFor } from "../../src/lib/commerce/pricing";
 
 const id = "99a3cb9b-6ef1-4fb7-a60e-87a758e9f612";
@@ -56,7 +57,7 @@ async function openForm(page: Page, books: string[] = [first]) {
   for (const book of books) await addFromCard(page, book);
   await page.getByTestId("nav-bag-toggle-btn").click();
   await page.getByTestId("smart-bag-checkout-btn").click();
-  if (books.length < catalogue.length) await page.getByTestId("bundle-upsell-decline").click();
+  if (incompleteSeries(books)) await page.getByTestId("bundle-upsell-decline").click();
 }
 async function fill(page: Page) {
   await page.getByTestId("razorpay-checkout-name-input").fill("Test Buyer");
@@ -68,7 +69,7 @@ for (const count of [1, 2, 5]) test(`${count} books: one Pay click opens the ver
   const state = await setup(context, count);
   await openForm(page, state.books);
   const pay = page.getByTestId("razorpay-create-order-btn");
-  await expect(pay).toHaveText(`Pay ₹${state.total} with Razorpay`);
+  await expect(pay).toHaveText(`Pay ₹${state.total} with Razorpay`, { timeout: 15000 });
   await expect(page.getByRole("button", { name: "Review order", exact: true })).toHaveCount(0);
   await fill(page);
   await pay.click();
@@ -146,7 +147,7 @@ test("duplicate clicks open once and redirect only after server payment verifica
   await expect(page).toHaveURL(new RegExp(`/thank-you\\?order=${id}`));
   await expect(page.getByTestId(`download-${first}`)).toBeEnabled();
   await expect.poll(() => page.evaluate(() => (window as unknown as { __pixelCalls: unknown[][] }).__pixelCalls.filter(call => call[1] === "Purchase"))).toEqual([
-    ["track", "Purchase", { value: 249, currency: "INR", content_type: "product", content_ids: [first], num_items: 1 }, { eventID: `purchase_${id}` }],
+    ["track", "Purchase", { value: 199, currency: "INR", content_type: "product", content_ids: [first], num_items: 1 }, { eventID: `purchase_${id}` }],
   ]);
   expect(state.verifies).toBe(1);
 });

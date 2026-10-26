@@ -15,7 +15,7 @@ import ConnectivityNotice from "@/components/ConnectivityNotice";
 import { isOnline, useConnectivity, useRecoveryEvents } from "@/lib/connectivity";
 import { getCheckoutAttempt, saveCheckoutAttempt, getPaymentAttempt, markPaymentAttempt, clearPaymentAttempt } from "@/lib/checkout-recovery";
 import { ApiError, apiPost } from "@/lib/api";
-import { activeBooks, formatInr } from "@/lib/catalog";
+import { formatInr } from "@/lib/catalog";
 import BundleUpsell from "@/components/BundleUpsell";
 import {
   randomCheckoutToken,
@@ -30,7 +30,7 @@ import type { CheckoutOrder, PublicOrder, PricingQuote } from "@/lib/commerce/ty
 import { useCart, useCartActions } from "@/lib/store";
 import { mergePurchaseState } from "@/lib/commerce/purchase-state";
 import { createOrderSchema } from "@/lib/commerce/validation";
-const bundleIds = activeBooks.map(book => book.id).sort();
+import { series, incompleteSeries, booksForSeries, type SeriesId } from "@/lib/catalog/series";
 function errorMessage(error: unknown, fallback: string) {
   return error instanceof ApiError ? error.message : fallback;
 }
@@ -60,25 +60,30 @@ export default function CheckoutModal({
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [paymentUncertain, setPaymentUncertain] = useState(false);
   const [checkingPayment, setCheckingPayment] = useState(false);
+  const [offerId, setOfferId] = useState<SeriesId | null>(null);
   const [upsellOpen, setUpsellOpen] = useState(false);
   const [upgradePending, setUpgradePending] = useState(false);
   const seenOffers = useRef(new Set<string>());
+  const offeredInOpening = useRef(false);
+  const upgradeIds = useRef<string[] | null>(null);
   const latestCart = useRef({ selectedIds, persistenceError });
   latestCart.current = { selectedIds, persistenceError };
   const bookIds = useMemo(() => [...selectedIds].sort(), [selectedIds]);
   const selectionKey = bookIds.join(",");
+  const offerInfo = series.find(item => item.id === offerId);
+  const bundleIds = useMemo(() => [...new Set([...bookIds, ...(offerId ? booksForSeries(offerId).map(book => book.id) : [])])].sort(), [bookIds, offerId]);
   const bundleQuote = useQuery({
     queryKey: ["checkout-quote", bundleIds, ""],
     queryFn: () => apiPost<PricingQuote>("/orders/quote", { book_ids: bundleIds }),
-    enabled: open && online && bookIds.length > 0 && bookIds.length < bundleIds.length,
+    enabled: open && online && !!offerId && bookIds.length > 0 && bookIds.length < bundleIds.length,
     retry: 1,
     staleTime: 30000,
   });
   const quote = useQuery({
-    queryKey: ["checkout-quote", bookIds, selectedIds.length === 5 ? coupon.trim() : ""],
+    queryKey: ["checkout-quote", bookIds, coupon.trim()],
     queryFn: () => apiPost<PricingQuote>("/orders/quote", {
       book_ids: bookIds,
-      ...(selectedIds.length === 5 && coupon.trim() ? { coupon_code: coupon.trim() } : {}),
+      ...(coupon.trim() ? { coupon_code: coupon.trim() } : {}),
     }),
     enabled: open && online && bookIds.length > 0,
     retry: 1,
@@ -152,7 +157,7 @@ export default function CheckoutModal({
         full_name: fullName.trim(),
         email: email.trim().toLowerCase(),
         mobile: mobile.trim(),
-        ...(selectedIds.length === 5 && coupon ? { coupon_code: coupon } : {}),
+        ...(coupon ? { coupon_code: coupon } : {}),
       };
       const fingerprint = Array.from(
         new Uint8Array(
@@ -260,7 +265,15 @@ export default function CheckoutModal({
   const startOrder = orderMutation.mutate;
   useEffect(() => { if (open) recoveryRef.current(); }, [open]);
   useEffect(() => {
-    if (!open || bookIds.length === bundleIds.length) { setUpsellOpen(false); return; }
+    if (!open) { offeredInOpening.current = false; setUpsellOpen(false); return; }
+    if (offeredInOpening.current) {
+      const offeredBooks = offerId ? booksForSeries(offerId) : [];
+      const selectedCount = offeredBooks.filter(book => bookIds.includes(book.id)).length;
+      if (!selectedCount || selectedCount === offeredBooks.length) setUpsellOpen(false);
+      return;
+    }
+    const candidate = incompleteSeries(bookIds);
+    if (!candidate) { setUpsellOpen(false); return; }
     if (!bookIds.length || getPaymentAttempt() || verificationStarted || paymentUncertain || unavailableCheckout) return;
     const attempt = getCheckoutAttempt();
     if (attempt?.order_id && JSON.stringify(attempt.book_ids) === JSON.stringify(bookIds)) return;
@@ -269,24 +282,27 @@ export default function CheckoutModal({
     try { seen ||= sessionStorage.getItem(key) === "1"; } catch { /* Memory still prevents repeat offers. */ }
     if (seen) return;
     seenOffers.current.add(key);
+    offeredInOpening.current = true;
     try { sessionStorage.setItem(key, "1"); } catch { /* No contact details are persisted. */ }
+    setOfferId(candidate.id);
     setUpsellOpen(true);
-  }, [open, bookIds, selectionKey, verificationStarted, paymentUncertain, unavailableCheckout]);
+  }, [open, bookIds, selectionKey, offerId, verificationStarted, paymentUncertain, unavailableCheckout]);
   useEffect(() => {
     if (!upgradePending) return;
+    if (!open) { setUpgradePending(false); return; }
     if (persistenceError) { setUpgradePending(false); return; }
-    if (bookIds.length !== bundleIds.length || !quote.data || !online) return;
+    if (bookIds.join() !== upgradeIds.current?.join() || !quote.data || !online) return;
     // Let the cart's persistence/rollback effect settle before automatic payment.
     const timer = setTimeout(() => {
       setUpgradePending(false);
       const current = latestCart.current;
-      if (current.persistenceError || current.selectedIds.length !== bundleIds.length ||
+      if (current.persistenceError || [...current.selectedIds].sort().join() !== upgradeIds.current?.join() ||
         busy.current || submitting.current || getPaymentAttempt()) return;
       submitting.current = true;
       startOrder(undefined);
     }, 0);
     return () => clearTimeout(timer);
-  }, [upgradePending, bookIds.length, quote.data, online, persistenceError, startOrder]);
+  }, [open, upgradePending, bookIds, quote.data, online, persistenceError, startOrder]);
   useRecoveryEvents(recoverCheckout, open);
   useEffect(() => {
     // Fetch Razorpay while details are entered; Pay still waits for a verified order.
@@ -505,7 +521,7 @@ export default function CheckoutModal({
               onCheckAgain={() => { if (callbackProof.current && !busy.current) { busy.current = true; verifyMutation.mutate(callbackProof.current); } }}
             />
             {verifyMutation.isPending && !confirmLeave && <Button className="mx-5 mb-5 min-h-11" disabled aria-busy="true" data-testid="razorpay-open-btn">Verifying payment…</Button>}
-          </> : upsellOpen ? <BundleUpsell ids={bookIds} current={quote.isError ? undefined : quote.data}
+          </> : upsellOpen ? <BundleUpsell seriesId={offerInfo?.id ?? "restaurant-playbooks"} ids={bookIds} current={quote.isError ? undefined : quote.data}
             bundle={bundleQuote.isError ? undefined : bundleQuote.data} loading={quote.isPending || bundleQuote.isPending || !online}
             onDecline={() => setUpsellOpen(false)}
             onRetry={() => { void quote.refetch(); void bundleQuote.refetch(); }}
@@ -518,6 +534,7 @@ export default function CheckoutModal({
               setCheckoutOrder(null);
               setCoupon("");
               setUpsellOpen(false);
+              upgradeIds.current = bundleIds;
               setUpgradePending(valid.success);
               addBooks(bundleIds);
             }} /> : (
@@ -618,23 +635,6 @@ export default function CheckoutModal({
                   Your books and purchase receipt will be delivered here.
                 </span>
               </label>
-              {selectedIds.length === 5 && (
-                <label
-                  className="block text-sm text-[#6e655e]"
-                  htmlFor="checkout-coupon"
-                >
-                  Coupon code
-                  <Input
-                    id="checkout-coupon"
-                    disabled={paymentBusy || paymentUncertain}
-                    value={coupon}
-                    onChange={(event) => { editField("coupon"); setCoupon(event.target.value); }}
-                    className="mt-2 h-11 uppercase sm:h-8"
-                    placeholder="First50"
-                    data-testid="razorpay-checkout-coupon-input"
-                  />
-                </label>
-              )}
               <div
                 className="border border-[#b49a6a]/40 bg-[#f5f0e6] p-4"
                 data-testid="razorpay-estimated-summary"

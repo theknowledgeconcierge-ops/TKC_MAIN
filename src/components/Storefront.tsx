@@ -11,10 +11,6 @@ import { StoreProvider, useCart, useCartActions } from "@/lib/store";
 import SmartBag from "@/components/SmartBag";
 import ConciergeChatbot from "@/components/ConciergeChatbot";
 import BackToTop from "@/components/BackToTop";
-import { activeBooks, formatInr } from "@/lib/catalog";
-import { quoteFor } from "@/lib/commerce/pricing";
-
-const bannerCollection = quoteFor(activeBooks.map((book) => book.id));
 
 function Header() {
   const { summary, persistenceError } = useCart();
@@ -24,7 +20,8 @@ function Header() {
   const links = [
     ["/", "Home"],
     ["/books", "All Books"],
-    ["/restaurant-business-collection", "Collection"],
+    ["/series/restaurant-playbooks", "Restaurant Series"],
+    ["/series/start-selling-online", "Selling Online"],
     ["/about", "About"],
   ];
   const handleNavigation = (
@@ -44,12 +41,11 @@ function Header() {
         data-testid="announcement-bar"
       >
         <Link
-          href="/restaurant-business-collection"
+          href="/books#bundles"
           className="-my-2 block min-h-11 content-center py-2 sm:min-h-0"
           data-testid="announcement-collection-link"
         >
-          All {activeBooks.length} restaurant handbooks · <del>{formatInr(bannerCollection.regular_total_inr)}</del>{" "}
-          {formatInr(bannerCollection.total_inr)} for the collection{" "}
+          Nine practical business books · ₹199 each · Complete either series for ₹499{" "}
           <span className="ml-1 text-[#c5a880] sm:ml-2">Shop →</span>
         </Link>
       </div>
@@ -72,7 +68,7 @@ function Header() {
             </span>
           </Link>
           <nav
-            className="hidden items-center gap-7 md:flex"
+            className="hidden items-center gap-4 lg:flex"
             data-testid="desktop-navigation"
           >
             {links.map(([href, label]) => (
@@ -90,7 +86,7 @@ function Header() {
           <div className="flex shrink-0 items-center gap-1 sm:gap-2">
             <Link
               href="/thank-you"
-              className="mr-2 hidden text-xs text-[#8c6d46] md:inline-block"
+              className="mr-2 hidden text-xs text-[#8c6d46] lg:inline-block"
               data-testid="nav-purchases-link"
             >
               My purchases
@@ -117,7 +113,7 @@ function Header() {
             <Button
               variant="ghost"
               size="icon"
-              className="size-11 sm:size-8 md:hidden"
+              className="size-11 sm:size-8 lg:hidden"
               onClick={() => setMenuOpen((value) => !value)}
               data-testid="nav-mobile-menu-btn"
               aria-label="Toggle navigation"
@@ -132,7 +128,7 @@ function Header() {
         {menuOpen && (
           <nav
             id="mobile-navigation"
-            className="border-t border-[#2e241f]/10 px-4 pb-2 pt-4 md:hidden"
+            className="border-t border-[#2e241f]/10 px-4 pb-2 pt-4 lg:hidden"
             data-testid="mobile-navigation"
           >
             {links.map(([href, label]) => (
@@ -176,7 +172,7 @@ function Footer() {
             className="mt-4 max-w-sm text-sm leading-relaxed text-[#c5b7a8]"
             data-testid="footer-description"
           >
-            Practical handbooks for the decisions behind better restaurants.
+            Practical handbooks for starting, managing and growing a business.
             Curated for clarity, built to be returned to.
           </p>
         </div>
@@ -195,8 +191,9 @@ function Footer() {
               className="flex min-h-11 items-center hover:text-white sm:block sm:min-h-0"
               data-testid="footer-collection-link"
             >
-              Complete collection
+              Restaurant Playbook Series
             </Link>
+            <Link href="/series/start-selling-online" className="flex min-h-11 items-center hover:text-white sm:block sm:min-h-0">Start Selling Online Series</Link>
             <Link
               href="/about"
               className="flex min-h-11 items-center hover:text-white sm:block sm:min-h-0"

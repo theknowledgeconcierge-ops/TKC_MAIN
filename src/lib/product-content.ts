@@ -1,3 +1,4 @@
+import { onlineContent } from "./online-content";
 import type { ProductId } from "./catalog";
 
 export interface PreviewPage {
@@ -19,6 +20,7 @@ const samples = (id: ProductId, pages: [number, string][]): PreviewPage[] =>
   pages.map(([page, label]) => ({ page, label, src: `/previews/${id}/page-${String(page).padStart(2, "0")}.webp` }));
 
 export const productContent: Record<ProductId, ProductContent> = {
+  ...onlineContent,
   "the-first-table": {
     focus: "Planning & opening",
     shortDescription: "Plan your concept, budget and opening before committing to a restaurant.",

@@ -1,6 +1,6 @@
 # Product page sources and maintenance
 
-The existing catalog has **five distinct books**. The brief's references to four books and "First Table, Full Table" do not match the catalog or the five supplied manuscripts. Product IDs, official catalog titles, URLs, the five-book collection, and the pricing engine are preserved. Individual PDFs cost INR 249; the current five-book quote is INR 499.
+The current catalog has **nine distinct books across two series**. The original five restaurant books keep their IDs, official titles, URLs and source content. Four Start Selling Online books use the same product-page components and genuine PDF preview process. Individual PDFs cost INR 199; either complete series bundle costs INR 499. See the multi-series release and verification documents for the new sources and production setup.
 
 ## Source material
 
@@ -36,7 +36,7 @@ The components compute averages, counts and distribution from the same eligible 
 
 ## Purchase design and WhatsApp
 
-Individual product pages show INR 499 struck through and INR 249 payable, sourced from the catalog. Collection pricing shows INR 1,245 (five individual purchases) struck through and INR 499 payable from the shared pricing engine. The purchase panel uses a larger primary CTA, a clear savings label, and a green secondary WhatsApp action. Existing online payment, verification and delivery logic are unchanged.
+Individual product pages show INR 499 struck through and INR 199 payable, sourced from the catalog. Collection pricing shows INR 995 (five restaurant purchases) or INR 796 (four online-series purchases) struck through and INR 499 payable from the shared pricing engine. The purchase panel uses a larger primary CTA, a clear savings label, and a green secondary WhatsApp action. Existing online payment, verification and delivery logic are unchanged.
 
 On mobile, a single short description replaces the subtitle, longer description and topic chips above the price; the full product details remain available below and on desktop. Buy Now adds the chosen book to the existing selection and opens the shared checkout directly. Buy All does the same for the collection. The separate, always-labelled Add to Bag button adds the item without duplicates and opens the bag. Checkout open state is shared through the store; InitiateCheckout is emitted once per opening for either entry path. Existing upsell, recovery, server pricing and payment verification are preserved.
 

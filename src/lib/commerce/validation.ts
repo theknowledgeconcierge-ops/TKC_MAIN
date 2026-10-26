@@ -13,7 +13,7 @@ const emailSchema = z
   .max(254)
   .transform((value) => value.toLowerCase());
 export const createOrderSchema = z.object({
-  book_ids: z.array(productIdSchema).min(1).max(5),
+  book_ids: z.array(productIdSchema).min(1).max(activeBooks.length),
   full_name: z.string().trim().min(2).max(120),
   email: emailSchema,
   mobile: z
@@ -42,7 +42,7 @@ export const reconcileSchema = z.object({ order_id: orderIdSchema });
 // A remembered order resumes only if it still holds exactly the cart's current books.
 export const resumeSchema = z.object({
   order_id: orderIdSchema,
-  book_ids: z.array(productIdSchema).min(1).max(5).optional(),
+  book_ids: z.array(productIdSchema).min(1).max(activeBooks.length).optional(),
 });
 // Clients name only their order and, optionally, a corrected address; never files.
 export const deliverySchema = z.object({

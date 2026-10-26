@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { series } from "./catalog/series";
 import type { Book } from "./catalog";
 
 // Commerce APP_URL also supports local/preview origins; search URLs never do.
@@ -32,15 +33,15 @@ export const privateRoutePrefixes = [
 export const publicPages = {
   home: {
     path: "/",
-    title: "Restaurant Business PDF Handbooks",
+    title: "Practical Business Books & PDF Playbooks",
     description:
-      "Explore five practical PDF handbooks from The Knowledge Concierge on starting, marketing, managing and financing a restaurant in the Indian business context.",
+      "Explore nine practical business books across restaurant and online-selling series. ₹199 per PDF book or ₹499 per complete series bundle.",
   },
   books: {
     path: "/books",
-    title: "Browse Restaurant Business Books & PDF Guides",
+    title: "Browse Business Books, Series & PDF Bundles",
     description:
-      "Find the restaurant handbook for your next decision: startup planning, customer demand, daily operations, menu costing or business growth. Browse all five PDFs.",
+      "Browse nine practical PDFs covering restaurant business and selling online in India. Choose individual books at ₹199 or either complete series bundle at ₹499.",
   },
   collection: {
     path: "/restaurant-business-collection",
@@ -52,13 +53,13 @@ export const publicPages = {
     path: "/about",
     title: "About The Knowledge Concierge",
     description:
-      "Learn about The Knowledge Concierge: practical business handbooks with Indian market context, worked examples, worksheets and frameworks for restaurant decisions.",
+      "Learn about The Knowledge Concierge: practical business handbooks with Indian market context, worked examples, worksheets and frameworks for business decisions.",
   },
   faq: {
     path: "/faq",
     title: "PDF Handbook Purchases & Downloads: FAQs",
     description:
-      "Answers about restaurant PDF handbooks, individual books, collection savings, payment confirmation, reading on your phone, purchase access and refund requests.",
+      "Answers about business PDF handbooks, individual books, collection savings, payment confirmation, reading on your phone, purchase access and refund requests.",
   },
   disclaimer: {
     path: "/disclaimer",
@@ -92,7 +93,7 @@ const socialImage = {
   url: `${PRODUCTION_ORIGIN}/og-image.png`,
   width: 1200,
   height: 630,
-  alt: "The Knowledge Concierge restaurant business handbooks on Pixel n Palm",
+  alt: "The Knowledge Concierge practical business books on Pixel n Palm",
 };
 
 export function pageMetadata(
@@ -190,7 +191,7 @@ export function bookStructuredData(book: Book) {
         url,
         image: `${PRODUCTION_ORIGIN}${book.cover_image_url}`,
         sku: book.id,
-        author: { "@type": "Person", name: book.author },
+        author: { "@type": book.seriesId === "start-selling-online" ? "Organization" : "Person", name: book.author },
         numberOfPages: book.pages,
         bookFormat: "https://schema.org/EBook",
         encodingFormat: "application/pdf",
@@ -214,6 +215,7 @@ export function bookStructuredData(book: Book) {
 export function collectionStructuredData(
   page: SeoPage,
   books: readonly Book[],
+  bundlePrice?: number,
 ) {
   return {
     "@context": "https://schema.org",
@@ -234,6 +236,7 @@ export function collectionStructuredData(
           })),
         },
       },
+      ...(bundlePrice ? [{ "@type": "Product", name: series.find(item => item.id === books[0]?.seriesId)?.bundleName, description: page.description, image: books.map(book => `${PRODUCTION_ORIGIN}${book.cover_image_url}`), offers: { "@type": "Offer", price: bundlePrice, priceCurrency: "INR", url: canonicalUrl(page.path) } }] : []),
       breadcrumbStructuredData([{ name: page.title, path: page.path }]),
     ],
   };

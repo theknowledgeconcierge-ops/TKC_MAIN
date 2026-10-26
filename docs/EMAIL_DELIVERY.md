@@ -63,7 +63,7 @@ The delivery email is version-controlled in `src/lib/email/purchase-delivery-ema
 - No images, remote assets, scripts, external CSS, tracking pixels or links carrying customer data. The only link is the static `https://pixelnpalm.com`. Every interpolated value is HTML-escaped and reduced to one line. Output is deterministic so an idempotent retry sends an identical payload.
 - Keep **open and click tracking disabled** for the sending domain in Resend (Domains → domain → Configuration; off by default). The API send never enables tracking.
 
-**Local preview (fake data only):** `npm run email:preview` writes `email-preview/five-books.html`, `one-book.html` and matching `.txt` files (customer "Rahul", order `TKC-12345678`, ₹499 / ₹249). The folder is Git-ignored, outside `public/`, and never built or deployed; the script never reads production data.
+**Local preview (fake data only):** `npm run email:preview` writes `email-preview/five-books.html`, `one-book.html` and matching `.txt` files (customer "Rahul", order `TKC-12345678`, ₹499 / ₹199). The folder is Git-ignored, outside `public/`, and never built or deployed; the script never reads production data.
 
 ## Close-tab / callback-loss fallback
 

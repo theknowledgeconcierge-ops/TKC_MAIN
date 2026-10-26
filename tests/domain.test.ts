@@ -10,7 +10,7 @@ import {
   hashToken,
 } from "@/lib/server/security";
 
-const ids = catalogue.filter((book) => book.active).map((book) => book.id);
+const ids = catalogue.filter((book) => book.active && book.seriesId === "restaurant-playbooks").map((book) => book.id);
 describe("catalogue and authoritative pricing", () => {
   it.each([
     undefined,
@@ -37,25 +37,25 @@ describe("catalogue and authoritative pricing", () => {
     expect(ids).toContain("empty-tables-to-full-house");
   });
   it.each([
-    [1, 249],
-    [2, 399],
-    [3, 549],
-    [4, 699],
+    [1, 199],
+    [2, 398],
+    [3, 597],
+    [4, 796],
     [5, 499],
   ])("prices %i books from trusted configuration", (count, total) => {
     expect(quoteFor(ids.slice(0, count)).total_inr).toBe(total);
   });
-  it("prices the complete collection at the ₹499 promotional price", () => {
+  it("prices the complete collection at the ₹499 final bundle price", () => {
     const quote = quoteFor(ids);
     expect(quote).toMatchObject({
       book_count: 5,
-      regular_total_inr: 1245,
-      automatic_price_inr: 999,
-      automatic_discount_inr: 246,
-      coupon_code: "FIRST50",
-      coupon_discount_inr: 500,
+      regular_total_inr: 995,
+      automatic_price_inr: 499,
+      automatic_discount_inr: 496,
+      coupon_code: null,
+      coupon_discount_inr: 0,
       total_inr: 499,
-      total_savings_inr: 746,
+      total_savings_inr: 496,
     });
     // No customer, purchase-history or eligibility input exists.
     expect(quote).not.toHaveProperty("eligible_first_time");
@@ -87,7 +87,7 @@ describe("catalogue and authoritative pricing", () => {
     expect(input).not.toHaveProperty("total");
     expect(input).not.toHaveProperty("status");
     expect(input.email).toBe("a@example.com");
-    expect(quoteFor(input.book_ids).total_inr).toBe(249);
+    expect(quoteFor(input.book_ids).total_inr).toBe(199);
   });
   it.each([
     { email: "invalid" },

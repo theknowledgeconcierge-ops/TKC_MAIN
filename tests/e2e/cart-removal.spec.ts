@@ -28,7 +28,7 @@ for (const width of [320, 360, 375, 390, 412, 430]) {
     await expect(page.getByTestId("smart-bag-selected-count")).toHaveText("4 selected");
     await expect(page.getByTestId("smart-bag-tier-progress")).toContainText("4 of 5 books selected");
     await expect(page.getByTestId("smart-bag-tier-progress")).toContainText("80%");
-    await expect(page.getByTestId("smart-bag-price-summary")).toContainText("₹699");
+    await expect(page.getByTestId("smart-bag-price-summary")).toContainText("₹796");
     await expect(page.getByTestId(`smart-bag-recommend-add-${ids[0]}`)).toBeEnabled();
 
     // Deliberate separate removals, outside the repeat-tap window for shifted rows.
@@ -42,9 +42,9 @@ for (const width of [320, 360, 375, 390, 412, 430]) {
     await expect(page.getByTestId("smart-bag-selected-section")).toHaveCount(0);
     await expect(page.getByTestId("smart-bag-price-summary")).toHaveCount(0);
     await expect(page.getByTestId("smart-bag-empty-state")).toBeVisible();
-    await expect(page.getByTestId("smart-bag-tier-progress")).toContainText("0 of 5 books selected");
+    await expect(page.getByTestId("smart-bag-tier-progress").first()).toContainText("0 of 5 books selected");
     await expect(page.getByTestId("smart-bag-checkout-btn")).toBeDisabled();
-    await expect(page.getByTestId("smart-bag-recommendations").getByRole("button")).toHaveCount(5);
+    await expect(page.getByTestId("smart-bag-recommendations").getByRole("button")).toHaveCount(9);
 
     const layout = await page.getByTestId("smart-bag-drawer").evaluate((drawer) => {
       const empty = drawer.querySelector('[data-testid="smart-bag-empty-state"]')!;
@@ -72,6 +72,6 @@ for (const width of [320, 360, 375, 390, 412, 430]) {
     await page.reload();
     await page.getByTestId("nav-bag-toggle-btn").click();
     await expect(page.getByTestId("smart-bag-selected-count")).toHaveText("1 selected");
-    await expect(page.getByTestId("smart-bag-price-summary")).toContainText("₹249");
+    await expect(page.getByTestId("smart-bag-price-summary")).toContainText("₹199");
   });
 }

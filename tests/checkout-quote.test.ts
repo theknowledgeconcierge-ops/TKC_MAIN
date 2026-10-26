@@ -9,7 +9,7 @@ const request = (body: unknown, origin = "http://localhost:3000") => new NextReq
   method: "POST", headers: { Origin: origin, "Content-Type": "application/json" }, body: JSON.stringify(body),
 });
 describe("checkout quote HTTP boundary", () => {
-  it.each([[1, 249], [2, 399], [5, 499]])("quotes %i books without creating a payment or trusting client prices", async (count, total) => {
+  it.each([[1, 199], [2, 398], [5, 499]])("quotes %i books without creating a payment or trusting client prices", async (count, total) => {
     const response = await POST(request({ book_ids: catalogue.slice(0, count).map(book => book.id), total: 1, amount_paise: 100 }));
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ total_inr: total, book_count: count });

@@ -49,7 +49,9 @@ const webhookSecret = "lifecycle-webhook-secret-not-real";
 const serviceKey = "lifecycle-service-key-not-real";
 const resendKey = "re_lifecycle_fixture_key";
 const cronSecret = "lifecycle-cron-secret-not-real-0123456789";
-const allIds = activeBooks.map((book) => book.id);
+const allCatalogIds = activeBooks.map(book => book.id);
+const allIds = activeBooks.filter(book => book.seriesId === "restaurant-playbooks").map(book => book.id);
+const restaurantIds = activeBooks.filter(book => book.seriesId === "restaurant-playbooks").map(book => book.id);
 let gateways: ProviderOrder[];
 let payments: ProviderPayment[];
 let faults: {
@@ -544,11 +546,11 @@ describe("real routes → SDK/adapters → PostgreSQL purchase lifecycle (extern
     expect(responses.filter(r => r.status === 429)).toHaveLength(5);
   });
   it.each(
-    Array.from({ length: (1 << allIds.length) - 1 }, (_, index) => {
-      const ids = allIds.filter((_, bit) => (index + 1) & (1 << bit));
+    Array.from({ length: (1 << allCatalogIds.length) - 1 }, (_, index) => {
+      const ids = allCatalogIds.filter((_, bit) => (index + 1) & (1 << bit));
       return {
         ids,
-        amount: [0, 24900, 39900, 54900, 69900, 49900][ids.length],
+        amount: ((ids.filter(id => restaurantIds.includes(id)).length === 5 ? 499 : ids.filter(id => restaurantIds.includes(id)).length * 199) + (ids.filter(id => !restaurantIds.includes(id)).length === 4 ? 499 : ids.filter(id => !restaurantIds.includes(id)).length * 199)) * 100,
       };
     }),
   )(
@@ -659,10 +661,10 @@ describe("real routes → SDK/adapters → PostgreSQL purchase lifecycle (extern
 
   it("deduplicates browser titles and ignores quantity, price and paid-state tampering", async () => {
     const { checkout } = await start([allIds[0], allIds[0], allIds[1]]);
-    expect(checkout.amount_paise).toBe(39900);
+    expect(checkout.amount_paise).toBe(39800);
     expect(await snapshot(checkout.internal_order_id)).toMatchObject({
       subtotal: 49800,
-      total: 39900,
+      total: 39800,
       items: 2,
       status: "payment_pending",
       entitlements: 0,
@@ -684,9 +686,9 @@ describe("real routes → SDK/adapters → PostgreSQL purchase lifecycle (extern
       const checkout = (await response.json()) as CheckoutOrder;
       expect(checkout.amount_paise).toBe(49900);
       expect(checkout.pricing).toMatchObject({
-        regular_total_inr: 1245,
-        automatic_discount_inr: 246,
-        coupon_discount_inr: 500,
+        regular_total_inr: 995,
+        automatic_discount_inr: 496,
+        coupon_discount_inr: 0,
         total_inr: 499,
       });
       expect(gateways.at(-1)).toMatchObject({
@@ -696,7 +698,7 @@ describe("real routes → SDK/adapters → PostgreSQL purchase lifecycle (extern
       });
       expect(await snapshot(checkout.internal_order_id)).toMatchObject({
         total: 49900,
-        subtotal: 124500,
+        subtotal: 99500,
         items: 5,
       });
       return checkout;
@@ -705,11 +707,11 @@ describe("real routes → SDK/adapters → PostgreSQL purchase lifecycle (extern
       expect((await notify(capture(checkout))).status).toBe(200);
       expect((await snapshot(checkout.internal_order_id)).status).toBe("paid");
     };
-    const customer = { ...input(allIds), mobile: "9123456780" };
+    const customer = { ...input(restaurantIds), mobile: "9123456780" };
     await pay(await promotional(customer));
-    await pay(await promotional({ ...input(allIds), email: customer.email }));
+    await pay(await promotional({ ...input(restaurantIds), email: customer.email }));
     await pay(
-      await promotional({ ...input(allIds), mobile: customer.mobile }),
+      await promotional({ ...input(restaurantIds), mobile: customer.mobile }),
     );
     const { rows } = await pool.query(
       `select count(*) filter (where customer_email=$1)::int email,
@@ -720,7 +722,7 @@ describe("real routes → SDK/adapters → PostgreSQL purchase lifecycle (extern
     // Orders 1-2 share the email and orders 1/3 the mobile: three prior paid orders.
     expect(rows[0]).toEqual({ email: 2, mobile: 2 });
     await promotional({
-      ...input(allIds),
+      ...input(restaurantIds),
       email: customer.email,
       mobile: customer.mobile,
     });
@@ -730,7 +732,7 @@ describe("real routes → SDK/adapters → PostgreSQL purchase lifecycle (extern
   it("ignores client price, discount and eligibility claims for the collection", async () => {
     const response = await create(
       request("orders", {
-        ...input(allIds),
+        ...input(restaurantIds),
         total: 99900,
         amount: 1,
         amount_paise: 100,
@@ -754,13 +756,13 @@ describe("real routes → SDK/adapters → PostgreSQL purchase lifecycle (extern
     );
     expect(rows[0]).toMatchObject({
       total: 49900,
-      subtotal: 124500,
-      pricing: { total_inr: 499, coupon_discount_inr: 500 },
+      subtotal: 99500,
+      pricing: { total_inr: 499, coupon_discount_inr: 0 },
     });
     expect(rows[0].pricing).not.toHaveProperty("eligible_first_time");
     for (const coupon_code of ["SAVE90", "FIRST100"])
       expect(
-        (await create(request("orders", { ...input(allIds), coupon_code })))
+        (await create(request("orders", { ...input(restaurantIds), coupon_code })))
           .status,
       ).toBe(400);
     expect(gateways).toHaveLength(1);
@@ -2166,7 +2168,7 @@ describe("stale unpaid orders after a price change (real routes and PostgreSQL)"
     const checkout = (await fresh.json()) as CheckoutOrder;
     expect(checkout.internal_order_id).not.toBe(stale.id);
     expect(checkout.amount_paise).toBe(49900);
-    expect(checkout.pricing).toMatchObject({ total_inr: 499, coupon_discount_inr: 500 });
+    expect(checkout.pricing).toMatchObject({ total_inr: 499, coupon_discount_inr: 0 });
     expect(gateways).toHaveLength(2);
     expect(gateways[0]).toEqual(oldGateway);
     expect(gateways[1]).toMatchObject({
@@ -2176,7 +2178,7 @@ describe("stale unpaid orders after a price change (real routes and PostgreSQL)"
     });
     expect(await snapshot(checkout.internal_order_id)).toMatchObject({
       total: 49900,
-      subtotal: 124500,
+      subtotal: 99500,
       status: "payment_pending",
     });
     expect(await orderRow(stale.id)).toEqual(before);
@@ -2197,7 +2199,7 @@ describe("stale unpaid orders after a price change (real routes and PostgreSQL)"
     expect(await resumed.json()).toMatchObject({
       internal_order_id: id,
       razorpay_order_id: gateways[0].id,
-      amount_paise: 39900,
+      amount_paise: 39800,
     });
     expect(gateways).toHaveLength(1);
   });

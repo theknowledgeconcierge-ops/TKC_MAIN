@@ -13,7 +13,7 @@ const titles = [
 ];
 const fixtures = {
   "five-books": { bookTitles: titles, formattedAmount: "₹499" },
-  "one-book": { bookTitles: [titles[0]], formattedAmount: "₹249" },
+  "one-book": { bookTitles: [titles[0]], formattedAmount: "₹199" },
 };
 const directory = resolve("email-preview");
 mkdirSync(directory, { recursive: true });

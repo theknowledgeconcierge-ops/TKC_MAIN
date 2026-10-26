@@ -92,7 +92,7 @@ describe("Resend provider adapter", () => {
 });
 
 describe("purchase delivery email template", () => {
-  const titles = activeBooks.map((book) => book.title);
+  const titles = activeBooks.filter(book => book.seriesId === "restaurant-playbooks").map((book) => book.title);
   const uuidHex = "0f1e2d3c4b5a69788796a5b4c3d2e1f0";
   const render = (overrides: Partial<Parameters<typeof renderPurchaseDeliveryEmail>[0]> = {}) =>
     renderPurchaseDeliveryEmail({

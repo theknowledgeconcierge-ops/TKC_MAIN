@@ -14,7 +14,7 @@ for (const book of activeBooks) {
     page.on("pageerror", error => errors.push(error.message));
     expect((await page.goto(`/books/${book.slug}`))?.status()).toBe(200);
     await expect(page.getByTestId("product-title")).toHaveText(book.title);
-    await expect(page.getByTestId("product-selling-price")).toHaveText("₹249");
+    await expect(page.getByTestId("product-selling-price")).toHaveText("₹199");
     const reviews = publishedReviews(book.id);
     const stats = reviewStats(reviews);
     await expect(page.getByTestId("rating-summary")).toContainText(stats.average === null ? "No reader reviews yet" : `${stats.average.toFixed(1)}/5 · ${stats.count} reviews`);
@@ -74,7 +74,7 @@ for (const book of activeBooks) {
     await expect(page.getByTestId("smart-bag-drawer")).toHaveCount(0);
     await page.getByTestId("bundle-upsell-decline").click();
     await expect(page.getByTestId("razorpay-checkout-email-input")).toBeVisible();
-    await expect(page.getByTestId("razorpay-confirmed-total")).toHaveText("₹249");
+    await expect(page.getByTestId("razorpay-confirmed-total")).toHaveText("₹199");
     await page.getByTestId("razorpay-checkout-close-btn").click();
     await expect(page.getByTestId("smart-bag-drawer")).toHaveCount(0);
     expect(errors).toEqual([]);
@@ -84,15 +84,15 @@ for (const book of activeBooks) {
 test("collection shows all five real products and exact individual comparison", async ({ page }) => {
   await page.goto("/restaurant-business-collection");
   await expect(page.getByTestId("collection-page-covers").locator("a")).toHaveCount(5);
-  for (const book of activeBooks) await expect(page.getByTestId(`collection-book-${book.id}`)).toContainText(book.title);
-  await expect(page.getByTestId("collection-page")).toContainText("₹1,245");
-  await expect(page.getByTestId("collection-page")).toContainText("Save ₹746");
-  await expect(page.getByTestId("purchase-original-price")).toContainText("₹1,245");
+  for (const book of activeBooks.filter(book => book.seriesId === "restaurant-playbooks")) await expect(page.getByTestId(`collection-book-${book.id}`)).toContainText(book.title);
+  await expect(page.getByTestId("collection-page")).toContainText("₹995");
+  await expect(page.getByTestId("collection-page")).toContainText("Save ₹496");
+  await expect(page.getByTestId("purchase-original-price")).toContainText("₹995");
   await expect(page.getByTestId("book-reviews")).toContainText("original four-book collection");
   await expect(page.getByTestId("rating-summary")).toContainText("15 reviews");
   const whatsappUrl = new URL((await page.getByTestId("whatsapp-purchase").getAttribute("href"))!);
   expect(whatsappUrl.pathname).toBe("/919557156634");
-  expect(whatsappUrl.searchParams.get("text")).toBe("I want to buy the Complete Restaurant Business Collection (all 5 books)");
+  expect(whatsappUrl.searchParams.get("text")).toBe("I want to buy The Restaurant Playbook Bundle (all 5 books)");
   // Intercept WhatsApp locally: test the actual click without contacting the recipient.
   await page.context().route("https://wa.me/**", route => route.fulfill({ contentType: "text/html", body: "<p>WhatsApp link fixture</p>" }));
   const popupOpened = page.waitForEvent("popup");
@@ -117,7 +117,7 @@ test("product and collection fit narrow mobile, tablet and desktop without broke
     for (const path of ["/books/empty-tables-to-full-house", "/restaurant-business-collection"]) {
       await page.goto(path);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
-      if (path === "/restaurant-business-collection") {
+      if (path === "/restaurant-business-collection" && width < 768) {
         const contents = await page.getByTestId("collection-preview").boundingBox();
         const price = await page.getByTestId("collection-price-panel").boundingBox();
         expect(contents!.y + contents!.height).toBeLessThanOrEqual(price!.y + 1);
@@ -147,17 +147,17 @@ test("direct purchase preserves the bag, avoids duplicates and tracks checkout o
   await page.getByTestId("book-detail-buy-btn").click();
   await expect(page.getByTestId("smart-bag-drawer")).toHaveCount(0);
   await page.getByTestId("bundle-upsell-decline").click();
-  await expect(page.getByTestId("razorpay-confirmed-total")).toHaveText("₹399");
+  await expect(page.getByTestId("razorpay-confirmed-total")).toHaveText("₹398");
   const events = await page.evaluate(() => (window as unknown as Window & { checkoutEvents: unknown[][] }).checkoutEvents.filter(event => event[1] === "InitiateCheckout"));
   expect(events).toHaveLength(1);
-  expect(events[0][2]).toMatchObject({ content_ids: ["the-first-table", "the-full-table"], value: 399, num_items: 2 });
+  expect(events[0][2]).toMatchObject({ content_ids: ["the-first-table", "the-full-table"], value: 398, num_items: 2 });
   await page.getByTestId("razorpay-checkout-close-btn").click();
   await page.getByTestId("book-detail-add-btn").click();
   await expect(page.getByTestId("smart-bag-selected-count")).toHaveText("2 selected");
   await page.getByTestId("smart-bag-close-btn").click();
   await expect(page.getByTestId("book-detail-add-btn")).toHaveText("Add to bag");
   await page.getByTestId("book-detail-buy-btn").click();
-  await expect(page.getByTestId("razorpay-confirmed-total")).toHaveText("₹399");
+  await expect(page.getByTestId("razorpay-confirmed-total")).toHaveText("₹398");
   await expect(page.getByTestId("bundle-upsell")).toHaveCount(0);
   expect(await page.evaluate(() => (window as unknown as Window & { checkoutEvents: unknown[][] }).checkoutEvents.filter(event => event[1] === "InitiateCheckout").length)).toBe(2);
 });

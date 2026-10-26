@@ -18,7 +18,9 @@ if (bucket.error || !bucket.data || bucket.data.public)
   );
 const digest = (value: Buffer) =>
   createHash("sha256").update(value).digest("hex");
-for (const book of activeBooks) {
+const requested = process.argv.slice(3);
+if (requested.some(id => !activeBooks.some(book => book.id === id))) throw new Error("Unknown book identifier");
+for (const book of activeBooks.filter(book => !requested.length || requested.includes(book.id))) {
   const bytes = await readFile(join(directory, `${book.id}.pdf`));
   if (
     !bytes.subarray(0, 5).equals(Buffer.from("%PDF-")) ||

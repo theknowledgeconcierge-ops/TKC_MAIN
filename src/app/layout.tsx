@@ -8,17 +8,17 @@ const socialImage = {
   url: `${PRODUCTION_ORIGIN}/og-image.png`,
   width: 1200,
   height: 630,
-  alt: "The Knowledge Concierge restaurant business handbooks on Pixel n Palm",
+  alt: "The Knowledge Concierge practical business books on Pixel n Palm",
 };
 export const metadata: Metadata = {
   // Social crawlers need absolute image URLs.
   metadataBase: new URL(PRODUCTION_ORIGIN),
   title: {
-    default: "Restaurant Business PDF Handbooks | Pixel n Palm",
+    default: "Practical Business Books & PDF Playbooks | Pixel n Palm",
     template: `%s | ${SITE_NAME}`,
   },
   description:
-    "Practical restaurant business handbooks covering startup planning, marketing, operations and finance.",
+    "Practical PDF playbooks for restaurant business and selling products online in India.",
   ...(isPreviewDeployment() ? { robots: { index: false, follow: false } } : {}),
   icons: {
     icon: [
@@ -29,7 +29,7 @@ export const metadata: Metadata = {
   },
   openGraph: {
     title: SITE_NAME,
-    description: "Practical restaurant business handbooks. Knowledge, curated.",
+    description: "Practical business handbooks. Knowledge, curated.",
     type: "website",
     siteName: SITE_NAME,
     images: [socialImage],
@@ -37,7 +37,7 @@ export const metadata: Metadata = {
   twitter: {
     card: "summary_large_image",
     title: SITE_NAME,
-    description: "Practical restaurant business handbooks. Knowledge, curated.",
+    description: "Practical business handbooks. Knowledge, curated.",
     images: [socialImage],
   },
 };
