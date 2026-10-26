@@ -48,6 +48,12 @@ series is calculated independently, including in mixed orders. Adding a bundle
 deduplicates titles already selected. First50 remains accepted for a complete
 restaurant series as a legacy input and never grants an additional discount.
 
+The bag shows no progress meter or recommendations until a book is selected.
+It then shows one meter and two compact recommendations from that book's series,
+with an option to see its other remaining titles. In a deliberately mixed bag,
+the most recently added series guides recommendations. Completing that series
+stops suggestions; it does not promote the other bundle automatically.
+
 Paid historical orders retain their stored prices and entitlements. Unpaid old
 checkouts still reconcile payment evidence before being replaced at current prices.
 The existing signed-download, thank-you page and email-attachment delivery remain

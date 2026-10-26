@@ -40,7 +40,8 @@ test("mixed cart upgrade completes only the online series and keeps restaurant b
   await context.addInitScript(ids => localStorage.setItem("knowledge_concierge_bag_v1", JSON.stringify(ids)), initial);
   await page.goto("/books");
   await page.getByTestId("nav-bag-toggle-btn").click();
-  await expect(page.getByTestId("smart-bag-tier-progress")).toHaveCount(2);
+  await expect(page.getByTestId("smart-bag-tier-progress")).toHaveCount(1);
+  await expect(page.getByTestId("smart-bag-tier-progress")).toHaveAttribute("data-series", "start-selling-online");
   await page.getByTestId("smart-bag-checkout-btn").click();
   await expect(page.getByTestId("bundle-upsell")).toContainText("Start Selling Online Series");
   await expect(page.getByTestId("bundle-upsell-difference")).toHaveText("SAVE ₹98");

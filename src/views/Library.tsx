@@ -73,7 +73,7 @@ export default function Library() {
               One book is a start. The collection goes further.
             </h2>
             <p className="mt-3 max-w-2xl text-sm leading-relaxed text-[#d2c3b3]">
-              Each complete series is ₹499 automatically: five restaurant books or four selling-online books. Add both bundles for ₹998.
+              Choose the series that fits your next step. Each complete series is ₹499 automatically: five restaurant books or four selling-online books.
             </p>
           </div>
           <Link

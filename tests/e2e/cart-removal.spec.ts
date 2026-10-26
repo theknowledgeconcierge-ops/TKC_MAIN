@@ -36,37 +36,34 @@ for (const width of [320, 360, 375, 390, 412, 430]) {
       await page.waitForTimeout(450);
       await page.getByTestId(`smart-bag-remove-${id}`).click();
       await expect(page.getByTestId(`smart-bag-item-${id}`)).toHaveCount(0);
-      await expect(page.getByTestId(`smart-bag-recommend-add-${id}`)).toBeEnabled();
+      if (id !== ids.at(-1)) {
+        const more = page.getByTestId("smart-bag-more-recommendations");
+        if (await more.count() && await more.getAttribute("aria-expanded") === "false") await more.click();
+        await expect(page.getByTestId(`smart-bag-recommend-add-${id}`)).toBeEnabled();
+      }
     }
     await expect(page.getByTestId("nav-bag-count")).toHaveText("0");
     await expect(page.getByTestId("smart-bag-selected-section")).toHaveCount(0);
     await expect(page.getByTestId("smart-bag-price-summary")).toHaveCount(0);
     await expect(page.getByTestId("smart-bag-empty-state")).toBeVisible();
-    await expect(page.getByTestId("smart-bag-tier-progress").first()).toContainText("0 of 5 books selected");
+    await expect(page.getByTestId("smart-bag-tier-progress")).toHaveCount(0);
     await expect(page.getByTestId("smart-bag-checkout-btn")).toBeDisabled();
-    await expect(page.getByTestId("smart-bag-recommendations").getByRole("button")).toHaveCount(9);
+    await expect(page.getByTestId("smart-bag-recommendations")).toHaveCount(0);
 
     const layout = await page.getByTestId("smart-bag-drawer").evaluate((drawer) => {
-      const empty = drawer.querySelector('[data-testid="smart-bag-empty-state"]')!;
-      const recommendations = drawer.querySelector('[data-testid="smart-bag-recommendations"]')!;
       return {
         overflow: drawer.scrollWidth - drawer.clientWidth,
-        gap: recommendations.getBoundingClientRect().top - empty.getBoundingClientRect().bottom,
-        adjacent: empty.nextElementSibling === recommendations,
       };
     });
-    expect(layout).toEqual({ overflow: 0, gap: 32, adjacent: true });
-    for (const id of ids) {
-      const add = page.getByTestId(`smart-bag-recommend-add-${id}`);
-      await expect(add).toBeEnabled();
-      expect((await add.boundingBox())!.height).toBeGreaterThanOrEqual(44);
-    }
+    expect(layout).toEqual({ overflow: 0 });
     await info.attach(`empty-bag-${width}px`, { body: await page.screenshot(), contentType: "image/png" });
 
     await page.reload();
     await page.getByTestId("nav-bag-toggle-btn").click();
     await expect(page.getByTestId("smart-bag-empty-state")).toBeVisible();
-    await page.getByTestId(`smart-bag-recommend-add-${ids[0]}`).click();
+    await page.getByTestId("smart-bag-close-btn").click();
+    await page.goto("/books");
+    await page.getByTestId(`book-card-add-btn-${ids[0]}`).click();
     await expect(page.getByTestId(`smart-bag-item-${ids[0]}`)).toBeVisible();
     await expect(page.getByTestId("nav-bag-count")).toHaveText("1");
     await page.reload();

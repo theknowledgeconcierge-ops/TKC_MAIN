@@ -9,7 +9,7 @@ import CheckoutModal from "@/components/CheckoutModal";
 import ConnectivityNotice from "@/components/ConnectivityNotice";
 import BookCover from "@/components/BookCover";
 
-import { series, booksForSeries } from "@/lib/catalog/series";
+import { seriesForBook, booksForSeries, type SeriesId } from "@/lib/catalog/series";
 
 export default function SmartBag() {
   const { selectedIds, summary, persistenceError } = useCart();
@@ -19,15 +19,24 @@ export default function SmartBag() {
   const [confirmClear, setConfirmClear] = useState(false);
   const lastRemovalTap = useRef<{ x: number; y: number; at: number } | null>(null);
   const [addedRecommendationIds, setAddedRecommendationIds] = useState<string[]>([]);
+  const [expandedRecommendations, setExpandedRecommendations] = useState<SeriesId | null>(null);
   const selected = books.filter((book) => selectedIds.includes(book.id));
+  // Selection order follows additions, including additions in another tab. A
+  // deliberately mixed bag stays intact while its newest series guides discovery.
+  const latestBook = books.find(book => book.id === selectedIds.at(-1));
+  const focusedSeries = latestBook ? seriesForBook(latestBook) : null;
+  const focusedBooks = focusedSeries ? booksForSeries(focusedSeries.id) : [];
+  const remaining = focusedBooks.filter(book => !selectedIds.includes(book.id));
   // Retain an acknowledged recommendation so its neighbour cannot slide under a repeat tap.
-  const recommendations = books.filter(
+  const recommendations = remaining.length ? focusedBooks.filter(
     (book) => !selectedIds.includes(book.id) || addedRecommendationIds.includes(book.id),
-  );
+  ) : [];
+  const visibleRecommendations = expandedRecommendations === focusedSeries?.id ? recommendations : recommendations.slice(0, 2);
   const closeBag = () => {
     setConfirmClear(false);
     lastRemovalTap.current = null;
     setAddedRecommendationIds([]);
+    setExpandedRecommendations(null);
     setBagOpen(false);
   };
   const remove = (id: string, event: MouseEvent<HTMLButtonElement>) => {
@@ -112,16 +121,16 @@ export default function SmartBag() {
             <div className="flex-1 overflow-y-auto overscroll-contain px-4 pb-6 sm:px-6">
               {!checkoutOpen && <ConnectivityNotice stage="details" />}
               {persistenceError && <p role="alert" className="my-4 border border-[#9b3d32]/40 p-3 text-sm text-[#9b3d32]" data-testid="cart-storage-error">{persistenceError}</p>}
-              {series.map(info => {
+              {(focusedSeries ? [focusedSeries] : []).map(info => {
                 const seriesBooks = booksForSeries(info.id);
                 const count = seriesBooks.filter(book => selectedIds.includes(book.id)).length;
-                if (selected.length && !count) return null;
                 const progress = `${Math.round(count / seriesBooks.length * 100)}%`;
                 const milestones = seriesBooks.map((_, index) => ({ count: index + 1, label: index + 1 === seriesBooks.length ? `All ${seriesBooks.length}` : `${index + 1} ${index ? "Books" : "Book"}`, price: formatInr(index + 1 === seriesBooks.length ? info.bundlePrice : seriesBooks.slice(0, index + 1).reduce((sum, book) => sum + book.selling_price_inr, 0)) }));
                 const message = count === seriesBooks.length ? `Complete series unlocked: ₹499.` : `Add ${seriesBooks.length - count} ${seriesBooks.length - count === 1 ? "book" : "books"} to complete this series for ₹499.`;
                 return <div key={info.id}
                 className="relative top-0 z-20 -mx-4 mb-6 border-b border-[#2e241f]/10 bg-[#fbf9f5]/95 px-4 py-5 shadow-[0_8px_18px_rgba(24,20,18,0.04)] backdrop-blur-xl sm:sticky sm:-mx-6 sm:px-6"
                 data-testid="smart-bag-tier-progress"
+                data-series={info.id}
               >
                 <div className="mb-2 flex items-center justify-between text-xs font-mono uppercase tracking-[0.16em] text-[#8c6d46]">
                   <span>
@@ -214,7 +223,7 @@ export default function SmartBag() {
                   className="mt-1 text-[11px] leading-relaxed text-[#8c6d46] sm:text-[9px]"
                   data-testid="smart-bag-milestone-footnote"
                 >
-                  Each series is priced separately. Bundle savings apply automatically when all its books are in your bag.
+                  {formatInr(seriesBooks[0].selling_price_inr)} per book · Complete this {seriesBooks.length}-book series for {formatInr(info.bundlePrice)}. Savings apply automatically.
                 </p>
               </div>;
               })}
@@ -326,17 +335,18 @@ export default function SmartBag() {
                 </div>
               )}
 
-              {recommendations.length > 0 && (
-                <div className="mt-8" data-testid="smart-bag-recommendations">
-                  <p className="overline">Complete your reading collection</p>
-                  <div className="mt-4 space-y-3">
-                    {recommendations.map((book) => (
+              {recommendations.length > 0 && focusedSeries && (
+                <div className="mt-6" data-testid="smart-bag-recommendations" data-series={focusedSeries.id}>
+                  <p className="overline">Recommended next</p>
+                  <p className="mt-1 text-xs text-[#6e655e]">Continue the {focusedSeries.name}.</p>
+                  <div className="mt-3 space-y-2">
+                    {visibleRecommendations.map((book) => (
                       <div
                         key={book.id}
-                        className="flex items-center gap-3 border border-[#2e241f]/10 bg-white p-3"
+                        className="flex items-center gap-3 border border-[#2e241f]/10 bg-white px-3 py-2"
                       >
-                        <div className="h-16 w-11 shrink-0 overflow-hidden">
-                          <BookCover book={book} compact />
+                        <div className="h-12 w-8 shrink-0 overflow-hidden">
+                          <BookCover book={book} compact sizes="32px" />
                         </div>
                         <div className="min-w-0 flex-1">
                           <p className="line-clamp-2 font-serif text-sm leading-tight text-[#29231f]">
@@ -364,6 +374,11 @@ export default function SmartBag() {
                       </div>
                     ))}
                   </div>
+                  {recommendations.length > 2 && (
+                    <Button variant="ghost" size="sm" className="mt-2 min-h-11 w-full text-xs text-[#795c35]" data-testid="smart-bag-more-recommendations" aria-expanded={expandedRecommendations === focusedSeries.id} onClick={() => setExpandedRecommendations(expandedRecommendations === focusedSeries.id ? null : focusedSeries.id)}>
+                      {expandedRecommendations === focusedSeries.id ? "Show fewer recommendations" : `See ${recommendations.length - 2} more from this series`}
+                    </Button>
+                  )}
                 </div>
               )}
               {summary.count > 0 && (
