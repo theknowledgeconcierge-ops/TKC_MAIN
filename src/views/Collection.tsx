@@ -76,10 +76,11 @@ export default function Collection({ seriesId = "restaurant-playbooks" }: { seri
             </div>
             <Button size="lg" className="mt-3 h-12 w-full bg-[#29231f] text-base font-semibold hover:bg-[#503d2a]" onClick={() => { addBooks(books.map((book) => book.id)); setBagOpen(false); setCheckoutOpen(true); }} data-testid="collection-page-add-all-btn">Buy all {books.length} books <ArrowRight aria-hidden="true" className="ml-2 size-4" /></Button>
             <p className="mt-2 flex items-center justify-center gap-1.5 text-center text-xs text-[#625449]"><Download aria-hidden="true" className="size-3.5 shrink-0" /> Instant PDF download after payment</p>
-            <div className="mt-2 flex flex-wrap items-center justify-between gap-x-3 border-t border-[#ddcbaa]">
-              <RatingSummary productId={info.reviewId} />
-              <p className="pb-1 text-xs text-[#304731]"><strong>{salesCount} bundles sold</strong> in October 2026</p>
-            </div>
+            <p className="mt-3 rounded-lg border border-[#c3d2bc] bg-[#e6efe1] px-3 py-2 text-sm leading-5 text-[#304731]">
+              <strong className="font-bold text-[#223b28]">{salesCount} bundles sold</strong>{" "}
+              <span className="text-xs">in October 2026</span>
+            </p>
+            <RatingSummary productId={info.reviewId} />
           </div>
           <div className="mt-2 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
             <WhatsAppPurchase title={`${info.bundleName} (all ${books.length} books)`} />
