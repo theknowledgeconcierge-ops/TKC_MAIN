@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ShoppingBag, Menu, X } from "lucide-react";
+import { ShoppingBag, Menu, Sparkles, X } from "lucide-react";
 import { useState, type MouseEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/sonner";
@@ -37,16 +37,18 @@ function Header() {
   return (
     <>
       <div
-        className="bg-[#302821] px-3 py-2 text-center text-[10px] tracking-wide text-[#f7f4ee] sm:px-4 sm:text-xs"
+        className="border-b border-[#df9d47] bg-linear-to-r from-[#52162d] via-[#8d2b16] to-[#52162d] px-3 text-center text-xs text-[#fff4de] sm:px-4 sm:text-sm"
         data-testid="announcement-bar"
       >
         <Link
           href="/books#bundles"
-          className="-my-2 block min-h-11 content-center py-2 sm:min-h-0"
+          className="mx-auto flex min-h-11 max-w-7xl flex-wrap items-center justify-center gap-x-2 gap-y-0.5 py-2 focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-[#ffcf70] sm:gap-x-3"
           data-testid="announcement-collection-link"
         >
-          Nine practical business books · ₹199 each · Complete either series for ₹499{" "}
-          <span className="ml-1 text-[#c5a880] sm:ml-2">Shop →</span>
+          <span className="inline-flex items-center gap-1.5 font-semibold text-[#ffdc90]"><Sparkles aria-hidden="true" className="size-3.5" /> Special Diwali offer</span>
+          <span className="font-bold">Each bundle ₹499</span>
+          <span className="basis-full sm:basis-auto">Instant PDF download after payment</span>
+          <span className="font-semibold text-[#ffdc90] underline underline-offset-4">Shop bundles →</span>
         </Link>
       </div>
       <header

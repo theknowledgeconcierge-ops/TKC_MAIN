@@ -24,16 +24,35 @@ test("library filters expose all nine books and both bundles", async ({ page }) 
   await expect(page.getByTestId("collection-primary-cta").nth(0)).toContainText("₹499");
   await expect(page.getByTestId("collection-primary-cta").nth(1)).toContainText("₹499");
 });
-test("online series preserves reading order, original covers and empty review state", async ({ page }) => {
+test("online series preserves reading order and shows the supplied bundle reviews", async ({ page }) => {
   await page.goto("/series/start-selling-online");
   await expect(page.getByTestId("collection-page-covers").locator("a")).toHaveCount(4);
   expect(await page.getByTestId("collection-page-covers").locator("a").evaluateAll(links => links.map(link => link.getAttribute("href")))).toEqual(online.map(id => `/books/${id}`));
   await expect(page.getByTestId("collection-page")).toContainText("243 pages in total");
-  await expect(page.getByTestId("book-reviews")).toContainText("No reader reviews yet.");
+  await expect(page.getByTestId("collection-price-panel")).toContainText("220+ bundles sold in October 2026");
+  await expect(page.getByTestId("rating-summary")).toContainText("5.0/5 · 18 reviews");
+  const reviews = page.getByTestId("book-reviews");
+  await expect(reviews.getByRole("heading", { name: "What our customers say" })).toBeVisible();
+  await expect(reviews.getByText("Founder – UrbanNest Home")).toBeVisible();
+  await reviews.getByRole("button", { name: "Load more reviews" }).click();
+  await reviews.getByRole("button", { name: "Load more reviews" }).click();
+  await expect(reviews.locator("article")).toHaveCount(18);
+  await expect(reviews.getByText("Riya Desai")).toBeVisible();
   await page.getByTestId("collection-page-add-all-btn").click();
   await expect(page.getByTestId("bundle-upsell")).toHaveCount(0);
   await expect(page.getByTestId("razorpay-confirmed-total")).toHaveText("₹499");
   await expect(page.getByTestId("nav-bag-count")).toHaveText("4");
+});
+
+test("restaurant bundle shows its October sales and the Diwali banner links to both bundles", async ({ page }) => {
+  await page.goto("/restaurant-business-collection");
+  await expect(page.getByTestId("collection-price-panel")).toContainText("300+ bundles sold in October 2026");
+  await expect(page.getByTestId("rating-summary")).toContainText("Original collection");
+  const banner = page.getByTestId("announcement-collection-link");
+  await expect(banner).toContainText("Special Diwali offer");
+  await expect(banner).toContainText("Each bundle ₹499");
+  await expect(banner).toContainText("Instant PDF download after payment");
+  await expect(banner).toHaveAttribute("href", "/books#bundles");
 });
 test("mixed cart upgrade completes only the online series and keeps restaurant book", async ({ page, context }) => {
   const initial = [restaurant[0], ...online.slice(0, 3)];

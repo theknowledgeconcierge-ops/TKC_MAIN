@@ -42,6 +42,13 @@ builds the website automatically; no replacement deployment service is needed.
 
 ## Pricing and delivery
 
+For an ad that should open the bag with the five restaurant books already added,
+use `https://pixelnpalm.com/restaurant-business-collection?bag=1` as its destination.
+The canonical series links also support `?bag=1`; the online-series link adds its
+four books instead. Existing bag contents are retained and deduplicated. The
+one-time `bag` parameter is consumed after opening, while UTM, `fbclid` and other
+attribution parameters are preserved. Normal collection visits are unchanged.
+
 Partial series cost ₹199 per selected book. A complete restaurant series costs
 ₹499 for five books; a complete online series costs ₹499 for four books. Each
 series is calculated independently, including in mixed orders. Adding a bundle
@@ -62,10 +69,13 @@ in use. There was no ZIP delivery mechanism to extend.
 ## Verification limits
 
 Local payment tests use mocked Razorpay and repository/provider fixtures. They do
-not confirm live provider credentials, production SQL installation or production
-PDF presence. Those require the dashboard/storage steps above. Browser automation
-was stopped because it could not reliably identify the current Chrome URL; no
-production database, storage or deployment changes were made in that session.
+not confirm live provider credentials or email sending. On 2026-10-26 the existing
+TKC production dashboard was used to apply the multi-series SQL update and verify
+the four new PDFs after the user uploaded them. Their filenames were corrected to
+the paths above. Read-only checks confirmed all four PDF sizes/type, nine stored
+files, private bucket access, the expanded book IDs and nine-item order capacity.
+Netlify email-provider configuration and live delivery remain separate checks;
+no real payment was made during this follow-up.
 
 The installed Next.js build emitted a security upgrade recommendation. Review that
 framework update separately from this catalog release; it is not included here.

@@ -1,9 +1,11 @@
 import { suppliedReaderReviews } from "./review-data";
+import { onlineBundleReviews } from "./online-bundle-reviews";
 
 export interface BookReview {
   id: string;
   productId: string;
   name?: string;
+  attribution?: string;
   rating: number;
   text: string;
   date?: string;
@@ -12,7 +14,7 @@ export interface BookReview {
 }
 
 // The owner confirmed the newly supplied Book reviews.pdf contains real feedback.
-export const readerReviews: readonly BookReview[] = suppliedReaderReviews;
+export const readerReviews: readonly BookReview[] = [...suppliedReaderReviews, ...onlineBundleReviews];
 
 export const reviewContext = (productId: string) => productId === "complete-collection"
   ? "Feedback on the original four-book collection. The current bundle also includes Empty Tables to Full House."

@@ -21,14 +21,14 @@ export function RatingSummary({ productId }: { productId: string }) {
   </a>;
 }
 
-export default function BookReviews({ productId }: { productId: string }) {
+export default function BookReviews({ productId, heading = "Customer reviews" }: { productId: string; heading?: string }) {
   const reviews = publishedReviews(productId);
   const stats = reviewStats(reviews);
   const [visible, setVisible] = useState(6);
   return <section id="reader-reviews" className="scroll-mt-28 border-y border-[#ddd5c9] bg-[#f5f0e6]" data-testid="book-reviews">
     <div className="mx-auto max-w-6xl px-4 py-14 sm:px-6 sm:py-20">
       <p className="overline">Reader feedback</p>
-      <h2 className="mt-3 font-serif text-3xl sm:text-4xl">Customer reviews</h2>
+      <h2 className="mt-3 font-serif text-3xl sm:text-4xl">{heading}</h2>
       {reviewContext(productId) && <p className="mt-3 max-w-2xl text-sm leading-6 text-[#6e655e]">{reviewContext(productId)}</p>}
       {stats.average === null ? <div className="mt-7 max-w-2xl border border-[#ddd5c9] bg-[#fbf9f5] p-6">
         <p className="font-serif text-xl">No reader reviews yet.</p>
@@ -41,6 +41,7 @@ export default function BookReviews({ productId }: { productId: string }) {
         </div>
         <div className="mt-8 grid gap-4 md:grid-cols-2">{reviews.slice(0, visible).map((review) => <article key={review.id} className="border border-[#ddd5c9] bg-[#fbf9f5] p-6">
           <div className="flex flex-wrap items-center justify-between gap-3"><h3 className="font-medium">{review.name || "Anonymous reader"}</h3><StarRating value={review.rating} /></div>
+          {review.attribution && <p className="mt-1 text-xs text-[#6e655e]">{review.attribution}</p>}
           {review.date && <time dateTime={review.date} className="mt-2 block text-xs text-[#6e655e]">{review.date}</time>}
           <p className="mt-4 whitespace-pre-line text-sm leading-7 text-[#6e655e]">{review.text}</p>
         </article>)}</div>

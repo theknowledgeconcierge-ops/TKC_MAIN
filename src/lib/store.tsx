@@ -78,6 +78,7 @@ export function summaryFor(ids: string[]): BagSummary {
   };
 }
 interface Cart {
+  hydrated: boolean;
   selectedIds: string[];
   summary: BagSummary;
   persistenceError: string;
@@ -164,8 +165,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     wasCheckoutOpen.current = checkoutOpen;
   }, [checkoutOpen, selectedIds]);
   const cart = useMemo<Cart>(
-    () => ({ selectedIds, summary: summaryFor(selectedIds), persistenceError }),
-    [selectedIds, persistenceError],
+    () => ({ hydrated, selectedIds, summary: summaryFor(selectedIds), persistenceError }),
+    [hydrated, selectedIds, persistenceError],
   );
   const actions = useMemo<CartActions>(
     () => ({
