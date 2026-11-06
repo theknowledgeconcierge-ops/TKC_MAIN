@@ -54,6 +54,18 @@ test("restaurant bundle shows its October sales and the Diwali banner links to b
   await expect(banner).toContainText("Instant PDF download after payment");
   await expect(banner).toHaveAttribute("href", "/books#bundles");
 });
+
+test("both bundles show their price and buy button before scrolling", async ({ page }, info) => {
+  const viewport = info.project.name === "mobile" ? { width: 320, height: 568 } : { width: 1366, height: 768 };
+  await page.setViewportSize(viewport);
+  for (const path of ["/series/start-selling-online", "/restaurant-business-collection"]) {
+    await page.goto(path);
+    const price = page.getByTestId("collection-current-price");
+    await expect(price).toHaveText("₹499");
+    await expect(price).toBeInViewport({ ratio: 1 });
+    await expect(page.getByTestId("collection-page-add-all-btn")).toBeInViewport({ ratio: 1 });
+  }
+});
 test("mixed cart upgrade completes only the online series and keeps restaurant book", async ({ page, context }) => {
   const initial = [restaurant[0], ...online.slice(0, 3)];
   await context.addInitScript(ids => localStorage.setItem("knowledge_concierge_bag_v1", JSON.stringify(ids)), initial);

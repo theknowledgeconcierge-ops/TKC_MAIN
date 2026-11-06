@@ -55,7 +55,7 @@ test("all routes, five covers, responsive layout and product contents", async ({
     page.getByTestId("collection-page-covers").locator("a"),
   ).toHaveCount(5);
   await expect(page.getByTestId("collection-page-heading")).toContainText(
-    "Five perspectives",
+    "The Restaurant Playbook Bundle",
   );
   await expect(page.getByTestId("collection-page")).toContainText("₹995");
   await expect(page.getByTestId("collection-page")).toContainText("₹499");
